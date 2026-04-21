@@ -1,0 +1,60 @@
+package io.github.brenomega.authkit.infrastructure.queue;
+
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+/**
+ * RabbitMQ broker configuration.
+ *
+ * <p>Configures the JSON message converter and defines the topology (Exchange,
+ * Queue, and Binding) for asynchronous email notifications.</p>
+ */
+@Configuration
+public class RabbitMqConfig {
+
+    public static final String EXCHANGE_API = "authkit.api.exchange";
+    public static final String QUEUE_EMAIL  = "authkit.email.queue";
+    public static final String ROUTING_KEY_EMAIL = "email.send";
+
+    /**
+     * Replaces the default Java serialization with JSON.
+     *
+     * @param objectMapper the global Jackson mapper (reuse strict duplicate settings)
+     * @return the JSON AMQP converter
+     */
+    @Bean
+    public Jackson2JsonMessageConverter messageConverter(ObjectMapper objectMapper) {
+        return new Jackson2JsonMessageConverter(objectMapper);
+    }
+
+    /**
+     * Declares the main Topic Exchange for the application.
+     */
+    @Bean
+    public TopicExchange apiExchange() {
+        return new TopicExchange(EXCHANGE_API);
+    }
+
+    /**
+     * Declares the durable queue for email notifications.
+     */
+    @Bean
+    public Queue emailQueue() {
+        return new Queue(QUEUE_EMAIL, true);
+    }
+
+    /**
+     * Binds the email queue to the API exchange using the designated routing key.
+     */
+    @Bean
+    public Binding emailBinding(Queue emailQueue, TopicExchange apiExchange) {
+        return BindingBuilder.bind(emailQueue).to(apiExchange).with(ROUTING_KEY_EMAIL);
+    }
+}
