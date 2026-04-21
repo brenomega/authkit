@@ -43,7 +43,7 @@ class RegistrationServiceTest {
     @DisplayName("Registers user successfully, hashes password, generates tenantId and queues email")
     void registerUser_success() {
         RegisterRequest request = new RegisterRequest(
-                "new@example.com", "Password123!", "Alice", null, true, true);
+                "new@example.com", "Password123!", true, true);
 
         when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
         when(passwordEncoder.encode("Password123!")).thenReturn("hashedPwd");
@@ -65,7 +65,7 @@ class RegistrationServiceTest {
     @DisplayName("Fails registration if email is already in use")
     void registerUser_conflict() {
         RegisterRequest request = new RegisterRequest(
-                "existing@example.com", "Password123!", "Alice", null, true, true);
+                "existing@example.com", "Password123!", true, true);
 
         User existingUser = new User("existing@example.com", "pw", null, null, true, true, null);
         when(userRepository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));

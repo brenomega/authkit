@@ -40,8 +40,6 @@ public class AuthIntegrationTest {
         RegisterRequest registerRequest = new RegisterRequest(
                 "logintarget@example.com",
                 "SuperPassword123!",
-                "Valid User",
-                null,
                 true,
                 true
         );

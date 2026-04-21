@@ -13,14 +13,12 @@ import jakarta.validation.constraints.Size;
  *
  * <p><strong>Mass Assignment Protection:</strong> Only fields defined here
  * accept incoming JSON data. Any extra fields (e.g., trying to inject "role")
- * will either be ignored or cause a 400 Bad Request due to strict duplicate
+ * will be ignored or cause a 400 Bad Request due to strict duplicate
  * and unknown properties detection built into Jackson (DT 3.1.30).</p>
  */
 public record RegisterRequest(
         @NotBlank @Email @Size(max = 255) String email,
         @NotBlank @Size(min = 12, max = 128) String password,
-        @Size(max = 100) String name,
-        @Size(max = 20) String phone,
         @AssertTrue(message = "Terms of Use must be accepted") boolean termsAccepted,
         @AssertTrue(message = "Privacy Policy must be accepted") boolean privacyPolicyAccepted
 ) {

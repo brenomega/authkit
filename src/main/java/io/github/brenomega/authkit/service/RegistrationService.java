@@ -49,8 +49,8 @@ public class RegistrationService {
         User user = new User(
                 request.email(),
                 hashedPassword,
-                request.name(),
-                request.phone(),
+                null,
+                null,
                 request.termsAccepted(),
                 request.privacyPolicyAccepted(),
                 confirmationToken
