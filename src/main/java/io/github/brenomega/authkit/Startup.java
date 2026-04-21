@@ -13,7 +13,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <p>The application is designed to run as a stateless, containerized
  * service behind a reverse proxy (DT 3.1.17, DT 3.2.5).</p>
  *
- * @author Breno Mega
+ * @author Breno Alvarenga
  * @see org.springframework.boot.autoconfigure.SpringBootApplication
  */
 @SpringBootApplication
