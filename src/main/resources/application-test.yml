@@ -1,0 +1,68 @@
+# =============================================================================
+# AuthKit — Test Profile Configuration (DT 3.1.24, DT 3.1.27)
+# Uses H2 in-memory database and disables all external dependencies.
+# Activated via @ActiveProfiles("test")
+# =============================================================================
+
+spring:
+  # ---------------------------------------------------------------------------
+  # H2 In-Memory Database (DT 3.1.24)
+  # ---------------------------------------------------------------------------
+  datasource:
+    url: jdbc:h2:mem:authkit-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  # ---------------------------------------------------------------------------
+  # JPA — Auto-create schema for tests (no Flyway)
+  # ---------------------------------------------------------------------------
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # ---------------------------------------------------------------------------
+  # Flyway — Disabled for test profile (H2 uses ddl-auto)
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: false
+
+  # ---------------------------------------------------------------------------
+  # Redis — Disabled for test profile
+  # ---------------------------------------------------------------------------
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Disabled for test profile
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    host: localhost
+    port: 0
+
+  # ---------------------------------------------------------------------------
+  # Jackson — Same strict settings as production
+  # ---------------------------------------------------------------------------
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+    mapper:
+      accept-case-insensitive-properties: false
+    parser:
+      strict-duplicate-detection: true
+
+# =============================================================================
+# JWT — Test keys loaded from classpath (DT 3.2.2)
+# These are test-only keys, safe to commit. Production keys are env-injected.
+# =============================================================================
+jwt:
+  public:
+    key: classpath:test-keys/app.pub
+  private:
+    key: classpath:test-keys/app.key

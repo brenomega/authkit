@@ -1,0 +1,80 @@
+# =============================================================================
+# AuthKit — Default Application Configuration (Production Profile)
+# Sensitive values are injected via environment variables and NEVER committed.
+# Reference: DT 3.1.26 (Configuration), DT 3.1.27 (Profiles)
+# =============================================================================
+
+spring:
+  application:
+    name: authkit
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Datasource (DT 3.1.20)
+  # ---------------------------------------------------------------------------
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  # ---------------------------------------------------------------------------
+  # JPA / Hibernate (DT 3.1.20, DT 3.1.22)
+  # Schema is managed exclusively by Flyway — Hibernate must never auto-modify.
+  # ---------------------------------------------------------------------------
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # ---------------------------------------------------------------------------
+  # Flyway — Database schema migrations (DT 3.1.22)
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Redis — Token storage and rate limiting (DT 3.1.23)
+  # ---------------------------------------------------------------------------
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Asynchronous message broker (DT 3.1.15)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    host: ${RABBIT_HOST}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+
+  # ---------------------------------------------------------------------------
+  # Jackson — Strict duplicate detection (DT 3.1.30)
+  # ---------------------------------------------------------------------------
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+    mapper:
+      accept-case-insensitive-properties: false
+    parser:
+      strict-duplicate-detection: true
+
+# =============================================================================
+# JWT RSA Key Configuration (DT 3.2.2)
+# Keys are loaded from external files via environment variables.
+# =============================================================================
+jwt:
+  public:
+    key: ${JWT_PUBLIC_KEY}
+  private:
+    key: ${JWT_PRIVATE_KEY}
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+server:
+  port: 8080

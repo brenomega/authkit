@@ -1,0 +1,55 @@
+# ==============================================================================
+# AuthKit .gitignore — Reinforced for security (DT 3.2.2, DT 3.1.26)
+# ==============================================================================
+
+### Build artifacts ###
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### RSA Keys — NEVER commit (DT 3.2.2) ###
+*.key
+*.pub
+*.pem
+
+### Environment and secrets ###
+.env
+*.env.*
+application-local.yml
+application-local.properties
+
+### IDE — IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### IDE — VS Code ###
+.vscode/
+
+### IDE — Eclipse / STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+
+### IDE — NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Logs ###
+*.log
+logs/

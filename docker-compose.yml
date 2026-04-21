@@ -1,0 +1,112 @@
+# =============================================================================
+# AuthKit — Docker Compose Orchestration
+# Services: PostgreSQL, Redis, RabbitMQ, pgAdmin, Backend
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — Main relational database (DT 3.1.20)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: authkit-postgres
+    environment:
+      POSTGRES_DB: authkit
+      POSTGRES_USER: authkit
+      POSTGRES_PASSWORD: authkit_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authkit -d authkit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis — Token storage and rate limiting cache (DT 3.1.23)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: authkit-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Asynchronous message broker (DT 3.1.15)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: authkit-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: authkit
+      RABBITMQ_DEFAULT_PASS: authkit_secret
+    ports:
+      - "5672:5672"    # AMQP protocol
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # pgAdmin — Database management UI
+  # ---------------------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: authkit-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@authkit.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Backend — Stateless Spring Boot application (DT 3.1.17, DT 3.2.5)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: authkit-backend
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/authkit
+      DB_USERNAME: authkit
+      DB_PASSWORD: authkit_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      RABBIT_USERNAME: authkit
+      RABBIT_PASSWORD: authkit_secret
+      JWT_PRIVATE_KEY: file:/app/keys/app.key
+      JWT_PUBLIC_KEY: file:/app/keys/app.pub
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:
