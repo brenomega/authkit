@@ -58,13 +58,40 @@ public class User {
     @Column(name = "password", nullable = false)
     private String password;
 
-    /**
-     * Authorization role persisted as a string (DT 3.2.9).
-     */
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false, length = 50)
     private Role role = Role.USER;
+
+    /**
+     * Multi-tenancy isolation identifier.
+     */
+    @Column(name = "tenant_id", length = 36, nullable = false, unique = true, updatable = false)
+    private String tenantId;
+
+    /** Optional display name. */
+    @Column(name = "name", length = 100)
+    private String name;
+
+    /** Optional contact phone number. */
+    @Column(name = "phone", length = 20)
+    private String phone;
+
+    /** Proof of acceptance of Terms of Use. */
+    @Column(name = "terms_accepted", nullable = false)
+    private boolean termsAccepted;
+
+    /** Proof of acceptance of Privacy Policy. */
+    @Column(name = "privacy_policy_accepted", nullable = false)
+    private boolean privacyPolicyAccepted;
+
+    /** Restricts full write capabilities until verified. */
+    @Column(name = "email_confirmed", nullable = false)
+    private boolean emailConfirmed;
+
+    /** Generated token sent asymptotically via RabbitMQ / Resend. */
+    @Column(name = "email_confirmation_token", length = 100)
+    private String emailConfirmationToken;
 
     // -------------------------------------------------------------------------
     // Constructors
@@ -77,15 +104,23 @@ public class User {
     }
 
     /**
-     * Creates a new user with the minimum required fields.
-     *
-     * @param email    the user's email address
-     * @param password the hashed password (never plaintext)
+     * Creates a new user mapping explicitly from registration coordinates.
+     * Generates a universally unique tenant identifier tied to the user upon creation.
      */
-    public User(String email, String password) {
+    public User(String email, String password, String name, String phone,
+                boolean termsAccepted, boolean privacyPolicyAccepted,
+                String emailConfirmationToken) {
         this.email = email;
         this.password = password;
+        this.name = name;
+        this.phone = phone;
+        this.termsAccepted = termsAccepted;
+        this.privacyPolicyAccepted = privacyPolicyAccepted;
+        this.emailConfirmationToken = emailConfirmationToken;
+
         this.role = Role.USER;
+        this.tenantId = java.util.UUID.randomUUID().toString();
+        this.emailConfirmed = false;
     }
 
     // -------------------------------------------------------------------------
@@ -132,6 +167,18 @@ public class User {
     public void setRole(Role role) {
         this.role = role;
     }
+
+    public String getTenantId() { return tenantId; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+    public boolean isTermsAccepted() { return termsAccepted; }
+    public boolean isPrivacyPolicyAccepted() { return privacyPolicyAccepted; }
+    public boolean isEmailConfirmed() { return emailConfirmed; }
+    public void setEmailConfirmed(boolean emailConfirmed) { this.emailConfirmed = emailConfirmed; }
+    public String getEmailConfirmationToken() { return emailConfirmationToken; }
+    public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
 
     // -------------------------------------------------------------------------
     // PII-safe toString (DT 3.4.9)

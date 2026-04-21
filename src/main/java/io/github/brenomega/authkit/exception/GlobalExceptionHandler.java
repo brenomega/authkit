@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.response.FieldError;
@@ -53,6 +54,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.validationError(fieldErrors));
+    }
+
+    /**
+     * Handles Jackson parse errors (e.g. strict duplicate keys, unknown properties).
+     *
+     * <p>Prevents Mass Assignment by failing the request cleanly (HTTP 400).</p>
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Malformed JSON request: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("Malformed JSON request or unknown properties provided"));
     }
 
     /**

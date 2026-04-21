@@ -57,10 +57,12 @@ class SecurityIntegrationTest {
     @Test
     @DisplayName("POST to register endpoint without token is permitted (permitAll)")
     void postToRegister_isPermitted() throws Exception {
+        // The endpoint is mapped and will fail @Valid validation (400),
+        // proving the security layer allows the request through.
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType("application/json")
                         .content("{}"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isBadRequest());
     }
 
     // -------------------------------------------------------------------------

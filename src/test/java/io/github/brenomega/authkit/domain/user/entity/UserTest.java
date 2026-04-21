@@ -19,7 +19,7 @@ class UserTest {
     @Test
     @DisplayName("toString() must NOT contain the password hash")
     void toStringExcludesPassword() {
-        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH);
+        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH, null, null, true, true, null);
 
         String result = user.toString();
 
@@ -32,7 +32,7 @@ class UserTest {
     @Test
     @DisplayName("toString() must mask the email address")
     void toStringMasksEmail() {
-        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH);
+        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH, null, null, true, true, null);
 
         String result = user.toString();
 
@@ -45,7 +45,7 @@ class UserTest {
     @Test
     @DisplayName("toString() must include the user id and role")
     void toStringIncludesIdAndRole() {
-        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH);
+        User user = new User(TEST_EMAIL, TEST_PASSWORD_HASH, null, null, true, true, null);
 
         String result = user.toString();
 
@@ -56,7 +56,7 @@ class UserTest {
     @Test
     @DisplayName("toString() handles null email gracefully")
     void toStringHandlesNullEmail() {
-        User user = new User(null, TEST_PASSWORD_HASH);
+        User user = new User(null, TEST_PASSWORD_HASH, null, null, true, true, null);
 
         String result = user.toString();
 
