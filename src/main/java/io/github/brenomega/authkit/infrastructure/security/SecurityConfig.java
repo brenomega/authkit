@@ -14,8 +14,12 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.session.DisableEncodeUrlFilter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.github.brenomega.authkit.infrastructure.network.CloudflareFirewallFilter;
+import io.github.brenomega.authkit.infrastructure.network.RateLimitingFilter;
 
 import io.github.brenomega.authkit.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,14 +44,27 @@ public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
+    private final CloudflareFirewallFilter cloudflareFirewallFilter;
+    private final RateLimitingFilter rateLimitingFilter;
+    private final WorkerAuthFilter workerAuthFilter;
 
     /**
      * @param objectMapper Jackson mapper for serializing error responses
      * @param userAuthoritiesFilter Dynamic authority enforcement filter
+     * @param cloudflareFirewallFilter Origin TCP blocking bound wrapper
+     * @param rateLimitingFilter Volumetric capacity restriction block
      */
-    public SecurityConfig(ObjectMapper objectMapper, UserAuthoritiesFilter userAuthoritiesFilter) {
+    public SecurityConfig(
+            ObjectMapper objectMapper, 
+            UserAuthoritiesFilter userAuthoritiesFilter,
+            CloudflareFirewallFilter cloudflareFirewallFilter,
+            RateLimitingFilter rateLimitingFilter,
+            WorkerAuthFilter workerAuthFilter) {
         this.objectMapper = objectMapper;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
+        this.cloudflareFirewallFilter = cloudflareFirewallFilter;
+        this.rateLimitingFilter = rateLimitingFilter;
+        this.workerAuthFilter = workerAuthFilter;
     }
 
     /**
@@ -87,8 +104,17 @@ public class SecurityConfig {
                 .accessDeniedHandler(this::handleAccessDenied)
             )
 
+            // DT 3.2.19 — Firewall dropping untrusted direct origins
+            .addFilterBefore(cloudflareFirewallFilter, DisableEncodeUrlFilter.class)
+
+            // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
+            .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)
+
+            // DT 3.2.11 — Worker Auth injection immediately after standard extraction
+            .addFilterAfter(workerAuthFilter, BearerTokenAuthenticationFilter.class)
+
             // DT 3.2.10 — Immediate Permission Revocation via active snapshot alignment
-            .addFilterAfter(userAuthoritiesFilter, BearerTokenAuthenticationFilter.class);
+            .addFilterAfter(userAuthoritiesFilter, WorkerAuthFilter.class);
 
         return http.build();
     }

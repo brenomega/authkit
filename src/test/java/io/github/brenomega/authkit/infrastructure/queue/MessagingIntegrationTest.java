@@ -35,7 +35,7 @@ class MessagingIntegrationTest {
         // Therefore, we shouldn't attempt to send real messages here without Mockito
         // or a Testcontainers instance. This test validates our bean structure.
         assertDoesNotThrow(() -> {
-            boolean isPresent = emailPublisher != null;
+            org.junit.jupiter.api.Assertions.assertNotNull(emailPublisher);
         }, "Should evaluate publisher safely");
     }
 }

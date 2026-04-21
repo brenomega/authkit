@@ -13,6 +13,9 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 
 /**
  * Core identity entity representing a registered user (DT 3.1.2).
@@ -33,6 +36,8 @@ import jakarta.validation.constraints.NotNull;
  */
 @Entity
 @Table(name = "users")
+@FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = String.class)})
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class User {
 
     /**
