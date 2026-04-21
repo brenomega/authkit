@@ -10,10 +10,13 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### RSA Keys — NEVER commit (DT 3.2.2) ###
+### RSA Keys — NEVER commit production keys (DT 3.2.2) ###
 *.key
 *.pub
 *.pem
+# Exception: test-only keys used by @ActiveProfiles("test") are safe to commit
+!src/main/resources/test-keys/*.key
+!src/main/resources/test-keys/*.pub
 
 ### Environment and secrets ###
 .env
