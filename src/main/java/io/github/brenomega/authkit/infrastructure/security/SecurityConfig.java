@@ -12,6 +12,7 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,12 +39,15 @@ import jakarta.servlet.http.HttpServletResponse;
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
+    private final UserAuthoritiesFilter userAuthoritiesFilter;
 
     /**
      * @param objectMapper Jackson mapper for serializing error responses
+     * @param userAuthoritiesFilter Dynamic authority enforcement filter
      */
-    public SecurityConfig(ObjectMapper objectMapper) {
+    public SecurityConfig(ObjectMapper objectMapper, UserAuthoritiesFilter userAuthoritiesFilter) {
         this.objectMapper = objectMapper;
+        this.userAuthoritiesFilter = userAuthoritiesFilter;
     }
 
     /**
@@ -81,7 +85,10 @@ public class SecurityConfig {
                 .jwt(jwt -> {})
                 .authenticationEntryPoint(this::handleAuthenticationError)
                 .accessDeniedHandler(this::handleAccessDenied)
-            );
+            )
+
+            // DT 3.2.10 — Immediate Permission Revocation via active snapshot alignment
+            .addFilterAfter(userAuthoritiesFilter, BearerTokenAuthenticationFilter.class);
 
         return http.build();
     }

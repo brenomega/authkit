@@ -7,6 +7,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import java.security.interfaces.RSAPrivateKey;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
 
 /**
  * JWT configuration that loads RSA keys and provides the decoder bean (DT 3.2.2).
@@ -20,12 +28,17 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 public class JwtConfig {
 
     private final RSAPublicKey publicKey;
+    private final RSAPrivateKey privateKey;
 
     /**
      * @param publicKey the RSA public key loaded by Spring's resource resolver
+     * @param privateKey the RSA private key loaded by Spring's resource resolver
      */
-    public JwtConfig(@Value("${jwt.public.key}") RSAPublicKey publicKey) {
+    public JwtConfig(
+            @Value("${jwt.public.key}") RSAPublicKey publicKey,
+            @Value("${jwt.private.key}") RSAPrivateKey privateKey) {
         this.publicKey = publicKey;
+        this.privateKey = privateKey;
     }
 
     /**
@@ -39,5 +52,19 @@ public class JwtConfig {
     @Bean
     public JwtDecoder jwtDecoder() {
         return NimbusJwtDecoder.withPublicKey(publicKey).build();
+    }
+
+    /**
+     * Creates a {@link JwtEncoder} using both the Public and Private keys.
+     *
+     * <p>Used to actively issue Access Tokens with all encapsulated boundaries.</p>
+     *
+     * @return a Nimbus-backed JWT encoder
+     */
+    @Bean
+    public JwtEncoder jwtEncoder() {
+        RSAKey rsaKey = new RSAKey.Builder(publicKey).privateKey(privateKey).build();
+        JWKSource<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(rsaKey));
+        return new NimbusJwtEncoder(jwkSource);
     }
 }
