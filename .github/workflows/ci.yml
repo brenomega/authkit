@@ -21,6 +21,10 @@ on:
     branches:
       - main
 
+# Environment: Force Node.js 24 runtime to avoid Node.js 20 deprecation.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Build & Test
