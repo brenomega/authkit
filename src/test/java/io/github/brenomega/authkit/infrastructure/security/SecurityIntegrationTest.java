@@ -46,12 +46,12 @@ class SecurityIntegrationTest {
     @Test
     @DisplayName("POST to login endpoint without token is permitted (permitAll)")
     void postToLogin_isPermitted() throws Exception {
-        // The endpoint doesn't exist yet, so we get 404 (not 401),
+        // The endpoint exists now and validates the payload, giving 400 Bad Request,
         // proving the security layer allows the request through.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content("{}"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
