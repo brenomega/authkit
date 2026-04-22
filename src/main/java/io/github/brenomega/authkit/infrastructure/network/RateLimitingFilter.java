@@ -14,12 +14,14 @@ import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
+import org.springframework.lang.NonNull;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.context.annotation.Lazy;
 import io.lettuce.core.RedisClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.aop.framework.Advised;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -39,34 +41,21 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     private final Cache<String, Bucket> localBuckets;
     
     // DT 3.2.21 - Global Redis map backing consistency across horizontal load-balancers
-    private ProxyManager<byte[]> proxyManager;
+    private volatile ProxyManager<byte[]> proxyManager;
+
+    private final RedisConnectionFactory redisConnectionFactory;
 
     public RateLimitingFilter(NetworkIPResolver ipResolver, @Lazy RedisConnectionFactory redisConnectionFactory) {
         this.ipResolver = ipResolver;
+        this.redisConnectionFactory = redisConnectionFactory;
         this.localBuckets = Caffeine.newBuilder()
                 .maximumSize(100_000)
                 .expireAfterAccess(Duration.ofHours(1))
                 .build();
-                
-        try {
-            // Unpack native Lettuce client from Spring Data Factory safely
-            if (redisConnectionFactory instanceof LettuceConnectionFactory lettuceConnectionFactory) {
-                Object nativeClient = lettuceConnectionFactory.getNativeClient();
-                if (nativeClient instanceof RedisClient redisClient) {
-                    this.proxyManager = LettuceBasedProxyManager.builderFor(redisClient).build();
-                } else {
-                    log.warn("Failed to extract native RedisClient. Hybrid distributed rate-limit proxy uninitialized.");
-                }
-            } else {
-                log.warn("RedisConnectionFactory is not LettuceConnectionFactory. ProxyManager uninitialized.");
-            }
-        } catch (Exception e) {
-            log.error("Error initializing LettuceBasedProxyManager: {}", e.getMessage());
-        }
     }
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
             throws ServletException, IOException {
 
         // Resolve priority IP natively matching the proxy layout (DT 3.2.17)
@@ -115,13 +104,38 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return Bucket.builder().addLimit(limit).build();
     }
 
+    /**
+     * Attempts to initialize the ProxyManager thread-safely using Double-Checked Locking (DT 3.2.21, DT 3.1.23).
+     */
     private void initializeProxyManagerGracefully() {
-        try {
-            // Unpack native Lettuce client from Spring proxy safely
-            // Note: Since connection factory is a Spring Proxy, we need to locate the connection securely
-            // But for tests and stateless checks, if proxyManager remains null it safely falls back.
-        } catch (Exception e) {
-            log.error("Internal lazy init ignored.", e);
+        if (proxyManager == null) {
+            synchronized (this) {
+                if (proxyManager == null) {
+                    try {
+                        log.info("Attempting to initialize LettuceBasedProxyManager (Self-Healing)...");
+                        
+                        Object targetFactory = redisConnectionFactory;
+                        if (targetFactory instanceof Advised advised) {
+                            targetFactory = advised.getTargetSource().getTarget();
+                        }
+
+                        if (targetFactory instanceof LettuceConnectionFactory lettuceConnectionFactory) {
+                            Object nativeClient = lettuceConnectionFactory.getNativeClient();
+                            if (nativeClient instanceof RedisClient redisClient) {
+                                this.proxyManager = LettuceBasedProxyManager.builderFor(redisClient).build();
+                                log.info("Successfully initialized LettuceBasedProxyManager.");
+                            } else {
+                                log.error("Initialization failed: native client is not a RedisClient instance.");
+                            }
+                        } else {
+                            log.error("Initialization failed: RedisConnectionFactory is not an instance of LettuceConnectionFactory.");
+                        }
+                    } catch (Exception e) {
+                        // Maintain proxyManager as null to allow clean fail-open to Caffeine (DT 3.2.21).
+                        log.error("Resilient initialization attempt failed. System will fail-open to local cache. Error: {}", e.getMessage());
+                    }
+                }
+            }
         }
     }
 }

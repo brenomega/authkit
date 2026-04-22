@@ -11,6 +11,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
@@ -78,7 +80,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             // DT 3.2.6 — CSRF disabled for stateless Bearer Token API
-            .csrf(csrf -> csrf.disable())
+            .csrf(AbstractHttpConfigurer::disable)
 
             // DT 3.2.5 — No HTTP sessions
             .sessionManagement(session ->
@@ -87,7 +89,7 @@ public class SecurityConfig {
             // DT 3.2.14 — Security headers
             .headers(headers -> headers
                 .contentTypeOptions(cto -> {})          // X-Content-Type-Options: nosniff
-                .frameOptions(fo -> fo.deny())          // X-Frame-Options: DENY
+                .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)          // X-Frame-Options: DENY
             )
 
             // DT 3.2.8 — Authorization rules

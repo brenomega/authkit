@@ -80,7 +80,7 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(InvalidCredentialsException::new);
                 
-        boolean passwordMatches = false;
+        boolean passwordMatches;
         try {
             // Apply Semaphore logic dropping processing unconditionally when congested (DT 3.2.15)
             if (!argon2Semaphore.tryAcquire()) {
