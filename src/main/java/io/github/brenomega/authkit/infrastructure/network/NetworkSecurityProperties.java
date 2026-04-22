@@ -2,6 +2,8 @@ package io.github.brenomega.authkit.infrastructure.network;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
@@ -43,7 +45,12 @@ public class NetworkSecurityProperties {
             "0:0:0:0:0:0:0:1/128"
     );
 
+    private final Environment environment;
     private List<String> ranges = new ArrayList<>();
+
+    public NetworkSecurityProperties(Environment environment) {
+        this.environment = environment;
+    }
 
     public List<String> getRanges() {
         return ranges;
@@ -55,11 +62,23 @@ public class NetworkSecurityProperties {
 
     /**
      * Returns the configured ranges or the fallback list if empty (DT 3.2.19 safety).
+     *
+     * <p>Strictly excludes loopback addresses in the 'prod' profile to prevent local spoofing
+     * unless explicitly configured in application.yml.</p>
      */
     public List<String> getEffectiveRanges() {
-        if (ranges == null || ranges.isEmpty()) {
-            return CLOUDFLARE_FALLBACK_RANGES;
+        List<String> source = (ranges == null || ranges.isEmpty()) ? CLOUDFLARE_FALLBACK_RANGES : ranges;
+
+        if (environment.acceptsProfiles(Profiles.of("prod"))) {
+            return source.stream()
+                    .filter(range -> !isLoopback(range))
+                    .toList();
         }
-        return Collections.unmodifiableList(ranges);
+        
+        return Collections.unmodifiableList(source);
+    }
+
+    private boolean isLoopback(String range) {
+        return range.equals("127.0.0.1/32") || range.equals("0:0:0:0:0:0:0:1/128") || range.equals("::1/128");
     }
 }

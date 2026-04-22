@@ -22,6 +22,7 @@ import io.lettuce.core.RedisClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.Advised;
+import java.util.concurrent.atomic.AtomicLong;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -44,6 +45,10 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     private volatile ProxyManager<byte[]> proxyManager;
 
     private final RedisConnectionFactory redisConnectionFactory;
+    
+    // DT 3.4.1 - Log Throttling to prevent production log flooding during sustained Redis outages.
+    private final AtomicLong lastErrorLogTimestamp = new AtomicLong(0);
+    private static final long LOG_THROTTLE_MS = Duration.ofMinutes(5).toMillis();
 
     public RateLimitingFilter(NetworkIPResolver ipResolver, @Lazy RedisConnectionFactory redisConnectionFactory) {
         this.ipResolver = ipResolver;
@@ -106,13 +111,16 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
     /**
      * Attempts to initialize the ProxyManager thread-safely using Double-Checked Locking (DT 3.2.21, DT 3.1.23).
+     *
+     * <p>Implements log throttling (DT 3.4.1) to prevent overwhelming log aggregators during sustained Redis outages.
+     * ERROR/WARN logs are emitted at most once every 5 minutes; all other failures are demoted to DEBUG.</p>
      */
     private void initializeProxyManagerGracefully() {
         if (proxyManager == null) {
             synchronized (this) {
                 if (proxyManager == null) {
                     try {
-                        log.info("Attempting to initialize LettuceBasedProxyManager (Self-Healing)...");
+                        log.debug("Attempting to initialize LettuceBasedProxyManager (Self-Healing)...");
                         
                         Object targetFactory = redisConnectionFactory;
                         if (targetFactory instanceof Advised advised) {
@@ -125,17 +133,33 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                                 this.proxyManager = LettuceBasedProxyManager.builderFor(redisClient).build();
                                 log.info("Successfully initialized LettuceBasedProxyManager.");
                             } else {
-                                log.error("Initialization failed: native client is not a RedisClient instance.");
+                                logThrottledError("Initialization failed: native client is not a RedisClient instance.");
                             }
                         } else {
-                            log.error("Initialization failed: RedisConnectionFactory is not an instance of LettuceConnectionFactory.");
+                            logThrottledError("Initialization failed: RedisConnectionFactory is not an instance of LettuceConnectionFactory.");
                         }
                     } catch (Exception e) {
                         // Maintain proxyManager as null to allow clean fail-open to Caffeine (DT 3.2.21).
-                        log.error("Resilient initialization attempt failed. System will fail-open to local cache. Error: {}", e.getMessage());
+                        logThrottledError("Resilient initialization attempt failed. System will fail-open to local cache. Error: " + e.getMessage());
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Emits an ERROR log only if the throttle window has passed, otherwise demotes to DEBUG (DT 3.4.1).
+     */
+    private void logThrottledError(String message) {
+        long now = System.currentTimeMillis();
+        long lastLog = lastErrorLogTimestamp.get();
+        
+        if (now - lastLog > LOG_THROTTLE_MS) {
+            if (lastErrorLogTimestamp.compareAndSet(lastLog, now)) {
+                log.error(message);
+                return;
+            }
+        }
+        log.debug("[Throttled] {}", message);
     }
 }

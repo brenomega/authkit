@@ -1,0 +1,75 @@
+package io.github.brenomega.authkit.infrastructure.network;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import io.github.brenomega.authkit.util.RsaKeyGenerator;
+import java.security.KeyPair;
+
+/**
+ * Security boundary validation for the production profile (DT 3.2.19).
+ *
+ * <p>Ensures that loopback addresses are strictly forbidden when the 'prod'
+ * profile is active. Uses dynamic RSA key generation to comply with
+ * security standards (DT 3.2.3, DT 3.2.4).</p>
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles("prod")
+@org.springframework.test.context.TestPropertySource(properties = {
+    "spring.datasource.url=jdbc:h2:mem:prodtest;DB_CLOSE_DELAY=-1",
+    "spring.datasource.driver-class-name=org.h2.Driver",
+    "spring.datasource.username=sa",
+    "spring.datasource.password=",
+    "spring.flyway.enabled=false",
+    "spring.jpa.hibernate.ddl-auto=create-drop",
+    "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect"
+})
+public class ProductionFirewallTest {
+
+    @DynamicPropertySource
+    static void dynamicProperties(DynamicPropertyRegistry registry) {
+        KeyPair keyPair = RsaKeyGenerator.generateKeyPair();
+        registry.add("jwt.public.key", () -> RsaKeyGenerator.toPublicPem(keyPair.getPublic()));
+        registry.add("jwt.private.key", () -> RsaKeyGenerator.toPrivatePem(keyPair.getPrivate()));
+    }
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    @DisplayName("Security Hardening: Verify loopback addresses are forbidden in PROD profile (DT 3.2.19)")
+    void firewall_rejectsLoopbackInProduction() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        })
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Security Hardening: Verify IPv6 loopback is forbidden in PROD profile (DT 3.2.19)")
+    void firewall_rejectsIpv6LoopbackInProduction() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .with(request -> {
+                            request.setRemoteAddr("0:0:0:0:0:0:0:1");
+                            return request;
+                        })
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+}
