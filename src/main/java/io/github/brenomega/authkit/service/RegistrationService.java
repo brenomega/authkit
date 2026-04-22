@@ -12,6 +12,7 @@ import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
+import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 
 /**
  * Service handling the user registration and activation flow.
@@ -38,6 +39,7 @@ public class RegistrationService {
      * @return the saved entity
      */
     @Transactional
+    @LogExecutionTime
     public User registerUser(RegisterRequest request) {
         if (userRepository.findByEmail(request.email()).isPresent()) {
             throw new UserAlreadyExistsException("Email already in use");

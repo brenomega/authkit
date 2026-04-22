@@ -7,6 +7,7 @@ import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 
 @Service
 public class ProfileService {
@@ -26,6 +27,7 @@ public class ProfileService {
      * @return the updated user entity
      */
     @Transactional
+    @LogExecutionTime
     public User updateProfile(String targetUserId, ProfileUpdateRequest request, String authenticatedUserId) {
         // Enforce strict horizontal ID level authorization boundary to prevent insecure direct object reference (IDOR).
         // A generic 404 is thrown to halt enumeration attempts.

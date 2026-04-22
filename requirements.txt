@@ -20,8 +20,7 @@ Idempotência
 
 ●​ RF 2.1.2. Login: O sistema deve permitir que usuários registrados façam login
 usando seu e-mail e senha. Rate Limit: {5}
-●​ RF 2.1.3. Login Social (OAuth2): Permitir o acesso via Google ou conta Gov.br
-(em análise).
+●​ RF 2.1.3. Login Social (OAuth2): Permitir o acesso via OAuth2
 ●​ RF 2.1.4. Recuperação de Senha: O sistema deve permitir que o usuário solicite
 a recuperação de senha via e-mail.
 ●​ RF 2.1.5. Logout: O sistema deve fornecer uma funcionalidade segura de

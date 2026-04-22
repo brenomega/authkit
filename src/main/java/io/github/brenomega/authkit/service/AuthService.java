@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.concurrent.Semaphore;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
@@ -22,8 +25,12 @@ import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -58,12 +65,14 @@ public class AuthService {
     /**
      * Executes the secure identity negotiation lifecycle (RF 2.1.2).
      */
+    @LogExecutionTime
     public LoginResult login(LoginRequest request) {
         String email = request.email();
         Integer attempts = failedAttemptsCache.getIfPresent(email);
         
         // DT 3.2.15 & DT 3.2.23: Stealth Lockout returning fake Success properties hiding Enumeration limits
         if (attempts != null && attempts >= 5) {
+            log.warn("Stealth lockout active for email. Returning fake 200 OK token.");
             return new LoginResult(new LoginResponse("stealth-locked", 0), "stealth-locked");
         }
 
