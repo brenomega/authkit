@@ -1,0 +1,128 @@
+package io.github.brenomega.authkit.service;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.util.Optional;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.exception.InvalidTokenException;
+import io.github.brenomega.authkit.exception.UserNotFoundException;
+import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.service.dto.EmailPayload;
+import io.github.brenomega.authkit.service.spi.QueuePublisher;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
+
+/**
+ * Unit tests for PasswordRecoveryService (DT 3.4.5).
+ * Validates RF 2.1.3 and RF 2.1.4.
+ */
+class PasswordRecoveryServiceTest {
+
+    private UserRepository userRepository;
+    private TokenStorage tokenStorage;
+    private QueuePublisher<EmailPayload> emailPublisher;
+    private PasswordEncoder passwordEncoder;
+    private PasswordRecoveryService recoveryService;
+
+    @BeforeEach
+    @SuppressWarnings("unchecked")
+    void setUp() {
+        userRepository = mock(UserRepository.class);
+        tokenStorage = mock(TokenStorage.class);
+        emailPublisher = mock(QueuePublisher.class);
+        passwordEncoder = mock(PasswordEncoder.class);
+        recoveryService = new PasswordRecoveryService(userRepository, tokenStorage, emailPublisher, passwordEncoder);
+    }
+
+    /**
+     * RF 2.1.3 — Recovery Initiation: Confirms token generation and email dispatch for valid users.
+     */
+    @Test
+    @DisplayName("Request: Existing user triggers token and email")
+    void requestRecovery_ExistingUser_PublishesEmail() {
+        String email = "exists@example.com";
+        User user = mock(User.class);
+        when(user.getEmail()).thenReturn(email);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+
+        recoveryService.requestRecovery(email);
+
+        verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(15L));
+        verify(emailPublisher).publish(any(EmailPayload.class));
+    }
+
+    /**
+     * DT 3.2.15 — Stealth Initiation: Confirms no email or token for non-existing users (silent ignore).
+     */
+    @Test
+    @DisplayName("Request: Non-existing user is handled silently (Stealth)")
+    void requestRecovery_NonExistingUser_Silent() {
+        String email = "none@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        recoveryService.requestRecovery(email);
+
+        verify(tokenStorage, never()).storeRecoveryToken(any(), any(), any(Integer.class));
+        verify(emailPublisher, never()).publish(any());
+    }
+
+    /**
+     * RF 2.1.4 — Password Reset: Validates successful reset cycle.
+     */
+    @Test
+    @DisplayName("Reset: Valid token successfully changes password")
+    void resetPassword_ValidToken_Success() {
+        String email = "reset@example.com";
+        String token = "valid-token";
+        String newPass = "NewPass123!";
+        User user = mock(User.class);
+        when(user.getEmail()).thenReturn(email);
+
+        when(tokenStorage.validateRecoveryToken(email, token)).thenReturn(true);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordEncoder.encode(newPass)).thenReturn("hashed-new-pass");
+
+        recoveryService.resetPassword(email, token, newPass);
+
+        verify(userRepository).save(user);
+        verify(tokenStorage).revokeRecoveryToken(email);
+        verify(emailPublisher).publish(any()); // Reset confirmation
+    }
+
+    /**
+     * Edge Case: Invalid token should throw InvalidTokenException (HTTP 400).
+     */
+    @Test
+    @DisplayName("Reset: Invalid token throws exception")
+    void resetPassword_InvalidToken_ThrowsException() {
+        when(tokenStorage.validateRecoveryToken(any(), any())).thenReturn(false);
+
+        assertThrows(InvalidTokenException.class, () -> 
+            recoveryService.resetPassword("any@example.com", "bad", "new"));
+    }
+
+    /**
+     * Edge Case: Valid token but user deleted/missing should throw UserNotFoundException.
+     */
+    @Test
+    @DisplayName("Reset: Valid token but missing user throws exception")
+    void resetPassword_MissingUser_ThrowsException() {
+        String email = "gone@example.com";
+        when(tokenStorage.validateRecoveryToken(eq(email), any())).thenReturn(true);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        assertThrows(UserNotFoundException.class, () -> 
+            recoveryService.resetPassword(email, "token", "pass"));
+    }
+}

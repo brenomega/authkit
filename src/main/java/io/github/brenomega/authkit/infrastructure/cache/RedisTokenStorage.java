@@ -56,6 +56,37 @@ public class RedisTokenStorage implements TokenStorage {
         redisTemplate.delete(key);
     }
 
+    @Override
+    public void storeRecoveryToken(String email, String rawToken, long durationMinutes) {
+        // DT 3.2.4: Hashing tokens prior to storage
+        String hashedToken = hashToken(rawToken);
+        String key = "recovery:token:" + email;
+        redisTemplate.opsForValue().set(key, hashedToken, Duration.ofMinutes(durationMinutes));
+    }
+
+    @Override
+    public boolean validateRecoveryToken(String email, String rawToken) {
+        String key = "recovery:token:" + email;
+        String storedHash = redisTemplate.opsForValue().get(key);
+
+        if (storedHash == null) {
+            return false;
+        }
+
+        String inputHash = hashToken(rawToken);
+        // DT 3.2.13: Constant-time verification
+        return MessageDigest.isEqual(
+                storedHash.getBytes(StandardCharsets.UTF_8),
+                inputHash.getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    @Override
+    public void revokeRecoveryToken(String email) {
+        String key = "recovery:token:" + email;
+        redisTemplate.delete(key);
+    }
+
     private String hashToken(String rawToken) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
