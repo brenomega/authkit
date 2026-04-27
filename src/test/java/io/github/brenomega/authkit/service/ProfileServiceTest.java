@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.service;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,7 +54,7 @@ class ProfileServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(user));
 
         ProfileUpdateRequest request = new ProfileUpdateRequest("New Name", "999");
-        User updated = profileService.updateProfile(userId, request, userId);
+        profileService.updateProfile(userId, request, userId);
 
         verify(user).setName("New Name");
         verify(user).setPhone("999");

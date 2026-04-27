@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.infrastructure.network;
 
-import jakarta.annotation.PostConstruct;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
