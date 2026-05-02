@@ -9,14 +9,10 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.concurrent.Semaphore;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
@@ -26,7 +22,21 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
 
+/**
+ * Core authentication service handling the login lifecycle (RF 2.1.2).
+ *
+ * <p>Integrates with {@link AccountLockoutService} for progressive lockout
+ * enforcement (DT 3.2.23) and implements stealth responses (DT 3.2.15)
+ * to prevent account enumeration.</p>
+ *
+ * <p>Uses a {@link Semaphore} to limit concurrent Argon2id hash computations,
+ * protecting against thread exhaustion (DT 3.2.26).</p>
+ *
+ * @see AccountLockoutService
+ * @see TokenStorage
+ */
 @Service
 public class AuthService {
 
@@ -36,25 +46,22 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtEncoder jwtEncoder;
     private final TokenStorage tokenStorage;
+    private final AccountLockoutService lockoutService;
 
     // Concurrency Limit (N = cores * 1.5) to brutally protect against Thread Exhaustion
     private final Semaphore argon2Semaphore;
-    
-    // DT 3.2.23 Progressive Lockout state
-    private final Cache<String, Integer> failedAttemptsCache;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtEncoder jwtEncoder, TokenStorage tokenStorage) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
+                       JwtEncoder jwtEncoder, TokenStorage tokenStorage,
+                       AccountLockoutService lockoutService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtEncoder = jwtEncoder;
         this.tokenStorage = tokenStorage;
+        this.lockoutService = lockoutService;
         
         int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
         this.argon2Semaphore = new Semaphore(Math.max(2, permits)); 
-        this.failedAttemptsCache = Caffeine.newBuilder()
-                .maximumSize(10_000)
-                .expireAfterWrite(Duration.ofMinutes(15))
-                .build();
     }
 
     /**
@@ -64,14 +71,20 @@ public class AuthService {
 
     /**
      * Executes the secure identity negotiation lifecycle (RF 2.1.2).
+     *
+     * <p>Lockout flow (DT 3.2.23): After 5 failed attempts, the account is locked
+     * and all subsequent login attempts return a stealth 200 OK response (DT 3.2.15)
+     * to prevent enumeration.</p>
+     *
+     * @param request the login credentials
+     * @return a {@link LoginResult} containing the access and refresh tokens
      */
     @LogExecutionTime
     public LoginResult login(LoginRequest request) {
         String email = request.email();
-        Integer attempts = failedAttemptsCache.getIfPresent(email);
         
         // DT 3.2.15 & DT 3.2.23: Stealth Lockout returning fake Success properties hiding Enumeration limits
-        if (attempts != null && attempts >= 5) {
+        if (lockoutService.isLocked(email)) {
             log.warn("Stealth lockout active for email. Returning fake 200 OK token.");
             return new LoginResult(new LoginResponse("stealth-locked", 0), "stealth-locked");
         }
@@ -82,9 +95,9 @@ public class AuthService {
                 
         boolean passwordMatches;
         try {
-            // Apply Semaphore logic dropping processing unconditionally when congested (DT 3.2.15)
+            // Apply Semaphore logic dropping processing unconditionally when congested (DT 3.2.26)
             if (!argon2Semaphore.tryAcquire()) {
-                // If system is overwhelmed, fail early explicitly via Stealth response emulation logic (HTTP 200/401 generically)
+                // If system is overwhelmed, fail early explicitly via Stealth response emulation logic
                 throw new InvalidCredentialsException();
             }
             passwordMatches = passwordEncoder.matches(request.password(), user.getPassword());
@@ -93,13 +106,17 @@ public class AuthService {
         }
 
         if (!passwordMatches) {
-            failedAttemptsCache.put(email, attempts == null ? 1 : attempts + 1);
+            lockoutService.recordFailedAttempt(email);
             throw new InvalidCredentialsException();
         }
         
         // Clear limits on legit sign in
-        failedAttemptsCache.invalidate(email);
+        lockoutService.clearLockout(email);
 
+        // Generate high-entropy secure Random UUID strictly for the Refresh Token
+        String jti = UUID.randomUUID().toString();
+        String rawRefreshToken = UUID.randomUUID().toString();
+        
         // Generate Access Token (JWT)
         Instant now = Instant.now();
         long expiresInSeconds = 900; // 15 mins (Best practice TTL)
@@ -109,16 +126,14 @@ public class AuthService {
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(expiresInSeconds))
                 .subject(user.getId())
+                .id(jti) // DT 3.2.3: jti claim for session identification
                 .claim("tenantId", user.getTenantId()) // Bind multitenant boundary explicitly
                 .build();
 
         String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
-
-        // Generate high-entropy secure Random UUID strictly for the Refresh Token
-        String rawRefreshToken = UUID.randomUUID().toString();
         
         // TTL 7 days explicitly delegated to SPI
-        tokenStorage.storeRefreshToken(user.getId(), rawRefreshToken, 7);
+        tokenStorage.storeRefreshToken(user.getId(), jti, rawRefreshToken, 7);
 
         LoginResponse responseDto = new LoginResponse(accessToken, expiresInSeconds);
         return new LoginResult(responseDto, rawRefreshToken);

@@ -12,11 +12,15 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * Verifies that the {@link OriginFirewallFilter} correctly uses overridden
+ * trusted origin CIDR ranges from {@code application.yml} (DT 3.2.19).
+ */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-    "network.security.cloudflare.ranges=8.8.8.8/32"
+    "network.security.trusted-origins.ranges=8.8.8.8/32"
 })
 public class NetworkSecurityConfigTest {
 
@@ -24,7 +28,7 @@ public class NetworkSecurityConfigTest {
     private MockMvc mockMvc;
 
     @Test
-    @DisplayName("Dynamic Config: Cloudflare Firewall Filter uses overridden IP ranges and rejects 127.0.0.1")
+    @DisplayName("Dynamic Config: Origin Firewall uses overridden IP ranges and rejects 127.0.0.1 (DT 3.2.19)")
     void firewall_usesOverriddenRanges_andRejectsLocalhost() throws Exception {
         // With ranges=8.8.8.8/32, localhost (127.0.0.1) should be forbidden
         mockMvc.perform(post("/api/v1/auth/register")
@@ -38,7 +42,7 @@ public class NetworkSecurityConfigTest {
     }
 
     @Test
-    @DisplayName("Dynamic Config: Cloudflare Firewall Filter accepts the overridden IP")
+    @DisplayName("Dynamic Config: Origin Firewall accepts the overridden IP (DT 3.2.19)")
     void firewall_acceptsOverriddenIp() throws Exception {
         mockMvc.perform(post("/api/v1/auth/register")
                         .with(request -> {

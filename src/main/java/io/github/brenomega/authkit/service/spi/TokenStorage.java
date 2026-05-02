@@ -6,19 +6,35 @@ package io.github.brenomega.authkit.service.spi;
 public interface TokenStorage {
 
     /**
-     * Stores a generated refresh token for the user.
+     * Stores a generated refresh token for the user with an explicit session identifier (JTI).
      */
-    void storeRefreshToken(String userId, String rawToken, long durationDays);
+    void storeRefreshToken(String userId, String jti, String rawToken, long durationDays);
 
     /**
-     * Constant-time verification of a raw token against the persistence layer.
+     * Constant-time verification of a raw token against the persistence layer using JTI.
      */
-    boolean validateToken(String userId, String rawToken);
+    boolean validateToken(String userId, String jti, String rawToken);
 
     /**
-     * Immediately destroys the active refresh tokens for the user context.
+     * Lists all active session identifiers (JTIs) for a user.
      */
-    void revokeTokens(String userId);
+    java.util.List<String> listSessions(String userId);
+
+    /**
+     * Revokes a specific session by its JTI.
+     */
+    void revokeSession(String userId, String jti);
+
+    /**
+     * Immediately destroys all active refresh tokens for the user context.
+     */
+    void revokeAllSessions(String userId);
+
+    /**
+     * Revokes all sessions except the one specified by currentJti.
+     * Hardening step for password changes.
+     */
+    void revokeOtherSessions(String userId, String currentJti);
 
     /**
      * Stores a generated password recovery token.

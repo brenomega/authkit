@@ -24,23 +24,26 @@ public class RedisTokenStorage implements TokenStorage {
     }
 
     @Override
-    public void storeRefreshToken(String userId, String rawToken, long durationDays) {
+    public void storeRefreshToken(String userId, String jti, String rawToken, long durationDays) {
         // DT 3.2.4: Hashing refresh tokens prior to storage for cache compromise mitigation
         String hashedToken = hashToken(rawToken);
         String key = PREFIX + userId;
         
-        redisTemplate.opsForValue().set(key, hashedToken, Duration.ofDays(durationDays));
+        // Use a Hash to store multiple sessions (JTI -> Hash) for the same user
+        redisTemplate.opsForHash().put(key, jti, hashedToken);
+        redisTemplate.expire(key, Duration.ofDays(durationDays));
     }
 
     @Override
-    public boolean validateToken(String userId, String rawToken) {
+    public boolean validateToken(String userId, String jti, String rawToken) {
         String key = PREFIX + userId;
-        String storedHash = redisTemplate.opsForValue().get(key);
+        Object storedHashObj = redisTemplate.opsForHash().get(key, jti);
 
-        if (storedHash == null) {
+        if (storedHashObj == null) {
             return false;
         }
 
+        String storedHash = (String) storedHashObj;
         String inputHash = hashToken(rawToken);
 
         // DT 3.2.13: Preventing Side-Channel Timing Attacks using constant-time comparison
@@ -51,9 +54,34 @@ public class RedisTokenStorage implements TokenStorage {
     }
 
     @Override
-    public void revokeTokens(String userId) {
+    public java.util.List<String> listSessions(String userId) {
+        String key = PREFIX + userId;
+        return redisTemplate.opsForHash().keys(key).stream()
+                .map(Object::toString)
+                .toList();
+    }
+
+    @Override
+    public void revokeSession(String userId, String jti) {
+        String key = PREFIX + userId;
+        redisTemplate.opsForHash().delete(key, jti);
+    }
+
+    @Override
+    public void revokeAllSessions(String userId) {
         String key = PREFIX + userId;
         redisTemplate.delete(key);
+    }
+
+    @Override
+    public void revokeOtherSessions(String userId, String currentJti) {
+        String key = PREFIX + userId;
+        java.util.Set<Object> keys = redisTemplate.opsForHash().keys(key);
+        for (Object jti : keys) {
+            if (!jti.equals(currentJti)) {
+                redisTemplate.opsForHash().delete(key, jti);
+            }
+        }
     }
 
     @Override

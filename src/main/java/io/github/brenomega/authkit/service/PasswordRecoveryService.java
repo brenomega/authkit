@@ -13,6 +13,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -23,6 +24,15 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
  *
  * <p>Implements the "stealth" initiation strategy (DT 3.2.15) and
  * secure token-based reset with infrastructure integration.</p>
+ *
+ * <p><strong>Lockout Integration (DT 3.2.23):</strong> A successful password
+ * reset is the <strong>only</strong> sanctioned path to clear the progressive
+ * lockout counter and unlock a frozen account.</p>
+ *
+ * <p><strong>Session Revocation (RF 2.1.12):</strong> All active refresh tokens
+ * are revoked upon password reset to force re-authentication.</p>
+ *
+ * @see AccountLockoutService
  */
 @Service
 public class PasswordRecoveryService {
@@ -33,17 +43,20 @@ public class PasswordRecoveryService {
     private final TokenStorage tokenStorage;
     private final QueuePublisher<EmailPayload> emailPublisher;
     private final PasswordEncoder passwordEncoder;
+    private final AccountLockoutService lockoutService;
     private final Semaphore argon2Semaphore;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
             TokenStorage tokenStorage,
             QueuePublisher<EmailPayload> emailPublisher,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            AccountLockoutService lockoutService) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailPublisher = emailPublisher;
         this.passwordEncoder = passwordEncoder;
+        this.lockoutService = lockoutService;
         
         int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
         this.argon2Semaphore = new Semaphore(Math.max(2, permits));
@@ -108,6 +121,12 @@ public class PasswordRecoveryService {
         }
 
         tokenStorage.revokeRecoveryToken(email);
+
+        // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
+        lockoutService.clearLockout(email);
+
+        // RF 2.1.12: Revoke all active sessions to force re-authentication
+        tokenStorage.revokeAllSessions(user.getId());
         
         EmailPayload confirmation = new EmailPayload(
                 email,

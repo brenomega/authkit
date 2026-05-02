@@ -66,3 +66,21 @@ jwt:
     key: classpath:test-keys/app.pub
   private:
     key: classpath:test-keys/app.key
+
+# =============================================================================
+# Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)
+# =============================================================================
+network:
+  security:
+    trusted-origins:
+      ranges: []               # Empty = uses default CIDR fallback (includes loopback)
+    rate-limit:
+      local-capacity: 1000      # Relaxed for integration tests
+      global-capacity: 5000
+      local-max-size: 100000
+  proxy-depth: 1
+  strategy:
+    cloudflare:
+      enabled: true
+    x-forwarded-for:
+      enabled: true

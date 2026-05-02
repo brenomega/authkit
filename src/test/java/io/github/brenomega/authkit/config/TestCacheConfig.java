@@ -1,24 +1,27 @@
 package io.github.brenomega.authkit.config;
 
 import org.mockito.Mockito;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
-
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.core.HashOperations;
+import org.springframework.data.redis.core.ValueOperations;
+import java.util.Set;
 
 /**
  * Provides a mock implementation of StringRedisTemplate for testing.
  *
  * <p>Since RedisAutoConfiguration is disabled in the test profile, we must manually
  * construct a bean that fulfills the dependency injections for components like
- * RedisTokenStorage. This mock uses a basic HashMap to simulate cache retention.</p>
+ * RedisTokenStorage. This mock uses a nested HashMap to simulate Redis Hash operations.</p>
  */
 @Configuration
+@Profile("test")
 public class TestCacheConfig {
 
     @Bean
@@ -26,29 +29,79 @@ public class TestCacheConfig {
     public StringRedisTemplate stringRedisTemplate() {
         StringRedisTemplate template = Mockito.mock(StringRedisTemplate.class);
         @SuppressWarnings("unchecked")
-        ValueOperations<String, String> ops = Mockito.mock(ValueOperations.class);
+        ValueOperations<String, String> valueOps = Mockito.mock(ValueOperations.class);
+        @SuppressWarnings("unchecked")
+        HashOperations<String, Object, Object> hashOps = Mockito.mock(HashOperations.class);
         
-        Map<String, String> cache = new HashMap<>();
+        Map<String, Map<Object, Object>> hashCache = new HashMap<>();
+        Map<String, String> valueCache = new HashMap<>();
         
+        // Mock ValueOperations — set with TTL
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
             String value = invocation.getArgument(1);
-            cache.put(key, value);
+            valueCache.put(key, value);
             return null;
-        }).when(ops).set(Mockito.anyString(), Mockito.anyString(), Mockito.any(Duration.class));
+        }).when(valueOps).set(Mockito.anyString(), Mockito.anyString(), Mockito.any(Duration.class));
         
+        Mockito.doAnswer(invocation -> valueCache.get(invocation.getArgument(0)))
+               .when(valueOps).get(Mockito.anyString());
+
+        // Mock ValueOperations — increment (used by AccountLockoutService DT 3.2.23)
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
-            return cache.get(key);
-        }).when(ops).get(Mockito.anyString());
-        
+            String currentStr = valueCache.get(key);
+            long newVal = (currentStr == null) ? 1L : Long.parseLong(currentStr) + 1L;
+            valueCache.put(key, String.valueOf(newVal));
+            return newVal;
+        }).when(valueOps).increment(Mockito.anyString());
+
+        // Mock HashOperations
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
-            cache.remove(key);
+            Object hashKey = invocation.getArgument(1);
+            Object value = invocation.getArgument(2);
+            hashCache.computeIfAbsent(key, k -> new HashMap<>()).put(hashKey, value);
+            return null;
+        }).when(hashOps).put(Mockito.anyString(), Mockito.any(), Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            Object hashKey = invocation.getArgument(1);
+            Map<Object, Object> map = hashCache.get(key);
+            return map != null ? map.get(hashKey) : null;
+        }).when(hashOps).get(Mockito.anyString(), Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            Map<Object, Object> map = hashCache.get(key);
+            return map != null ? map.keySet() : Set.of();
+        }).when(hashOps).keys(Mockito.anyString());
+
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            Object hashKey = invocation.getArgument(1);
+            Map<Object, Object> map = hashCache.get(key);
+            if (map != null) {
+                map.remove(hashKey);
+            }
+            return 1L;
+        }).when(hashOps).delete(Mockito.anyString(), Mockito.any());
+
+        // Mock Template — delete
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            valueCache.remove(key);
+            hashCache.remove(key);
             return Boolean.TRUE;
         }).when(template).delete(Mockito.anyString());
+
+        // Mock Template — expire (used by AccountLockoutService DT 3.2.23)
+        Mockito.when(template.expire(Mockito.anyString(), Mockito.anyLong(), Mockito.any(java.util.concurrent.TimeUnit.class)))
+               .thenReturn(Boolean.TRUE);
         
-        Mockito.when(template.opsForValue()).thenReturn(ops);
+        Mockito.when(template.opsForValue()).thenReturn(valueOps);
+        Mockito.when(template.opsForHash()).thenReturn(hashOps);
         return template;
     }
 }

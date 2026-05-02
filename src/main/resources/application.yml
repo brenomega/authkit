@@ -93,3 +93,25 @@ management:
   metrics:
     tags:
       application: authkit
+
+# =============================================================================
+# Rate Limiting — Hybrid Layer Configuration (DT 3.2.21)
+# =============================================================================
+network:
+  security:
+    # Trusted origin CIDR ranges — reverse-proxy agnostic (DT 3.2.19)
+    # Empty = falls back to Cloudflare defaults. Override for AWS/Nginx/etc.
+    trusted-origins:
+      ranges: []
+    rate-limit:
+      local-capacity: 60       # Layer 1 per-IP per-minute (Caffeine)
+      global-capacity: 300     # Layer 2 distributed per-minute (Redis)
+      local-max-size: 100000   # Max tracked IPs in Caffeine cache
+  # Number of trusted reverse proxies for X-Forwarded-For depth (DT 3.2.20)
+  proxy-depth: 1
+  # IP resolution strategy toggles
+  strategy:
+    cloudflare:
+      enabled: true            # CF-Connecting-IP (highest priority)
+    x-forwarded-for:
+      enabled: true            # X-Forwarded-For with proxy depth

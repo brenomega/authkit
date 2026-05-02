@@ -11,20 +11,32 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Configuration properties for network security, specifically Cloudflare IP ranges (DT 3.2.19).
+ * Configuration properties for trusted origin CIDR ranges (DT 3.2.19).
  *
- * <p>Provides a dynamic way to manage trusted origin CIDRs with a safe internal fallback
- * to official Cloudflare ranges if the configuration is missing or empty.</p>
+ * <p>Provides a dynamic way to manage trusted reverse proxy origin CIDRs.
+ * If no ranges are configured, falls back to a hardcoded set of well-known
+ * Cloudflare CIDR ranges to prevent security bypass.</p>
+ *
+ * <p>This class is reverse-proxy agnostic — the CIDR ranges can represent
+ * any edge provider (Cloudflare, AWS API Gateway, Nginx, etc.). The fallback
+ * defaults to Cloudflare ranges as the most common deployment topology.</p>
+ *
+ * <p>In the {@code prod} profile, loopback addresses are automatically stripped
+ * from the effective ranges unless explicitly configured, preventing local
+ * spoofing attacks.</p>
+ *
+ * @see ConfiguredOriginsProvider
+ * @see OriginFirewallFilter
  */
 @Component
 @Validated
-@ConfigurationProperties(prefix = "network.security.cloudflare")
+@ConfigurationProperties(prefix = "network.security.trusted-origins")
 public class NetworkSecurityProperties {
 
     /**
-     * Default hardcoded Cloudflare CIDR ranges to prevent security bypass if config is empty.
+     * Default hardcoded CIDR ranges (Cloudflare) to prevent security bypass if config is empty.
      */
-    private static final List<String> CLOUDFLARE_FALLBACK_RANGES = List.of(
+    private static final List<String> DEFAULT_FALLBACK_RANGES = List.of(
             "173.245.48.0/20",
             "103.21.244.0/22",
             "103.22.200.0/22",
@@ -64,9 +76,11 @@ public class NetworkSecurityProperties {
      *
      * <p>Strictly excludes loopback addresses in the 'prod' profile to prevent local spoofing
      * unless explicitly configured in application.yml.</p>
+     *
+     * @return the effective list of trusted CIDR ranges
      */
     public List<String> getEffectiveRanges() {
-        List<String> source = (ranges == null || ranges.isEmpty()) ? CLOUDFLARE_FALLBACK_RANGES : ranges;
+        List<String> source = (ranges == null || ranges.isEmpty()) ? DEFAULT_FALLBACK_RANGES : ranges;
 
         if (environment.acceptsProfiles(Profiles.of("prod"))) {
             return source.stream()

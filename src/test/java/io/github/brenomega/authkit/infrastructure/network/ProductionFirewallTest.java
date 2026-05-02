@@ -13,15 +13,20 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.github.brenomega.authkit.util.RsaKeyGenerator;
+import io.github.brenomega.authkit.service.dto.EmailPayload;
+import io.github.brenomega.authkit.service.spi.QueuePublisher;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import java.security.KeyPair;
 
 /**
  * Security boundary validation for the production profile (DT 3.2.19).
  *
  * <p>Ensures that loopback addresses are strictly forbidden when the 'prod'
- * profile is active. Uses dynamic RSA key generation to comply with
- * security standards (DT 3.2.3, DT 3.2.4).</p>
+ * profile is active, verifying that the {@link OriginFirewallFilter} correctly
+ * strips loopback CIDRs from the trusted ranges in production. Uses dynamic
+ * RSA key generation to comply with security standards (DT 3.2.3, DT 3.2.4).</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,7 +38,9 @@ import java.security.KeyPair;
     "spring.datasource.password=",
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
-    "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect"
+    "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
+    "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
+    "spring.rabbitmq.port=0"
 })
 public class ProductionFirewallTest {
 
@@ -46,6 +53,12 @@ public class ProductionFirewallTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private StringRedisTemplate stringRedisTemplate;
+
+    @MockitoBean
+    private QueuePublisher<EmailPayload> emailPublisher;
 
     @Test
     @DisplayName("Security Hardening: Verify loopback addresses are forbidden in PROD profile (DT 3.2.19)")

@@ -22,18 +22,19 @@ public class RedisTokenStorageTest {
     @DisplayName("Hash values safely and match using constant time (DT 3.2.4 & DT 3.2.13)")
     void testStoreAndValidate_ConstantTime() {
         String userId = UUID.randomUUID().toString();
+        String jti = UUID.randomUUID().toString();
         String rawToken = UUID.randomUUID().toString();
 
-        redisTokenStorage.storeRefreshToken(userId, rawToken, 7);
+        redisTokenStorage.storeRefreshToken(userId, jti, rawToken, 7);
 
         // Validation against exact hash match
-        assertTrue(redisTokenStorage.validateToken(userId, rawToken));
+        assertTrue(redisTokenStorage.validateToken(userId, jti, rawToken));
         
         // Rejection of invalid payloads
-        assertFalse(redisTokenStorage.validateToken(userId, "forged-token"));
+        assertFalse(redisTokenStorage.validateToken(userId, jti, "forged-token"));
         
         // Ensure revocation clears it
-        redisTokenStorage.revokeTokens(userId);
-        assertFalse(redisTokenStorage.validateToken(userId, rawToken));
+        redisTokenStorage.revokeAllSessions(userId);
+        assertFalse(redisTokenStorage.validateToken(userId, jti, rawToken));
     }
 }

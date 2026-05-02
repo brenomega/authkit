@@ -18,6 +18,9 @@ import io.github.brenomega.authkit.repository.UserRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@org.springframework.test.context.TestPropertySource(properties = {
+    "network.security.rate-limit.local-capacity=10"
+})
 public class NetworkSecurityIntegrationTest {
 
     @Autowired
@@ -27,9 +30,9 @@ public class NetworkSecurityIntegrationTest {
     private UserRepository userRepository;
 
     @Test
-    @DisplayName("Cloudflare Firewall Filter blocks non-trusted origins")
-    void cloudflareFilter_untrustedIp_returns403() throws Exception {
-        // Simulating a direct connection bypassing Cloudflare (with an IP not in CloudflareFirewallFilter ranges)
+    @DisplayName("Origin Firewall: untrusted IP returns 403 (DT 3.2.19)")
+    void originFirewall_untrustedIp_returns403() throws Exception {
+        // Simulating a direct connection bypassing the trusted edge (with an IP not in OriginFirewallFilter ranges)
         mockMvc.perform(post("/api/v1/auth/register")
                         .with(request -> {
                             request.setRemoteAddr("8.8.8.8");

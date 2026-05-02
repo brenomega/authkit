@@ -20,7 +20,7 @@ import org.springframework.security.web.session.DisableEncodeUrlFilter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.brenomega.authkit.infrastructure.network.CloudflareFirewallFilter;
+import io.github.brenomega.authkit.infrastructure.network.OriginFirewallFilter;
 import io.github.brenomega.authkit.infrastructure.network.RateLimitingFilter;
 
 import io.github.brenomega.authkit.response.ApiResponse;
@@ -46,25 +46,25 @@ public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
-    private final CloudflareFirewallFilter cloudflareFirewallFilter;
+    private final OriginFirewallFilter originFirewallFilter;
     private final RateLimitingFilter rateLimitingFilter;
     private final WorkerAuthFilter workerAuthFilter;
 
     /**
      * @param objectMapper Jackson mapper for serializing error responses
      * @param userAuthoritiesFilter Dynamic authority enforcement filter
-     * @param cloudflareFirewallFilter Origin TCP blocking bound wrapper
+     * @param originFirewallFilter Origin TCP blocking bound wrapper (DT 3.2.19)
      * @param rateLimitingFilter Volumetric capacity restriction block
      */
     public SecurityConfig(
             ObjectMapper objectMapper, 
             UserAuthoritiesFilter userAuthoritiesFilter,
-            CloudflareFirewallFilter cloudflareFirewallFilter,
+            OriginFirewallFilter originFirewallFilter,
             RateLimitingFilter rateLimitingFilter,
             WorkerAuthFilter workerAuthFilter) {
         this.objectMapper = objectMapper;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
-        this.cloudflareFirewallFilter = cloudflareFirewallFilter;
+        this.originFirewallFilter = originFirewallFilter;
         this.rateLimitingFilter = rateLimitingFilter;
         this.workerAuthFilter = workerAuthFilter;
     }
@@ -97,6 +97,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-recovery/**").permitAll()
+                .requestMatchers("/api/v1/users/me/**").authenticated()
                 .anyRequest().authenticated()
             )
 
@@ -108,7 +109,7 @@ public class SecurityConfig {
             )
 
             // DT 3.2.19 — Firewall dropping untrusted direct origins
-            .addFilterBefore(cloudflareFirewallFilter, DisableEncodeUrlFilter.class)
+            .addFilterBefore(originFirewallFilter, DisableEncodeUrlFilter.class)
 
             // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
             .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)

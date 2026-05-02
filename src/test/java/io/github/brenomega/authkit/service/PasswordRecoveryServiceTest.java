@@ -22,6 +22,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
 
 /**
  * Unit tests for PasswordRecoveryService (DT 3.4.5).
@@ -33,6 +34,7 @@ class PasswordRecoveryServiceTest {
     private TokenStorage tokenStorage;
     private QueuePublisher<EmailPayload> emailPublisher;
     private PasswordEncoder passwordEncoder;
+    private AccountLockoutService lockoutService;
     private PasswordRecoveryService recoveryService;
 
     @BeforeEach
@@ -42,7 +44,8 @@ class PasswordRecoveryServiceTest {
         tokenStorage = mock(TokenStorage.class);
         emailPublisher = mock(QueuePublisher.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        recoveryService = new PasswordRecoveryService(userRepository, tokenStorage, emailPublisher, passwordEncoder);
+        lockoutService = mock(AccountLockoutService.class);
+        recoveryService = new PasswordRecoveryService(userRepository, tokenStorage, emailPublisher, passwordEncoder, lockoutService);
     }
 
     /**
@@ -88,6 +91,7 @@ class PasswordRecoveryServiceTest {
         String newPass = "NewPass123!";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
+        when(user.getId()).thenReturn("user-id");
 
         when(tokenStorage.validateRecoveryToken(email, token)).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
@@ -97,6 +101,10 @@ class PasswordRecoveryServiceTest {
 
         verify(userRepository).save(user);
         verify(tokenStorage).revokeRecoveryToken(email);
+        // DT 3.2.23: Lockout must be cleared after successful reset
+        verify(lockoutService).clearLockout(email);
+        // RF 2.1.12: All sessions must be revoked after password reset
+        verify(tokenStorage).revokeAllSessions("user-id");
         verify(emailPublisher).publish(any()); // Reset confirmation
     }
 

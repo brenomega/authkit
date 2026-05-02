@@ -23,10 +23,12 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
 
 /**
  * Unit tests for AuthService (DT 3.4.5).
- * Validates the secure identity negotiation lifecycle (RF 2.1.2).
+ * Validates the secure identity negotiation lifecycle (RF 2.1.2)
+ * and progressive lockout via AccountLockoutService (DT 3.2.23).
  */
 class AuthServiceTest {
 
@@ -34,6 +36,7 @@ class AuthServiceTest {
     private PasswordEncoder passwordEncoder;
     private JwtEncoder jwtEncoder;
     private TokenStorage tokenStorage;
+    private AccountLockoutService lockoutService;
     private AuthService authService;
 
     @BeforeEach
@@ -42,7 +45,10 @@ class AuthServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwtEncoder = mock(JwtEncoder.class);
         tokenStorage = mock(TokenStorage.class);
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage);
+        // Use a real AccountLockoutService with a mock Redis template.
+        // Redis operations will throw, causing fail-open to Caffeine — suitable for unit tests.
+        lockoutService = new AccountLockoutService(mock(org.springframework.data.redis.core.StringRedisTemplate.class));
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService);
     }
 
     /**
@@ -71,7 +77,7 @@ class AuthServiceTest {
 
         assertNotNull(result);
         assertEquals("mock-access-token", result.response().accessToken());
-        verify(tokenStorage).storeRefreshToken(any(), any(), any(Long.class));
+        verify(tokenStorage).storeRefreshToken(any(), any(), any(), any(Long.class));
     }
 
     /**

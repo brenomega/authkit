@@ -2,6 +2,7 @@ package io.github.brenomega.authkit;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * Entry point for the AuthKit application.
@@ -17,6 +18,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @see org.springframework.boot.autoconfigure.SpringBootApplication
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class Startup {
 
 	/**
