@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import io.github.brenomega.authkit.infrastructure.network.NetworkIPResolver;
+import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
@@ -46,10 +46,10 @@ public class AuditLoggingAspect {
 
     private static final Logger auditLog = LoggerFactory.getLogger("AUDIT");
 
-    private final NetworkIPResolver networkIPResolver;
+    private final NetworkIpResolver networkIpResolver;
 
-    public AuditLoggingAspect(NetworkIPResolver networkIPResolver) {
-        this.networkIPResolver = networkIPResolver;
+    public AuditLoggingAspect(NetworkIpResolver networkIpResolver) {
+        this.networkIpResolver = networkIpResolver;
     }
 
     // -------------------------------------------------------------------------
@@ -105,7 +105,6 @@ public class AuditLoggingAspect {
         String userId = "anonymous";
         String tenantId = "unknown";
         String clientIp = "unknown";
-        String action = joinPoint.getSignature().toShortString();
         String httpMethod = "UNKNOWN";
         String requestUri = "unknown";
 
@@ -123,7 +122,7 @@ public class AuditLoggingAspect {
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attrs != null) {
             HttpServletRequest request = attrs.getRequest();
-            clientIp = networkIPResolver.resolveClientIp(request);
+            clientIp = networkIpResolver.resolveClientIp(request);
             httpMethod = request.getMethod();
             requestUri = request.getRequestURI();
         }

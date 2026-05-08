@@ -1,8 +1,11 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.config;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.brenomega.authkit.infrastructure.network.ip.IpResolutionStrategy;
+import io.github.brenomega.authkit.infrastructure.network.origin.ConfiguredOriginsProvider;
+import io.github.brenomega.authkit.infrastructure.network.origin.TrustedOriginProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

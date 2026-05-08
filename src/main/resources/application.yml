@@ -102,9 +102,9 @@ network:
     # Trusted origin CIDR ranges — reverse-proxy agnostic (DT 3.2.19)
     # Empty = falls back to Cloudflare defaults. Override for AWS/Nginx/etc.
     trusted-origins:
-      ranges: []
+      ranges: ${NETWORK_SECURITY_TRUSTED_ORIGINS:127.0.0.1/32}
     rate-limit:
-      local-capacity: 60       # Layer 1 per-IP per-minute (Caffeine)
+      local-capacity: 60       # Layer 1 per-IP per-minute (Caffeine). Kept as a fraction of global (e.g. 1/5 for 5 nodes) to mitigate Outage Limit Amplification during Redis failure.
       global-capacity: 300     # Layer 2 distributed per-minute (Redis)
       local-max-size: 100000   # Max tracked IPs in Caffeine cache
   # Number of trusted reverse proxies for X-Forwarded-For depth (DT 3.2.20)

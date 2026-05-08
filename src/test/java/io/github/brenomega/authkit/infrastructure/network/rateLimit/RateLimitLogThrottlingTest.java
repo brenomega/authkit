@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.rateLimit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
+import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;

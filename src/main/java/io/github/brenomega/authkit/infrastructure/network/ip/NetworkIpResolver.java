@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.ip;
 
 import java.util.Comparator;
 import java.util.List;
@@ -34,9 +34,9 @@ import jakarta.servlet.http.HttpServletRequest;
  * @see RateLimitingFilter
  */
 @Component
-public class NetworkIPResolver {
+public class NetworkIpResolver {
 
-    private static final Logger log = LoggerFactory.getLogger(NetworkIPResolver.class);
+    private static final Logger log = LoggerFactory.getLogger(NetworkIpResolver.class);
     private final List<IpResolutionStrategy> strategies;
 
     /**
@@ -44,7 +44,7 @@ public class NetworkIPResolver {
      *
      * @param strategies the injected strategies, sorted by order at construction time
      */
-    public NetworkIPResolver(List<IpResolutionStrategy> strategies) {
+    public NetworkIpResolver(List<IpResolutionStrategy> strategies) {
         this.strategies = strategies.stream()
                 .sorted(Comparator.comparingInt(IpResolutionStrategy::getOrder))
                 .toList();

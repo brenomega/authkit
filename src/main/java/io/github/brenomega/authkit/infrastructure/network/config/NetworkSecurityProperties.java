@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.core.env.Environment;
@@ -14,12 +14,11 @@ import java.util.List;
  * Configuration properties for trusted origin CIDR ranges (DT 3.2.19).
  *
  * <p>Provides a dynamic way to manage trusted reverse proxy origin CIDRs.
- * If no ranges are configured, falls back to a hardcoded set of well-known
- * Cloudflare CIDR ranges to prevent security bypass.</p>
+ * Ranges are externalized and managed via Kubernetes ConfigMaps/NetworkPolicies
+ * to prevent security bypass without hardcoded assumptions.</p>
  *
  * <p>This class is reverse-proxy agnostic — the CIDR ranges can represent
- * any edge provider (Cloudflare, AWS API Gateway, Nginx, etc.). The fallback
- * defaults to Cloudflare ranges as the most common deployment topology.</p>
+ * any edge provider (Cloudflare, AWS API Gateway, Nginx, etc.).</p>
  *
  * <p>In the {@code prod} profile, loopback addresses are automatically stripped
  * from the effective ranges unless explicitly configured, preventing local
@@ -32,29 +31,6 @@ import java.util.List;
 @Validated
 @ConfigurationProperties(prefix = "network.security.trusted-origins")
 public class NetworkSecurityProperties {
-
-    /**
-     * Default hardcoded CIDR ranges (Cloudflare) to prevent security bypass if config is empty.
-     */
-    private static final List<String> DEFAULT_FALLBACK_RANGES = List.of(
-            "173.245.48.0/20",
-            "103.21.244.0/22",
-            "103.22.200.0/22",
-            "103.31.4.0/22",
-            "141.101.64.0/18",
-            "108.162.192.0/18",
-            "190.93.240.0/20",
-            "188.114.96.0/20",
-            "197.234.240.0/22",
-            "198.41.128.0/17",
-            "162.158.0.0/15",
-            "104.16.0.0/13",
-            "104.24.0.0/14",
-            "172.64.0.0/13",
-            "131.0.72.0/22",
-            "127.0.0.1/32",
-            "0:0:0:0:0:0:0:1/128"
-    );
 
     private final Environment environment;
     private List<String> ranges = new ArrayList<>();
@@ -72,7 +48,7 @@ public class NetworkSecurityProperties {
     }
 
     /**
-     * Returns the configured ranges or the fallback list if empty (DT 3.2.19 safety).
+     * Returns the configured ranges (DT 3.2.19 safety).
      *
      * <p>Strictly excludes loopback addresses in the 'prod' profile to prevent local spoofing
      * unless explicitly configured in application.yml.</p>
@@ -80,7 +56,7 @@ public class NetworkSecurityProperties {
      * @return the effective list of trusted CIDR ranges
      */
     public List<String> getEffectiveRanges() {
-        List<String> source = (ranges == null || ranges.isEmpty()) ? DEFAULT_FALLBACK_RANGES : ranges;
+        List<String> source = (ranges == null) ? Collections.emptyList() : ranges;
 
         if (environment.acceptsProfiles(Profiles.of("prod"))) {
             return source.stream()

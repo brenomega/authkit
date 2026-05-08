@@ -1,5 +1,8 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.rateLimit;
 
+import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
+import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
+import io.github.brenomega.authkit.infrastructure.network.config.RateLimitingProperties;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Optional;
@@ -8,6 +11,7 @@ import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.lang.NonNull;
@@ -21,6 +25,7 @@ import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -61,15 +66,16 @@ import jakarta.servlet.http.HttpServletResponse;
  * log flooding during sustained outages.</p>
  *
  * @see RateLimitingProperties
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  */
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitingFilter.class);
 
-    private final NetworkIPResolver ipResolver;
+    private final NetworkIpResolver ipResolver;
     private final RateLimitingProperties properties;
+    private final MeterRegistry meterRegistry;
 
     /** DT 3.2.21 — Layer 1 local Caffeine cache bounding micro-burst logic unconditionally. */
     private final Cache<String, Bucket> localBuckets;
@@ -95,17 +101,20 @@ public class RateLimitingFilter extends OncePerRequestFilter {
      * @param ipResolver  resolves the real client IP from headers (DT 3.2.17, DT 3.2.20)
      * @param properties  externalized rate limiting configuration (DT 3.2.21)
      * @param redisClient optional Lettuce client for distributed rate limiting
+     * @param meterRegistry the meter registry for tracking dropped requests
      */
-    public RateLimitingFilter(NetworkIPResolver ipResolver,
+    public RateLimitingFilter(NetworkIpResolver ipResolver,
                               RateLimitingProperties properties,
-                              Optional<RedisClient> redisClient) {
+                              Optional<RedisClient> redisClient,
+                              MeterRegistry meterRegistry) {
         this.ipResolver = ipResolver;
         this.properties = properties;
+        this.meterRegistry = meterRegistry;
 
         // Layer 1 — Caffeine local cache
         this.localBuckets = Caffeine.newBuilder()
                 .maximumSize(properties.getLocalMaxSize())
-                .expireAfterAccess(Duration.ofHours(1))
+                .expireAfterAccess(Duration.ofMinutes(2))
                 .build();
 
         // Pre-compute global BucketConfiguration (heap optimization — zero allocations on hot path)
@@ -149,13 +158,15 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         // Resolve priority IP natively matching the proxy layout (DT 3.2.17, DT 3.2.20)
         String clientIp = ipResolver.resolveClientIp(request);
 
+        // Expose resolved IP to downstream application logic to eliminate redundant resolution
+        request.setAttribute("X-Resolved-Client-IP", clientIp);
+
         // DT 3.2.21 — Acquire local burst bucket (Layer 1)
         Bucket localBucket = localBuckets.get(clientIp, key -> createNewLayer1Bucket());
 
         if (!localBucket.tryConsume(1)) {
             logRateLimitBlock(request, clientIp, "Layer 1 (Local)");
-            response.setStatus(429);
-            response.getWriter().write("Too Many Requests");
+            sendRateLimitResponse(response);
             return;
         }
 
@@ -163,12 +174,11 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         if (proxyManager != null) {
             try {
                 Bucket globalBucket = proxyManager.builder()
-                        .build(clientIp.getBytes(), globalBucketConfigSupplier);
+                        .build(clientIp.getBytes(java.nio.charset.StandardCharsets.UTF_8), globalBucketConfigSupplier);
 
                 if (!globalBucket.tryConsume(1)) {
                     logRateLimitBlock(request, clientIp, "Layer 2 (Distributed)");
-                    response.setStatus(429);
-                    response.getWriter().write("Too Many Requests");
+                    sendRateLimitResponse(response);
                     return;
                 }
             } catch (Exception e) {
@@ -224,16 +234,44 @@ public class RateLimitingFilter extends OncePerRequestFilter {
      */
     private void logRateLimitBlock(HttpServletRequest request, String clientIp, String layer) {
         String cfIp = request.getHeader("CF-Connecting-IP");
+        String traceId = request.getHeader("CF-RAY");
         String method = request.getMethod();
         String uri = request.getRequestURI();
 
-        if (cfIp != null && !cfIp.isBlank()) {
-            log.warn("Rate limit triggered [{}]: {} {} | Resolved IP: {} | CF-Connecting-IP: {} (DT 3.2.16)",
-                     layer, method, uri, clientIp, cfIp);
-        } else {
-            log.warn("Rate limit triggered [{}]: {} {} | Direct IP: {} | No CF-Connecting-IP header — " +
-                     "possible edge bypass (DT 3.2.16)", layer, method, uri, clientIp);
+        meterRegistry.counter("rate.limit.dropped", "layer", layer).increment();
+
+        if (traceId != null) {
+            MDC.put("traceId", traceId);
         }
+
+        try {
+            if (cfIp != null && !cfIp.isBlank()) {
+                log.warn("Rate limit triggered [{}]: {} {} | Resolved IP: {} | CF-Connecting-IP: {} (DT 3.2.16)",
+                         layer, method, uri, IpMasker.mask(clientIp), IpMasker.mask(cfIp));
+            } else {
+                log.warn("Rate limit triggered [{}]: {} {} | Direct IP: {} | No CF-Connecting-IP header — " +
+                         "possible edge bypass (DT 3.2.16)", layer, method, uri, IpMasker.mask(clientIp));
+            }
+        } finally {
+            MDC.remove("traceId");
+        }
+    }
+
+    /**
+     * Sends a structured JSON response for rate limit violations.
+     *
+     * @param response the HTTP servlet response
+     * @throws IOException if writing to the response fails
+     */
+    private void sendRateLimitResponse(HttpServletResponse response) throws IOException {
+        response.setStatus(429);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        String jsonResponse = String.format(
+            "{\"timestamp\":\"%s\",\"status\":429,\"error\":\"Too Many Requests\",\"message\":\"Rate limit exceeded\"}",
+            java.time.Instant.now().toString()
+        );
+        response.getWriter().write(jsonResponse);
     }
 
     /**

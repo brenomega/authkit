@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authkit
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: authkit
+  template:
+    metadata:
+      labels:
+        app: authkit
+    spec:
+      containers:
+        - name: authkit
+          image: brenomega/authkit:latest
+          ports:
+            - containerPort: 8080
+          env:
+            # Map the trusted origins from the ConfigMap
+            - name: NETWORK_SECURITY_TRUSTED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: authkit-network-config
+                  key: NETWORK_SECURITY_TRUSTED_ORIGINS
+            # Other environment variables like DB_URL, REDIS_HOST, etc., should be defined here or via Secrets

@@ -73,9 +73,9 @@ jwt:
 network:
   security:
     trusted-origins:
-      ranges: []               # Empty = uses default CIDR fallback (includes loopback)
+      ranges: 127.0.0.1/32       # Explicitly trust localhost for tests
     rate-limit:
-      local-capacity: 1000      # Relaxed for integration tests
+      local-capacity: 1000      # Relaxed for integration tests. NOTE: In prod, keep as fraction of global to prevent Outage Limit Amplification.
       global-capacity: 5000
       local-max-size: 100000
   proxy-depth: 1

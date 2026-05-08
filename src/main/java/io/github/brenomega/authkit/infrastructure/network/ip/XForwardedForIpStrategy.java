@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.ip;
 
 import java.util.Optional;
 
@@ -91,11 +91,10 @@ public class XForwardedForIpStrategy implements IpResolutionStrategy {
         int targetIndex = ips.length - proxyDepth - 1;
 
         if (targetIndex < 0) {
-            // Not enough IPs for the configured depth — use the first (leftmost) IP
-            // This is a degraded case but still provides a usable value.
+            // Not enough IPs for the configured depth — fail closed to prevent spoofing
             log.debug("X-Forwarded-For has {} entries but proxy-depth is {}. " +
-                      "Falling back to first IP (DT 3.2.20).", ips.length, proxyDepth);
-            return Optional.of(ips[0]);
+                      "Failing closed to prevent IP spoofing (DT 3.2.20).", ips.length, proxyDepth);
+            return Optional.empty();
         }
 
         return Optional.of(ips[targetIndex]);

@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.ip;
 
 import java.util.Optional;
 

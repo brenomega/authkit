@@ -1,5 +1,7 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.origin;
 
+import io.github.brenomega.authkit.infrastructure.network.config.NetworkSecurityProperties;
+import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
 import java.io.IOException;
 
 import org.slf4j.Logger;
@@ -12,6 +14,9 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.MDC;
 
 /**
  * Reverse-proxy-agnostic origin firewall filter (DT 3.2.19).
@@ -40,14 +45,17 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(OriginFirewallFilter.class);
     private final TrustedOriginProvider trustedOriginProvider;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Constructs the filter with the injected origin validation strategy.
      *
      * @param trustedOriginProvider the strategy for evaluating trusted origins (DT 3.2.19)
+     * @param meterRegistry the meter registry for tracking dropped connections
      */
-    public OriginFirewallFilter(TrustedOriginProvider trustedOriginProvider) {
+    public OriginFirewallFilter(TrustedOriginProvider trustedOriginProvider, MeterRegistry meterRegistry) {
         this.trustedOriginProvider = trustedOriginProvider;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -65,11 +73,25 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
         String remoteIp = request.getRemoteAddr();
 
         if (!trustedOriginProvider.isTrusted(remoteIp)) {
-            log.warn("Origin rejected: untrusted remote IP {} attempted to access {} {} (DT 3.2.19)",
-                     remoteIp, request.getMethod(), request.getRequestURI());
+            meterRegistry.counter("firewall.origin.rejected").increment();
+            String traceId = request.getHeader("CF-RAY");
+            if (traceId != null) {
+                MDC.put("traceId", traceId);
+            }
+            try {
+                log.warn("Origin rejected: untrusted remote IP {} attempted to access {} {} (DT 3.2.19)",
+                         IpMasker.mask(remoteIp), request.getMethod(), request.getRequestURI());
+            } finally {
+                MDC.remove("traceId");
+            }
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-            // Naked string bypasses standard API envelopes precisely to stop layer profiling
-            response.getWriter().write("Forbidden: Invalid Origin");
+            response.setContentType("application/json");
+            response.setCharacterEncoding("UTF-8");
+            String jsonResponse = String.format(
+                "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Forbidden\",\"message\":\"Invalid Origin\"}",
+                java.time.Instant.now().toString()
+            );
+            response.getWriter().write(jsonResponse);
             return;
         }
 

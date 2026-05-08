@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

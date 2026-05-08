@@ -20,8 +20,8 @@ import org.springframework.security.web.session.DisableEncodeUrlFilter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.github.brenomega.authkit.infrastructure.network.OriginFirewallFilter;
-import io.github.brenomega.authkit.infrastructure.network.RateLimitingFilter;
+import io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter;
+import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 
 import io.github.brenomega.authkit.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;

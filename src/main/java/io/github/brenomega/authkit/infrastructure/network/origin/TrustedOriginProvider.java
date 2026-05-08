@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.network;
+package io.github.brenomega.authkit.infrastructure.network.origin;
 
 /**
  * Strategy interface for origin validation in the firewall layer (DT 3.2.19).
