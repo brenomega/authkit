@@ -17,7 +17,6 @@ import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
-import io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter;
 import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 import jakarta.servlet.Filter;
 import java.util.List;

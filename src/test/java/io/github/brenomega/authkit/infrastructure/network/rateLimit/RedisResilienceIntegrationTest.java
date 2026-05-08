@@ -3,7 +3,6 @@ package io.github.brenomega.authkit.infrastructure.network.rateLimit;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
