@@ -66,9 +66,9 @@ public class ProfileService {
      */
     @LogExecutionTime
     public ProfileResponse getProfile(String userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
-        return new ProfileResponse(user.getId(), user.getEmail(), user.getName(), user.getPhone());
+        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
     }
 
     /**
@@ -91,7 +91,7 @@ public class ProfileService {
             throw new UserNotFoundException();
         }
 
-        User user = userRepository.findById(targetUserId)
+        User user = userRepository.findById(java.util.UUID.fromString(targetUserId))
                 .orElseThrow(UserNotFoundException::new);
 
         // Update conditionally
@@ -103,7 +103,7 @@ public class ProfileService {
         }
 
         userRepository.save(user);
-        return new ProfileResponse(user.getId(), user.getEmail(), user.getName(), user.getPhone());
+        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
     }
 
     /**
@@ -123,7 +123,7 @@ public class ProfileService {
     @Transactional
     @LogExecutionTime
     public void changePassword(String userId, PasswordChangeRequest request, String currentJti) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
         // DT 3.2.23: Block management operations while account is locked
@@ -173,7 +173,7 @@ public class ProfileService {
      * @throws AccountLockedException if the account is locked
      */
     public void revokeSession(String userId, String jti) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
         // DT 3.2.23: Block session management while account is locked

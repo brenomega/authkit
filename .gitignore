@@ -23,6 +23,7 @@ build/
 *.env.*
 application-local.yml
 application-local.properties
+*secrets.yaml
 
 ### IDE — IntelliJ IDEA ###
 .idea/

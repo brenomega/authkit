@@ -78,9 +78,9 @@ public class AuthController {
         User user = registrationService.registerUser(request);
         
         RegisterResponse responseDto = new RegisterResponse(
-                user.getId(),
+                user.getId().toString(),
                 user.getEmail(),
-                user.getTenantId()
+                user.getTenantId().toString()
         );
         
         return ResponseEntity.status(HttpStatus.CREATED)

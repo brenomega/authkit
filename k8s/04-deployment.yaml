@@ -17,6 +17,9 @@ spec:
           image: brenomega/authkit:latest
           ports:
             - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: authkit-secrets
           env:
             # Map the trusted origins from the ConfigMap
             - name: NETWORK_SECURITY_TRUSTED_ORIGINS
@@ -24,4 +27,22 @@ spec:
                 configMapKeyRef:
                   name: authkit-network-config
                   key: NETWORK_SECURITY_TRUSTED_ORIGINS
-            # Other environment variables like DB_URL, REDIS_HOST, etc., should be defined here or via Secrets
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1024Mi"

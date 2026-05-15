@@ -51,13 +51,13 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Password: Successful change revokes other sessions")
     void changePassword_Success() {
-        String userId = "user-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         String currentJti = "current-jti";
         User user = mock(User.class);
         when(user.getPassword()).thenReturn("old-hashed");
         when(user.getEmail()).thenReturn("test@example.com");
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("old-pass", "old-hashed")).thenReturn(true);
         when(passwordEncoder.encode("new-pass")).thenReturn("new-hashed");
@@ -75,12 +75,12 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Password: Change fails with invalid current password")
     void changePassword_InvalidCurrent_ThrowsException() {
-        String userId = "user-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
         when(user.getPassword()).thenReturn("hashed");
         when(user.getEmail()).thenReturn("test@example.com");
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
 
@@ -94,11 +94,11 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Password: Change blocked when account is locked (DT 3.2.23)")
     void changePassword_LockedAccount_Throws403() {
-        String userId = "user-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("locked@example.com");
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("locked@example.com")).thenReturn(true);
 
         assertThrows(AccountLockedException.class, () -> 
@@ -114,11 +114,11 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Session: Revocation blocked when account is locked (DT 3.2.23)")
     void revokeSession_LockedAccount_Throws403() {
-        String userId = "user-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("locked@example.com");
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("locked@example.com")).thenReturn(true);
 
         assertThrows(AccountLockedException.class, () -> 
@@ -134,11 +134,11 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Session: Specific session revocation succeeds when not locked")
     void revokeSession_CallsStorage() {
-        String userId = "user-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("test@example.com");
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
 
         profileService.revokeSession(userId, "target-jti");
@@ -152,7 +152,7 @@ class ProfileServiceTest {
     @DisplayName("Update: Modifying other user's profile throws 404 (IDOR protection)")
     void updateProfile_IdMismatch_Throws404() {
         assertThrows(UserNotFoundException.class, () -> 
-            profileService.updateProfile("other-id", new ProfileUpdateRequest("Name", "123"), "my-id"));
+            profileService.updateProfile("00000000-0000-0000-0000-000000000001", new ProfileUpdateRequest("Name", "123"), "00000000-0000-0000-0000-000000000000"));
     }
 
     /**
@@ -161,18 +161,18 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Update: Own profile update succeeds")
     void updateProfile_Success() {
-        String userId = "my-id";
+        String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
-        when(user.getId()).thenReturn(userId);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         ProfileUpdateRequest request = new ProfileUpdateRequest("New Name", "999");
         profileService.updateProfile(userId, request, userId);
 
         verify(user).setName("New Name");
         verify(user).setPhone("999");
-        verify(userRepository).findById(userId);
+        verify(userRepository).findById(java.util.UUID.fromString(userId));
     }
 
     /**
@@ -181,8 +181,8 @@ class ProfileServiceTest {
     @Test
     @DisplayName("Update: Missing user in database throws 404")
     void updateProfile_NotFound_ThrowsException() {
-        String userId = "my-id";
-        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+        String userId = "00000000-0000-0000-0000-000000000000";
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> 
             profileService.updateProfile(userId, new ProfileUpdateRequest("Any", "123"), userId));

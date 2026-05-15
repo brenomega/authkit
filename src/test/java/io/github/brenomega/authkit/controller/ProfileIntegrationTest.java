@@ -35,7 +35,7 @@ public class ProfileIntegrationTest {
         userRepository.save(user);
 
         mockMvc.perform(get("/api/v1/users/me")
-                        .with(jwt().jwt(builder -> builder.subject(user.getId()))))
+                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.email").value("getme@example.com"))
                 .andExpect(jsonPath("$.data.name").value("John"));
@@ -54,7 +54,7 @@ public class ProfileIntegrationTest {
                 """;
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .with(jwt().jwt(builder -> builder.subject(user.getId())))
+                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString())))
                         .contentType("application/json")
                         .content(payload))
                 .andExpect(status().isOk())

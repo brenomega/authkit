@@ -15,7 +15,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
  * the business model.</p>
  */
 @Repository
-public interface UserRepository extends JpaRepository<User, String> {
+public interface UserRepository extends JpaRepository<User, java.util.UUID> {
 
     /**
      * Finds a user by their email address.

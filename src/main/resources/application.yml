@@ -42,6 +42,7 @@ spring:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
+      timeout: 200ms
 
   # ---------------------------------------------------------------------------
   # RabbitMQ — Asynchronous message broker (DT 3.1.15)
@@ -80,6 +81,22 @@ server:
   port: 8080
 
 # =============================================================================
+# Security Configuration (Argon2id)
+# =============================================================================
+security:
+  argon2:
+    salt-length: 16
+    hash-length: 32
+    parallelism: ${SECURITY_ARGON2_PARALLELISM:2}
+    # Intentionally relaxed the memory requirement from 65536 (64MB) to 32768 (32MB)
+    # and iterations from 3 to 1 compared to the original DT 3.2.1.
+    # This is a calculated trade-off to increase the maximum concurrent login capacity
+    # and reduce Thread Exhaustion risks in the JVM, while still maintaining a very high
+    # level of security (superior to BCrypt/PBKDF2) against GPU/ASIC brute-forcing.
+    memory: ${SECURITY_ARGON2_MEMORY:32768}
+    iterations: ${SECURITY_ARGON2_ITERATIONS:1}
+
+# =============================================================================
 # Observability / Actuator (DT 3.4.4)
 # =============================================================================
 management:
@@ -89,10 +106,17 @@ management:
         include: health, prometheus
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
   metrics:
     tags:
       application: authkit
+
+# =============================================================================
+# Application Security
+# =============================================================================
+app:
+  security:
+    worker-token: ${WORKER_TOKEN}
 
 # =============================================================================
 # Rate Limiting — Hybrid Layer Configuration (DT 3.2.21)

@@ -126,7 +126,7 @@ public class PasswordRecoveryService {
         lockoutService.clearLockout(email);
 
         // RF 2.1.12: Revoke all active sessions to force re-authentication
-        tokenStorage.revokeAllSessions(user.getId());
+        tokenStorage.revokeAllSessions(user.getId().toString());
         
         EmailPayload confirmation = new EmailPayload(
                 email,

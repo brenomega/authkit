@@ -99,6 +99,16 @@ public class TestCacheConfig {
         // Mock Template — expire (used by AccountLockoutService DT 3.2.23)
         Mockito.when(template.expire(Mockito.anyString(), Mockito.anyLong(), Mockito.any(java.util.concurrent.TimeUnit.class)))
                .thenReturn(Boolean.TRUE);
+
+        // Mock Template - execute (used by RedisTokenStorage Lua script DT 3.2.4)
+        Mockito.doAnswer(invocation -> {
+            java.util.List<?> keys = invocation.getArgument(1);
+            String key = (String) keys.get(0);
+            String hashKey = invocation.getArgument(2).toString();
+            String value = invocation.getArgument(3).toString();
+            hashCache.computeIfAbsent(key, k -> new HashMap<>()).put(hashKey, value);
+            return Boolean.TRUE;
+        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any());
         
         Mockito.when(template.opsForValue()).thenReturn(valueOps);
         Mockito.when(template.opsForHash()).thenReturn(hashOps);

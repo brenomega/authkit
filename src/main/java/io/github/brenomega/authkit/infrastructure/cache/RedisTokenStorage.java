@@ -28,10 +28,18 @@ public class RedisTokenStorage implements TokenStorage {
         // DT 3.2.4: Hashing refresh tokens prior to storage for cache compromise mitigation
         String hashedToken = hashToken(rawToken);
         String key = PREFIX + userId;
+        long durationSeconds = Duration.ofDays(durationDays).getSeconds();
         
-        // Use a Hash to store multiple sessions (JTI -> Hash) for the same user
-        redisTemplate.opsForHash().put(key, jti, hashedToken);
-        redisTemplate.expire(key, Duration.ofDays(durationDays));
+        // Use Lua script to ensure atomicity of HSET and EXPIRE
+        String luaScript = 
+            "redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]); " +
+            "redis.call('EXPIRE', KEYS[1], ARGV[3]); " +
+            "return true;";
+            
+        org.springframework.data.redis.core.script.DefaultRedisScript<Boolean> script = 
+            new org.springframework.data.redis.core.script.DefaultRedisScript<>(luaScript, Boolean.class);
+            
+        redisTemplate.execute(script, java.util.List.of(key), jti, hashedToken, String.valueOf(durationSeconds));
     }
 
     @Override

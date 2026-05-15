@@ -125,15 +125,15 @@ public class AuthService {
                 .issuer("authkit")
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(expiresInSeconds))
-                .subject(user.getId())
+                .subject(user.getId().toString())
                 .id(jti) // DT 3.2.3: jti claim for session identification
-                .claim("tenantId", user.getTenantId()) // Bind multitenant boundary explicitly
+                .claim("tenantId", user.getTenantId().toString()) // Bind multitenant boundary explicitly
                 .build();
 
         String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
         
         // TTL 7 days explicitly delegated to SPI
-        tokenStorage.storeRefreshToken(user.getId(), jti, rawRefreshToken, 7);
+        tokenStorage.storeRefreshToken(user.getId().toString(), jti, rawRefreshToken, 7);
 
         LoginResponse responseDto = new LoginResponse(accessToken, expiresInSeconds);
         return new LoginResult(responseDto, rawRefreshToken);

@@ -5,7 +5,7 @@
 # =============================================================================
 
 # --- Stage 1: Build ---
-FROM maven:3.9-eclipse-temurin-17-alpine AS build
+FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /app
 
 # Copy project definition first (layer caching for dependencies)
@@ -17,7 +17,7 @@ COPY src src
 RUN mvn clean package -DskipTests -B
 
 # --- Stage 2: Runtime ---
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 # Create a non-root user for security

@@ -1,7 +1,7 @@
 -- Adds required multi-tenancy and registration fields to the users table.
 
 ALTER TABLE users
-    ADD COLUMN tenant_id VARCHAR(36) NOT NULL DEFAULT 'SYSTEM_GENERATED',
+    ADD COLUMN tenant_id UUID NOT NULL DEFAULT gen_random_uuid(),
     ADD COLUMN name VARCHAR(100),
     ADD COLUMN phone VARCHAR(20),
     ADD COLUMN terms_accepted BOOLEAN NOT NULL DEFAULT FALSE,

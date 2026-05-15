@@ -58,7 +58,7 @@ public class LockoutManagementIntegrationTest {
 
         // --- SETUP: Register user ---
         var user = registrationService.registerUser(new RegisterRequest(email, password, true, true));
-        String userId = user.getId();
+        String userId = user.getId().toString();
 
         // Reset mock to clear registration email
         org.mockito.Mockito.reset(emailPublisher);

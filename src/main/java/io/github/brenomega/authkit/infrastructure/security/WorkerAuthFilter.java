@@ -1,6 +1,8 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 
 import org.jspecify.annotations.NonNull;
@@ -29,7 +31,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     private final String workerToken;
     private static final String HEADER_NAME = "X-Worker-Token";
 
-    public WorkerAuthFilter(@Value("${app.security.worker-token:fallback-worker-secret-token}") String workerToken) {
+    public WorkerAuthFilter(@Value("${app.security.worker-token}") String workerToken) {
         this.workerToken = workerToken;
     }
 
@@ -39,7 +41,9 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
 
         String tokenHeader = request.getHeader(HEADER_NAME);
 
-        if (tokenHeader != null && tokenHeader.equals(workerToken)) {
+        if (tokenHeader != null && MessageDigest.isEqual(
+                tokenHeader.getBytes(StandardCharsets.UTF_8),
+                workerToken.getBytes(StandardCharsets.UTF_8))) {
             // Apply Worker Role
             var workerAuth = new UsernamePasswordAuthenticationToken(
                     "internal-worker",

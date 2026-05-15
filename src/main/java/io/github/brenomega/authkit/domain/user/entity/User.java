@@ -45,8 +45,8 @@ public class User {
      */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "id", length = 36, nullable = false, updatable = false)
-    private String id;
+    @Column(name = "id", nullable = false, updatable = false)
+    private java.util.UUID id;
 
     /**
      * User's email address, used as the login credential.
@@ -71,8 +71,8 @@ public class User {
     /**
      * Multi-tenancy isolation identifier.
      */
-    @Column(name = "tenant_id", length = 36, nullable = false, unique = true, updatable = false)
-    private String tenantId;
+    @Column(name = "tenant_id", nullable = false, unique = true, updatable = false)
+    private java.util.UUID tenantId;
 
     /** Optional display name. */
     @Column(name = "name", length = 100)
@@ -124,7 +124,7 @@ public class User {
         this.emailConfirmationToken = emailConfirmationToken;
 
         this.role = Role.USER;
-        this.tenantId = java.util.UUID.randomUUID().toString();
+        this.tenantId = java.util.UUID.randomUUID();
         this.emailConfirmed = false;
     }
 
@@ -133,7 +133,7 @@ public class User {
     // -------------------------------------------------------------------------
 
     /** @return the UUID primary key */
-    public String getId() {
+    public java.util.UUID getId() {
         return id;
     }
 
@@ -173,7 +173,7 @@ public class User {
         this.role = role;
     }
 
-    public String getTenantId() { return tenantId; }
+    public java.util.UUID getTenantId() { return tenantId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getPhone() { return phone; }

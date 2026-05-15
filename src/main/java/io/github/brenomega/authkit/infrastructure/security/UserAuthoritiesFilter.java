@@ -42,7 +42,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
             String userId = jwtAuth.getName(); // Resolves to 'sub' claim
 
-            userRepository.findById(userId).ifPresent(user -> {
+            userRepository.findById(java.util.UUID.fromString(userId)).ifPresent(user -> {
                 SecurityUser securityUser = new SecurityUser(user);
 
                 // Overwrite the Security Context mapped authorities explicitly with the current DB snapshot

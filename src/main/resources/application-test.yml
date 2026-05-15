@@ -57,6 +57,20 @@ spring:
     parser:
       strict-duplicate-detection: true
 
+app:
+  security:
+    worker-token: test-dummy-worker-token
+
+# =============================================================================
+# Security Configuration (Argon2id)
+# Extremely relaxed for tests to keep test suite execution fast.
+# =============================================================================
+security:
+  argon2:
+    memory: 4096
+    iterations: 1
+    parallelism: 1
+
 # =============================================================================
 # JWT — Test keys loaded from classpath (DT 3.2.2)
 # These are test-only keys, safe to commit. Production keys are env-injected.

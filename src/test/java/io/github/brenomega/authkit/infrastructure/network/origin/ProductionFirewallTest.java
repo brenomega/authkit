@@ -40,7 +40,8 @@ import java.security.KeyPair;
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
     "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
-    "spring.rabbitmq.port=0"
+    "spring.rabbitmq.port=0",
+    "app.security.worker-token=mock-token"
 })
 public class ProductionFirewallTest {
 

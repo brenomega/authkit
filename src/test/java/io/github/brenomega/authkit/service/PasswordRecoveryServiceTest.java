@@ -91,7 +91,7 @@ class PasswordRecoveryServiceTest {
         String newPass = "NewPass123!";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
-        when(user.getId()).thenReturn("user-id");
+        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
 
         when(tokenStorage.validateRecoveryToken(email, token)).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
@@ -104,7 +104,7 @@ class PasswordRecoveryServiceTest {
         // DT 3.2.23: Lockout must be cleared after successful reset
         verify(lockoutService).clearLockout(email);
         // RF 2.1.12: All sessions must be revoked after password reset
-        verify(tokenStorage).revokeAllSessions("user-id");
+        verify(tokenStorage).revokeAllSessions("00000000-0000-0000-0000-000000000000");
         verify(emailPublisher).publish(any()); // Reset confirmation
     }
 

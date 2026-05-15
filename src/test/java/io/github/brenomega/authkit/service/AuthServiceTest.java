@@ -46,8 +46,8 @@ class AuthServiceTest {
         jwtEncoder = mock(JwtEncoder.class);
         tokenStorage = mock(TokenStorage.class);
         // Use a real AccountLockoutService with a mock Redis template.
-        // Redis operations will throw, causing fail-open to Caffeine — suitable for unit tests.
-        lockoutService = new AccountLockoutService(mock(org.springframework.data.redis.core.StringRedisTemplate.class));
+        // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
+        lockoutService = new AccountLockoutService(Optional.empty());
         authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService);
     }
 
@@ -61,10 +61,10 @@ class AuthServiceTest {
         String pass = "Pass123!";
         
         User user = mock(User.class);
-        when(user.getId()).thenReturn("user-id");
+        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
-        when(user.getTenantId()).thenReturn("tenant-id");
+        when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
