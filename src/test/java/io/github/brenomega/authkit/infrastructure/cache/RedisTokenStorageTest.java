@@ -37,4 +37,17 @@ public class RedisTokenStorageTest {
         redisTokenStorage.revokeAllSessions(userId);
         assertFalse(redisTokenStorage.validateToken(userId, jti, rawToken));
     }
+
+    @Test
+    @DisplayName("Recovery token consume validates and revokes atomically")
+    void testConsumeRecoveryToken() {
+        String email = "reset@example.com";
+        String rawToken = UUID.randomUUID().toString();
+
+        redisTokenStorage.storeRecoveryToken(email, rawToken, 15);
+
+        assertTrue(redisTokenStorage.consumeRecoveryToken(email, rawToken));
+        assertFalse(redisTokenStorage.consumeRecoveryToken(email, rawToken));
+        assertFalse(redisTokenStorage.validateRecoveryToken(email, rawToken));
+    }
 }

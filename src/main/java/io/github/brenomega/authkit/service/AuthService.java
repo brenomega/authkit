@@ -17,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -47,6 +49,7 @@ public class AuthService {
     private final JwtEncoder jwtEncoder;
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
+    private final String dummyPasswordHash;
 
     // Concurrency Limit (N = cores * 1.5) to brutally protect against Thread Exhaustion
     private final Semaphore argon2Semaphore;
@@ -59,6 +62,7 @@ public class AuthService {
         this.jwtEncoder = jwtEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
+        this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
         
         int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
         this.argon2Semaphore = new Semaphore(Math.max(2, permits)); 
@@ -81,34 +85,27 @@ public class AuthService {
      */
     @LogExecutionTime
     public LoginResult login(LoginRequest request) {
-        String email = request.email();
+        String email = EmailNormalizer.normalize(request.email());
         
-        // DT 3.2.15 & DT 3.2.23: Stealth Lockout returning fake Success properties hiding Enumeration limits
+        // DT 3.2.15 & DT 3.2.23: return the same credential failure while locked.
         if (lockoutService.isLocked(email)) {
-            log.warn("Stealth lockout active for email. Returning fake 200 OK token.");
-            return new LoginResult(new LoginResponse("stealth-locked", 0), "stealth-locked");
-        }
-
-        // Enforce generic 401 to prevent enumeration
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(InvalidCredentialsException::new);
-                
-        boolean passwordMatches;
-        try {
-            // Apply Semaphore logic dropping processing unconditionally when congested (DT 3.2.26)
-            if (!argon2Semaphore.tryAcquire()) {
-                // If system is overwhelmed, fail early explicitly via Stealth response emulation logic
-                throw new InvalidCredentialsException();
-            }
-            passwordMatches = passwordEncoder.matches(request.password(), user.getPassword());
-        } finally {
-            argon2Semaphore.release();
-        }
-
-        if (!passwordMatches) {
-            lockoutService.recordFailedAttempt(email);
+            log.warn("Login rejected because lockout is active for normalized email.");
             throw new InvalidCredentialsException();
         }
+
+        var userOptional = userRepository.findByEmail(email);
+        String hashToCheck = userOptional.map(User::getPassword).orElse(dummyPasswordHash);
+                
+        boolean passwordMatches = matchesWithCapacity(request.password(), hashToCheck);
+
+        if (userOptional.isEmpty() || !passwordMatches) {
+            if (userOptional.isPresent()) {
+                lockoutService.recordFailedAttempt(email);
+            }
+            throw new InvalidCredentialsException();
+        }
+
+        User user = userOptional.get();
         
         // Clear limits on legit sign in
         lockoutService.clearLockout(email);
@@ -137,5 +134,18 @@ public class AuthService {
 
         LoginResponse responseDto = new LoginResponse(accessToken, expiresInSeconds);
         return new LoginResult(responseDto, rawRefreshToken);
+    }
+
+    private boolean matchesWithCapacity(String rawPassword, String encodedPassword) {
+        boolean acquired = argon2Semaphore.tryAcquire();
+        if (!acquired) {
+            throw new AuthenticationCapacityExceededException();
+        }
+
+        try {
+            return passwordEncoder.matches(rawPassword, encodedPassword);
+        } finally {
+            argon2Semaphore.release();
+        }
     }
 }

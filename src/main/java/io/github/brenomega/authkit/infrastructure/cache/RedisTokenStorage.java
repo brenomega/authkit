@@ -8,6 +8,7 @@ import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -119,6 +120,30 @@ public class RedisTokenStorage implements TokenStorage {
                 storedHash.getBytes(StandardCharsets.UTF_8),
                 inputHash.getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public boolean consumeRecoveryToken(String email, String rawToken) {
+        String key = "recovery:token:" + email;
+        String inputHash = hashToken(rawToken);
+        String luaScript = """
+                local stored = redis.call('GET', KEYS[1])
+                if not stored then
+                    return 0
+                end
+                if stored == ARGV[1] then
+                    redis.call('DEL', KEYS[1])
+                    return 1
+                end
+                return 0
+                """;
+
+        DefaultRedisScript<Long> script =
+                new DefaultRedisScript<>(luaScript, Long.class);
+
+        Long consumed = redisTemplate.execute(script, List.of(key), inputHash);
+        return consumed != null && consumed == 1L;
     }
 
     @Override

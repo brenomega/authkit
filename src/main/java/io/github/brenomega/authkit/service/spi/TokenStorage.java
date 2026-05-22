@@ -55,6 +55,21 @@ public interface TokenStorage {
     boolean validateRecoveryToken(String email, String rawToken);
 
     /**
+     * Atomically validates and consumes a recovery token.
+     *
+     * @param email    the user's email
+     * @param rawToken the token to validate and consume
+     * @return true if the token was valid and was consumed
+     */
+    default boolean consumeRecoveryToken(String email, String rawToken) {
+        if (!validateRecoveryToken(email, rawToken)) {
+            return false;
+        }
+        revokeRecoveryToken(email);
+        return true;
+    }
+
+    /**
      * Immediately invalidates the recovery token for the given email.
      *
      * @param email the user's email

@@ -14,7 +14,7 @@ public record PasswordChangeRequest(
     String currentPassword,
 
     @NotBlank
-    @Size(min = 8, max = 100)
+    @Size(min = 12, max = 128)
     String newPassword
 ) {
 }

@@ -41,7 +41,8 @@ public class LoggingAspect {
      */
     private static final Set<String> SENSITIVE_PARAMS = Set.of(
             "password", "token", "secret", "accesstoken", "refreshtoken",
-            "jwt", "authorization"
+            "jwt", "authorization", "currentpassword", "newpassword",
+            "rawtoken", "rawrefreshtoken"
     );
 
     /** Replacement value for masked parameters. */
@@ -139,7 +140,7 @@ public class LoggingAspect {
                 sb.append(", ");
             }
             String paramName = params[i].getName();
-            if (isSensitive(paramName)) {
+            if (isSensitive(paramName) || isSensitiveValue(args[i])) {
                 sb.append(paramName).append('=').append(MASKED);
             } else {
                 sb.append(paramName).append('=').append(args[i]);
@@ -156,5 +157,18 @@ public class LoggingAspect {
      */
     static boolean isSensitive(String paramName) {
         return SENSITIVE_PARAMS.contains(paramName.toLowerCase());
+    }
+
+    private static boolean isSensitiveValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+
+        String simpleName = value.getClass().getSimpleName().toLowerCase();
+        return simpleName.contains("loginrequest")
+                || simpleName.contains("registerrequest")
+                || simpleName.contains("passwordchangerequest")
+                || simpleName.contains("passwordresetrequest")
+                || simpleName.contains("passwordrecoveryrequest");
     }
 }

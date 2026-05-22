@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -76,7 +77,7 @@ class PasswordRecoveryServiceTest {
 
         recoveryService.requestRecovery(email);
 
-        verify(tokenStorage, never()).storeRecoveryToken(any(), any(), any(Integer.class));
+        verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
         verify(emailPublisher, never()).publish(any());
     }
 
@@ -93,14 +94,13 @@ class PasswordRecoveryServiceTest {
         when(user.getEmail()).thenReturn(email);
         when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
 
-        when(tokenStorage.validateRecoveryToken(email, token)).thenReturn(true);
+        when(tokenStorage.consumeRecoveryToken(email, token)).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.encode(newPass)).thenReturn("hashed-new-pass");
 
         recoveryService.resetPassword(email, token, newPass);
 
         verify(userRepository).save(user);
-        verify(tokenStorage).revokeRecoveryToken(email);
         // DT 3.2.23: Lockout must be cleared after successful reset
         verify(lockoutService).clearLockout(email);
         // RF 2.1.12: All sessions must be revoked after password reset
@@ -114,7 +114,7 @@ class PasswordRecoveryServiceTest {
     @Test
     @DisplayName("Reset: Invalid token throws exception")
     void resetPassword_InvalidToken_ThrowsException() {
-        when(tokenStorage.validateRecoveryToken(any(), any())).thenReturn(false);
+        when(tokenStorage.consumeRecoveryToken(any(), any())).thenReturn(false);
 
         assertThrows(InvalidTokenException.class, () -> 
             recoveryService.resetPassword("any@example.com", "bad", "new"));
@@ -127,7 +127,7 @@ class PasswordRecoveryServiceTest {
     @DisplayName("Reset: Valid token but missing user throws exception")
     void resetPassword_MissingUser_ThrowsException() {
         String email = "gone@example.com";
-        when(tokenStorage.validateRecoveryToken(eq(email), any())).thenReturn(true);
+        when(tokenStorage.consumeRecoveryToken(eq(email), any())).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> 

@@ -103,11 +103,35 @@ public class TestCacheConfig {
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
-            String hashKey = invocation.getArgument(2).toString();
-            String value = invocation.getArgument(3).toString();
+            Object[] args = invocation.getArguments();
+
+            if (args.length == 3) {
+                String inputHash = args[2].toString();
+                String storedHash = valueCache.get(key);
+                if (storedHash != null && storedHash.equals(inputHash)) {
+                    valueCache.remove(key);
+                    return 1L;
+                }
+                return 0L;
+            }
+
+            String hashKey = args[2].toString();
+            String value = args[3].toString();
             hashCache.computeIfAbsent(key, k -> new HashMap<>()).put(hashKey, value);
             return Boolean.TRUE;
         }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            java.util.List<?> keys = invocation.getArgument(1);
+            String key = (String) keys.get(0);
+            String inputHash = invocation.getArgument(2).toString();
+            String storedHash = valueCache.get(key);
+            if (storedHash != null && storedHash.equals(inputHash)) {
+                valueCache.remove(key);
+                return 1L;
+            }
+            return 0L;
+        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any());
         
         Mockito.when(template.opsForValue()).thenReturn(valueOps);
         Mockito.when(template.opsForHash()).thenReturn(hashOps);

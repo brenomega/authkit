@@ -94,10 +94,10 @@ class AuthServiceTest {
     }
 
     /**
-     * DT 3.2.23 — Progressive Lockout: Verifies stealth response after 5 failed attempts.
+     * DT 3.2.23 — Progressive Lockout: Verifies generic rejection after 5 failed attempts.
      */
     @Test
-    @DisplayName("Login: Stealth lockout after 5 failures (DT 3.2.23)")
+    @DisplayName("Login: Generic rejection after lockout (DT 3.2.23)")
     void login_StealthLockout() {
         String email = "locked@example.com";
         User user = mock(User.class);
@@ -112,9 +112,8 @@ class AuthServiceTest {
                 authService.login(new LoginRequest(email, "wrong")));
         }
 
-        // 6th attempt should be stealth-locked
-        AuthService.LoginResult result = authService.login(new LoginRequest(email, "any"));
-        assertEquals("stealth-locked", result.refreshToken());
-        assertEquals("stealth-locked", result.response().accessToken());
+        // 6th attempt should remain indistinguishable from invalid credentials.
+        assertThrows(InvalidCredentialsException.class, () ->
+                authService.login(new LoginRequest(email, "any")));
     }
 }

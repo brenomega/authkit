@@ -75,7 +75,7 @@ public class NetworkSecurityIntegrationTest {
 
     @SuppressWarnings("null")
     @Test
-    @DisplayName("Progressive Lockout executes Stealth Response on brute force attempts (DT 3.2.15)")
+    @DisplayName("Progressive Lockout keeps brute-force responses generic (DT 3.2.15)")
     void progressiveLockout_stealthResponse() throws Exception {
         String email = "brute@example.com";
         String payload = """
@@ -96,13 +96,13 @@ public class NetworkSecurityIntegrationTest {
                     .andExpect(status().isUnauthorized());
         }
 
-        // The 6th attempt and beyond returns 200 OK stealth-locked protecting against Enumeration
+        // The 6th attempt and beyond remains a generic 401 to avoid fake-token issuance.
         mockMvc.perform(post("/api/v1/auth/login")
                         .header("CF-Connecting-IP", "127.0.0.12")
                         .contentType("application/json")
                         .content(payload))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.accessToken").value("stealth-locked"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Invalid email or password"));
     }
 
     @Test

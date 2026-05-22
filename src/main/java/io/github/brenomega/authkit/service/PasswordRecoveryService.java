@@ -2,6 +2,8 @@ package io.github.brenomega.authkit.service;
 
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
@@ -72,21 +76,25 @@ public class PasswordRecoveryService {
      */
     @LogExecutionTime
     public void requestRecovery(String email) {
-        userRepository.findByEmail(email).ifPresentOrElse(
+        String normalizedEmail = EmailNormalizer.normalize(email);
+
+        userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
                 user -> {
                     String token = UUID.randomUUID().toString();
-                    tokenStorage.storeRecoveryToken(email, token, 15); // 15 mins TTL
+                    tokenStorage.storeRecoveryToken(normalizedEmail, token, 15); // 15 mins TTL
                     
-                    String resetLink = "https://frontend.url/reset-password?token=" + token + "&email=" + email;
+                    String resetLink = "https://frontend.url/reset-password?token="
+                            + URLEncoder.encode(token, StandardCharsets.UTF_8)
+                            + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
                     EmailPayload emailPayload = new EmailPayload(
-                            email,
+                            normalizedEmail,
                             "Password Recovery",
                             "Click here to reset your password: " + resetLink
                     );
                     emailPublisher.publish(emailPayload);
                     log.info("Password recovery requested for existing user. Token generated and event published.");
                 },
-                () -> log.info("Password recovery requested for non-existing email: {}. Stealth response triggered.", email)
+                () -> log.info("Password recovery requested for non-existing account. Stealth response triggered.")
         );
     }
 
@@ -101,40 +109,41 @@ public class PasswordRecoveryService {
     @Transactional
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {
-        if (!tokenStorage.validateRecoveryToken(email, token)) {
-            log.warn("Invalid or expired password recovery token for email: {}", email);
-            throw new InvalidTokenException();
+        String normalizedEmail = EmailNormalizer.normalize(email);
+        boolean acquired = argon2Semaphore.tryAcquire();
+
+        if (!acquired) {
+            throw new AuthenticationCapacityExceededException();
         }
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(UserNotFoundException::new);
-
         try {
-            argon2Semaphore.acquire();
+            if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
+                log.warn("Invalid or expired password recovery token.");
+                throw new InvalidTokenException();
+            }
+
+            User user = userRepository.findByEmail(normalizedEmail)
+                    .orElseThrow(UserNotFoundException::new);
+
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted during password hashing", e);
+
+            // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
+            lockoutService.clearLockout(normalizedEmail);
+
+            // RF 2.1.12: Revoke all active sessions to force re-authentication
+            tokenStorage.revokeAllSessions(user.getId().toString());
+
+            EmailPayload confirmation = new EmailPayload(
+                    normalizedEmail,
+                    "Password Changed",
+                    "Your password has been successfully changed."
+            );
+            emailPublisher.publish(confirmation);
+
+            log.info("Password successfully reset for user: {}", user.getId());
         } finally {
             argon2Semaphore.release();
         }
-
-        tokenStorage.revokeRecoveryToken(email);
-
-        // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
-        lockoutService.clearLockout(email);
-
-        // RF 2.1.12: Revoke all active sessions to force re-authentication
-        tokenStorage.revokeAllSessions(user.getId().toString());
-        
-        EmailPayload confirmation = new EmailPayload(
-                email,
-                "Password Changed",
-                "Your password has been successfully changed."
-        );
-        emailPublisher.publish(confirmation);
-        
-        log.info("Password successfully reset for user: {}", user.getId());
     }
 }

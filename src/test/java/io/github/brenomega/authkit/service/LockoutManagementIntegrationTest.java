@@ -27,7 +27,7 @@ import static org.mockito.Mockito.verify;
  *
  * <p>Verifies that:</p>
  * <ol>
- *   <li>After 5 failed logins, the account enters stealth lockout (DT 3.2.15).</li>
+     *   <li>After 5 failed logins, the account remains generically rejected (DT 3.2.15).</li>
  *   <li>Locked accounts are blocked from password change even with a valid JWT.</li>
  *   <li>Locked accounts are blocked from session revocation even with a valid JWT.</li>
  *   <li>Email-based password reset is the ONLY unlock path.</li>
@@ -71,12 +71,12 @@ public class LockoutManagementIntegrationTest {
                     .andExpect(status().isUnauthorized());
         }
 
-        // --- STEP 2: 6th login attempt should be stealth-locked (200 OK) ---
+        // --- STEP 2: 6th login attempt should remain a generic credential failure ---
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content("{\"email\": \"" + email + "\", \"password\": \"WRONG\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.accessToken").value("stealth-locked"));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Invalid email or password"));
 
         // --- STEP 3: Attempt password change with valid JWT → should be REJECTED (403) ---
         mockMvc.perform(post("/api/v1/users/me/password")

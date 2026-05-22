@@ -13,6 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
+import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import java.util.List;
@@ -141,10 +142,12 @@ public class ProfileService {
         }
 
         // Hashing: Apply Argon2id with semaphore protection (DT 3.2.26)
+        boolean acquired = argon2Semaphore.tryAcquire();
+        if (!acquired) {
+            throw new AuthenticationCapacityExceededException();
+        }
+
         try {
-            if (!argon2Semaphore.tryAcquire()) {
-                throw new RuntimeException("System busy, please try again later");
-            }
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {

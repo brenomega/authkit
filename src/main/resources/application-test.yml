@@ -45,6 +45,11 @@ spring:
   rabbitmq:
     host: localhost
     port: 0
+    listener:
+      simple:
+        auto-startup: false
+      direct:
+        auto-startup: false
 
   # ---------------------------------------------------------------------------
   # Jackson — Same strict settings as production
