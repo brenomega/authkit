@@ -1,12 +1,15 @@
 package io.github.brenomega.authkit.controller;
 
+import java.time.Duration;
+import java.util.Arrays;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,7 +24,10 @@ import io.github.brenomega.authkit.service.AuthService;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.domain.user.dto.PasswordRecoveryRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordResetRequest;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.PasswordRecoveryService;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 /**
@@ -35,21 +41,20 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    private static final String REFRESH_COOKIE_NAME = "Refresh-Token";
-    private static final String REFRESH_COOKIE_PATH = "/api/v1/auth";
-    private static final long REFRESH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-
     private final RegistrationService registrationService;
     private final AuthService authService;
     private final PasswordRecoveryService recoveryService;
+    private final AuthProperties authProperties;
 
     public AuthController(
             RegistrationService registrationService,
             AuthService authService,
-            PasswordRecoveryService recoveryService) {
+            PasswordRecoveryService recoveryService,
+            AuthProperties authProperties) {
         this.registrationService = registrationService;
         this.authService = authService;
         this.recoveryService = recoveryService;
+        this.authProperties = authProperties;
     }
 
     /**
@@ -68,10 +73,9 @@ public class AuthController {
      * Rotates the refresh token and issues a fresh access token (RF 2.1.5, DT 3.2.4).
      */
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<LoginResponse>> refresh(
-            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken) {
+    public ResponseEntity<ApiResponse<LoginResponse>> refresh(HttpServletRequest request) {
 
-        AuthService.LoginResult result = authService.refresh(refreshToken);
+        AuthService.LoginResult result = authService.refresh(readRefreshToken(request));
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken()).toString())
@@ -82,10 +86,9 @@ public class AuthController {
      * Revokes the current refresh-token-backed session and clears the cookie (RF 2.1.5).
      */
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<String>> logout(
-            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken) {
+    public ResponseEntity<ApiResponse<String>> logout(HttpServletRequest request) {
 
-        authService.logout(refreshToken);
+        authService.logout(readRefreshToken(request));
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, clearRefreshCookie().toString())
@@ -153,23 +156,42 @@ public class AuthController {
     }
 
     private ResponseCookie refreshCookie(String refreshToken) {
+        AuthProperties.Cookie cookie = authProperties.getCookie();
+
         // DT 3.2.22: HttpOnly cookie prevents client-side script access.
-        return ResponseCookie.from(REFRESH_COOKIE_NAME, refreshToken)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
-                .path(REFRESH_COOKIE_PATH)
-                .maxAge(REFRESH_COOKIE_MAX_AGE_SECONDS)
+        return ResponseCookie.from(cookie.getRefreshName(), refreshToken)
+                .httpOnly(cookie.isHttpOnly())
+                .secure(cookie.isSecure())
+                .sameSite(cookie.getSameSite())
+                .path(cookie.getPath())
+                .maxAge(Duration.ofDays(authProperties.getToken().getRefreshTokenTtlDays()))
                 .build();
     }
 
     private ResponseCookie clearRefreshCookie() {
-        return ResponseCookie.from(REFRESH_COOKIE_NAME, "")
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
-                .path(REFRESH_COOKIE_PATH)
+        AuthProperties.Cookie cookie = authProperties.getCookie();
+
+        return ResponseCookie.from(cookie.getRefreshName(), "")
+                .httpOnly(cookie.isHttpOnly())
+                .secure(cookie.isSecure())
+                .sameSite(cookie.getSameSite())
+                .path(cookie.getPath())
                 .maxAge(0)
                 .build();
+    }
+
+    private String readRefreshToken(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+
+        String refreshName = authProperties.getCookie().getRefreshName();
+        return Arrays.stream(cookies)
+                .filter(cookie -> refreshName.equals(cookie.getName()))
+                .map(Cookie::getValue)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(null);
     }
 }

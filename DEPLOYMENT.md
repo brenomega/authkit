@@ -28,9 +28,20 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 #### Security & Authentication
 * `JWT_PUBLIC_KEY`: The absolute path to the RSA Public Key (`.pub` or `.pem`). This file must be mounted securely into the container.
 * `JWT_PRIVATE_KEY`: The absolute path to the RSA Private Key (`.key` or `.pem`). This file must be mounted securely into the container.
+* `AUTH_JWT_ISSUER`: Expected JWT issuer value. Must match the issuer used by downstream services validating AuthKit access tokens.
+* `AUTH_ACCESS_TOKEN_TTL_SECONDS`: Access token lifetime in seconds. Default: `900`.
+* `AUTH_REFRESH_TOKEN_TTL_DAYS`: Refresh-token-backed session lifetime in days. Default: `7`.
+* `AUTH_RECOVERY_TOKEN_TTL_MINUTES`: Password recovery token lifetime in minutes. Default: `15`.
+* `AUTH_REFRESH_COOKIE_NAME`: Refresh cookie name. Default: `Refresh-Token`.
+* `AUTH_REFRESH_COOKIE_PATH`: Refresh cookie path scope. Default: `/api/v1/auth`.
+* `AUTH_REFRESH_COOKIE_HTTP_ONLY`: Whether the refresh cookie is `HttpOnly`. Production should keep this `true`.
+* `AUTH_REFRESH_COOKIE_SECURE`: Whether the refresh cookie requires HTTPS. Production should keep this `true`.
+* `AUTH_REFRESH_COOKIE_SAME_SITE`: SameSite policy for refresh cookies. Default: `Strict`.
 
 #### External Integrations
 * `RESEND_API_KEY`: API Token for the Resend email service.
+* `AUTH_FRONTEND_ACTIVATION_URL`: Public frontend activation URL, without query string.
+* `AUTH_FRONTEND_PASSWORD_RESET_URL`: Public frontend password reset URL, without query string.
 
 ## 2. Secrets Management Strategy
 
@@ -49,6 +60,17 @@ RABBIT_PASSWORD=secret
 REDIS_HOST=localhost
 JWT_PUBLIC_KEY=file:/etc/authkit/keys/app.pub
 JWT_PRIVATE_KEY=file:/etc/authkit/keys/app.key
+AUTH_JWT_ISSUER=https://auth.example.com
+AUTH_ACCESS_TOKEN_TTL_SECONDS=900
+AUTH_REFRESH_TOKEN_TTL_DAYS=7
+AUTH_RECOVERY_TOKEN_TTL_MINUTES=15
+AUTH_REFRESH_COOKIE_NAME=Refresh-Token
+AUTH_REFRESH_COOKIE_PATH=/api/v1/auth
+AUTH_REFRESH_COOKIE_HTTP_ONLY=true
+AUTH_REFRESH_COOKIE_SECURE=true
+AUTH_REFRESH_COOKIE_SAME_SITE=Strict
+AUTH_FRONTEND_ACTIVATION_URL=https://app.example.com/activate
+AUTH_FRONTEND_PASSWORD_RESET_URL=https://app.example.com/reset-password
 RESEND_API_KEY=re_123456789
 ```
 

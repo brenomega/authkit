@@ -28,6 +28,7 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
  * Core authentication service handling the login lifecycle (RF 2.1.2).
@@ -46,14 +47,13 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
-    private static final long ACCESS_TOKEN_TTL_SECONDS = 900;
-    private static final long REFRESH_TOKEN_TTL_DAYS = 7;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtEncoder jwtEncoder;
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
+    private final AuthProperties authProperties;
     private final String dummyPasswordHash;
 
     // Concurrency Limit (N = cores * 1.5) to brutally protect against Thread Exhaustion
@@ -61,12 +61,14 @@ public class AuthService {
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                        JwtEncoder jwtEncoder, TokenStorage tokenStorage,
-                       AccountLockoutService lockoutService) {
+                       AccountLockoutService lockoutService,
+                       AuthProperties authProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtEncoder = jwtEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
+        this.authProperties = authProperties;
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
         
         int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
@@ -121,7 +123,7 @@ public class AuthService {
                 user.getId().toString(),
                 jti,
                 refreshToken.rawToken(),
-                REFRESH_TOKEN_TTL_DAYS
+                authProperties.getToken().getRefreshTokenTtlDays()
         );
 
         return issueTokenPair(user, refreshToken);
@@ -153,7 +155,7 @@ public class AuthService {
                 currentRefreshToken.rawToken(),
                 nextRefreshToken.jti(),
                 nextRefreshToken.rawToken(),
-                REFRESH_TOKEN_TTL_DAYS
+                authProperties.getToken().getRefreshTokenTtlDays()
         );
 
         if (!rotated) {
@@ -175,11 +177,12 @@ public class AuthService {
 
     private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken) {
         Instant now = Instant.now();
+        long accessTokenTtlSeconds = authProperties.getToken().getAccessTokenTtlSeconds();
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
-                .issuer("authkit")
+                .issuer(authProperties.getJwt().getIssuer())
                 .issuedAt(now)
-                .expiresAt(now.plusSeconds(ACCESS_TOKEN_TTL_SECONDS))
+                .expiresAt(now.plusSeconds(accessTokenTtlSeconds))
                 .subject(user.getId().toString())
                 .id(refreshToken.jti()) // DT 3.2.3: bind access token to refresh session JTI
                 .claim("tenantId", user.getTenantId().toString())
@@ -188,7 +191,7 @@ public class AuthService {
 
         String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
 
-        LoginResponse responseDto = new LoginResponse(accessToken, ACCESS_TOKEN_TTL_SECONDS);
+        LoginResponse responseDto = new LoginResponse(accessToken, accessTokenTtlSeconds);
         return new LoginResult(responseDto, refreshToken.rawToken());
     }
 

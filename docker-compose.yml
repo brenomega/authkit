@@ -96,6 +96,17 @@ services:
       RABBIT_PASSWORD: authkit_secret
       JWT_PRIVATE_KEY: file:/app/keys/app.key
       JWT_PUBLIC_KEY: file:/app/keys/app.pub
+      AUTH_JWT_ISSUER: authkit-local
+      AUTH_ACCESS_TOKEN_TTL_SECONDS: 900
+      AUTH_REFRESH_TOKEN_TTL_DAYS: 7
+      AUTH_RECOVERY_TOKEN_TTL_MINUTES: 15
+      AUTH_REFRESH_COOKIE_NAME: Refresh-Token
+      AUTH_REFRESH_COOKIE_PATH: /api/v1/auth
+      AUTH_REFRESH_COOKIE_HTTP_ONLY: "true"
+      AUTH_REFRESH_COOKIE_SECURE: "true"
+      AUTH_REFRESH_COOKIE_SAME_SITE: Strict
+      AUTH_FRONTEND_ACTIVATION_URL: https://authkit.local/activate
+      AUTH_FRONTEND_PASSWORD_RESET_URL: https://authkit.local/reset-password
     ports:
       - "8080:8080"
     depends_on:

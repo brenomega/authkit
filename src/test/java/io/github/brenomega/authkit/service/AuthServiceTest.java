@@ -16,6 +16,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
@@ -29,6 +30,7 @@ import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
  * Unit tests for AuthService (DT 3.4.5).
@@ -42,6 +44,7 @@ class AuthServiceTest {
     private JwtEncoder jwtEncoder;
     private TokenStorage tokenStorage;
     private AccountLockoutService lockoutService;
+    private AuthProperties authProperties;
     private AuthService authService;
 
     @BeforeEach
@@ -53,7 +56,8 @@ class AuthServiceTest {
         // Use a real AccountLockoutService with a mock Redis template.
         // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
         lockoutService = new AccountLockoutService(Optional.empty());
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService);
+        authProperties = new AuthProperties();
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties);
     }
 
     /**
@@ -82,8 +86,43 @@ class AuthServiceTest {
 
         assertNotNull(result);
         assertEquals("mock-access-token", result.response().accessToken());
+        assertEquals(900L, result.response().expiresIn());
         assertNotNull(result.refreshToken());
-        verify(tokenStorage).storeRefreshToken(any(), any(), any(), any(Long.class));
+        verify(tokenStorage).storeRefreshToken(any(), any(), any(), eq(7L));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Login: Uses externalized issuer and token lifetime settings")
+    void login_UsesExternalizedAuthSettings() {
+        authProperties.getJwt().setIssuer("https://issuer.example.test");
+        authProperties.getToken().setAccessTokenTtlSeconds(1200);
+        authProperties.getToken().setRefreshTokenTtlDays(14);
+
+        String email = "settings@example.com";
+        String pass = "Pass123!";
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
+        when(user.getEmail()).thenReturn(email);
+        when(user.getPassword()).thenReturn("hashed-pass");
+        when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn("configured-access-token");
+        when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(jwt);
+
+        AuthService.LoginResult result = authService.login(new LoginRequest(email, pass));
+
+        assertEquals(1200L, result.response().expiresIn());
+        verify(tokenStorage).storeRefreshToken(anyString(), anyString(), anyString(), eq(14L));
+
+        ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+        verify(jwtEncoder).encode(parameters.capture());
+        assertEquals("https://issuer.example.test", parameters.getValue().getClaims().getClaims().get("iss").toString());
     }
 
     /**

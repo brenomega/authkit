@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.service;
 
-import java.util.UUID;
 import java.util.concurrent.Semaphore;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -13,11 +12,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -48,6 +49,7 @@ public class PasswordRecoveryService {
     private final QueuePublisher<EmailPayload> emailPublisher;
     private final PasswordEncoder passwordEncoder;
     private final AccountLockoutService lockoutService;
+    private final AuthProperties authProperties;
     private final Semaphore argon2Semaphore;
 
     public PasswordRecoveryService(
@@ -55,12 +57,14 @@ public class PasswordRecoveryService {
             TokenStorage tokenStorage,
             QueuePublisher<EmailPayload> emailPublisher,
             PasswordEncoder passwordEncoder,
-            AccountLockoutService lockoutService) {
+            AccountLockoutService lockoutService,
+            AuthProperties authProperties) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailPublisher = emailPublisher;
         this.passwordEncoder = passwordEncoder;
         this.lockoutService = lockoutService;
+        this.authProperties = authProperties;
         
         int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
         this.argon2Semaphore = new Semaphore(Math.max(2, permits));
@@ -80,11 +84,12 @@ public class PasswordRecoveryService {
 
         userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
                 user -> {
-                    String token = UUID.randomUUID().toString();
-                    tokenStorage.storeRecoveryToken(normalizedEmail, token, 15); // 15 mins TTL
+                    String token = SecureTokenGenerator.randomUrlSafeToken(32);
+                    long ttlMinutes = authProperties.getToken().getRecoveryTokenTtlMinutes();
+                    tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
                     
-                    String resetLink = "https://frontend.url/reset-password?token="
-                            + URLEncoder.encode(token, StandardCharsets.UTF_8)
+                    String resetLink = authProperties.getFrontend().getPasswordResetUrl()
+                            + "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
                             + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
                     EmailPayload emailPayload = new EmailPayload(
                             normalizedEmail,

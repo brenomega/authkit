@@ -87,6 +87,27 @@ jwt:
     key: classpath:test-keys/app.key
 
 # =============================================================================
+# Auth Runtime Configuration — deterministic test defaults
+# =============================================================================
+authkit:
+  auth:
+    token:
+      access-token-ttl-seconds: 900
+      refresh-token-ttl-days: 7
+      recovery-token-ttl-minutes: 15
+    cookie:
+      refresh-name: Refresh-Token
+      path: /api/v1/auth
+      http-only: true
+      secure: true
+      same-site: Strict
+    jwt:
+      issuer: authkit
+    frontend:
+      activation-url: https://authkit.io/activate
+      password-reset-url: https://frontend.url/reset-password
+
+# =============================================================================
 # Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)
 # =============================================================================
 network:

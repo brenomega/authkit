@@ -20,13 +20,8 @@ spec:
           envFrom:
             - secretRef:
                 name: authkit-secrets
-          env:
-            # Map the trusted origins from the ConfigMap
-            - name: NETWORK_SECURITY_TRUSTED_ORIGINS
-              valueFrom:
-                configMapKeyRef:
-                  name: authkit-network-config
-                  key: NETWORK_SECURITY_TRUSTED_ORIGINS
+            - configMapRef:
+                name: authkit-network-config
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

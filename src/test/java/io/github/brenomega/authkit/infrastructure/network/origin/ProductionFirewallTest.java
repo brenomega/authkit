@@ -41,7 +41,10 @@ import java.security.KeyPair;
     "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
     "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
     "spring.rabbitmq.port=0",
-    "app.security.worker-token=mock-token"
+    "app.security.worker-token=mock-token",
+    "authkit.auth.jwt.issuer=https://auth.example.test",
+    "authkit.auth.frontend.activation-url=https://app.example.test/activate",
+    "authkit.auth.frontend.password-reset-url=https://app.example.test/reset-password"
 })
 public class ProductionFirewallTest {
 

@@ -5,7 +5,10 @@ import java.security.interfaces.RSAPublicKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
@@ -29,6 +32,7 @@ public class JwtConfig {
 
     private final RSAPublicKey publicKey;
     private final RSAPrivateKey privateKey;
+    private final AuthProperties authProperties;
 
     /**
      * @param publicKey the RSA public key loaded by Spring's resource resolver
@@ -36,9 +40,11 @@ public class JwtConfig {
      */
     public JwtConfig(
             @Value("${jwt.public.key}") RSAPublicKey publicKey,
-            @Value("${jwt.private.key}") RSAPrivateKey privateKey) {
+            @Value("${jwt.private.key}") RSAPrivateKey privateKey,
+            AuthProperties authProperties) {
         this.publicKey = publicKey;
         this.privateKey = privateKey;
+        this.authProperties = authProperties;
     }
 
     /**
@@ -51,7 +57,11 @@ public class JwtConfig {
      */
     @Bean
     public JwtDecoder jwtDecoder() {
-        return NimbusJwtDecoder.withPublicKey(publicKey).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(publicKey).build();
+        OAuth2TokenValidator<Jwt> validator =
+                JwtValidators.createDefaultWithIssuer(authProperties.getJwt().getIssuer());
+        decoder.setJwtValidator(validator);
+        return decoder;
     }
 
     /**

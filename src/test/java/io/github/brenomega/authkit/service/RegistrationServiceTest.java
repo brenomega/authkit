@@ -12,10 +12,10 @@ import static org.mockito.Mockito.when;
 
 import java.util.Optional;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -39,8 +40,15 @@ class RegistrationServiceTest {
     @Mock
     private QueuePublisher<EmailPayload> emailPublisher;
 
-    @InjectMocks
     private RegistrationService service;
+    private AuthProperties authProperties;
+
+    @BeforeEach
+    void setUp() {
+        authProperties = new AuthProperties();
+        authProperties.getFrontend().setActivationUrl("https://frontend.example.test/activate");
+        service = new RegistrationService(userRepository, passwordEncoder, emailPublisher, authProperties);
+    }
 
     @SuppressWarnings("null")
     @Test
@@ -61,7 +69,7 @@ class RegistrationServiceTest {
 
         verify(emailPublisher).publish(argThat(payload -> 
                 payload.to().equals("new@example.com") &&
-                payload.htmlBody().contains("activate?token=")
+                payload.htmlBody().contains("https://frontend.example.test/activate?token=")
         ));
     }
 

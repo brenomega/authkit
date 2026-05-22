@@ -15,6 +15,7 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -29,13 +30,16 @@ public class RegistrationService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final QueuePublisher<EmailPayload> emailPublisher;
+    private final AuthProperties authProperties;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
-                               QueuePublisher<EmailPayload> emailPublisher) {
+                               QueuePublisher<EmailPayload> emailPublisher,
+                               AuthProperties authProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailPublisher = emailPublisher;
+        this.authProperties = authProperties;
     }
 
     /**
@@ -74,8 +78,8 @@ public class RegistrationService {
         }
 
         // Async activation trigger
-        String activationUrl = "https://authkit.io/activate?token="
-                + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
+        String activationUrl = authProperties.getFrontend().getActivationUrl()
+                + "?token=" + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
         EmailPayload payload = new EmailPayload(
                 user.getEmail(),
                 "Welcome to AuthKit - Activate your account",

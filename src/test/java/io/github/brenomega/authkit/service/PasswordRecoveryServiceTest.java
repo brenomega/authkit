@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.service;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -36,6 +38,7 @@ class PasswordRecoveryServiceTest {
     private QueuePublisher<EmailPayload> emailPublisher;
     private PasswordEncoder passwordEncoder;
     private AccountLockoutService lockoutService;
+    private AuthProperties authProperties;
     private PasswordRecoveryService recoveryService;
 
     @BeforeEach
@@ -46,7 +49,17 @@ class PasswordRecoveryServiceTest {
         emailPublisher = mock(QueuePublisher.class);
         passwordEncoder = mock(PasswordEncoder.class);
         lockoutService = mock(AccountLockoutService.class);
-        recoveryService = new PasswordRecoveryService(userRepository, tokenStorage, emailPublisher, passwordEncoder, lockoutService);
+        authProperties = new AuthProperties();
+        authProperties.getToken().setRecoveryTokenTtlMinutes(30);
+        authProperties.getFrontend().setPasswordResetUrl("https://frontend.example.test/reset-password");
+        recoveryService = new PasswordRecoveryService(
+                userRepository,
+                tokenStorage,
+                emailPublisher,
+                passwordEncoder,
+                lockoutService,
+                authProperties
+        );
     }
 
     /**
@@ -62,8 +75,10 @@ class PasswordRecoveryServiceTest {
 
         recoveryService.requestRecovery(email);
 
-        verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(15L));
-        verify(emailPublisher).publish(any(EmailPayload.class));
+        verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(30L));
+        verify(emailPublisher).publish(argThat(payload ->
+                payload.htmlBody().contains("https://frontend.example.test/reset-password?token=")
+                        && payload.htmlBody().contains("&email=exists%40example.com")));
     }
 
     /**

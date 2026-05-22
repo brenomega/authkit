@@ -15,11 +15,16 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 import jakarta.servlet.Filter;
+import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -39,6 +44,9 @@ class SecurityIntegrationTest {
 
     @Autowired
     private FilterChainProxy filterChainProxy;
+
+    @Autowired
+    private JwtEncoder jwtEncoder;
 
     // -------------------------------------------------------------------------
     // Authentication (DT 3.4.3 — 401)
@@ -89,6 +97,24 @@ class SecurityIntegrationTest {
                 .andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(jsonPath("$.errors").isArray())
                 .andExpect(jsonPath("$.timestamp").isString());
+    }
+
+    @Test
+    @DisplayName("Bearer JWT with unexpected issuer is rejected")
+    void bearerJwtWithUnexpectedIssuer_returns401() throws Exception {
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuer("unexpected-issuer")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(300))
+                .subject(UUID.randomUUID().toString())
+                .build();
+        String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Unauthorized"));
     }
 
     // -------------------------------------------------------------------------

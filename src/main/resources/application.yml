@@ -75,6 +75,28 @@ jwt:
     key: ${JWT_PRIVATE_KEY}
 
 # =============================================================================
+# Auth Runtime Configuration
+# Stateless token, cookie, issuer, and public frontend settings.
+# =============================================================================
+authkit:
+  auth:
+    token:
+      access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:900}
+      refresh-token-ttl-days: ${AUTH_REFRESH_TOKEN_TTL_DAYS:7}
+      recovery-token-ttl-minutes: ${AUTH_RECOVERY_TOKEN_TTL_MINUTES:15}
+    cookie:
+      refresh-name: ${AUTH_REFRESH_COOKIE_NAME:Refresh-Token}
+      path: ${AUTH_REFRESH_COOKIE_PATH:/api/v1/auth}
+      http-only: ${AUTH_REFRESH_COOKIE_HTTP_ONLY:true}
+      secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+      same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Strict}
+    jwt:
+      issuer: ${AUTH_JWT_ISSUER}
+    frontend:
+      activation-url: ${AUTH_FRONTEND_ACTIVATION_URL}
+      password-reset-url: ${AUTH_FRONTEND_PASSWORD_RESET_URL}
+
+# =============================================================================
 # Server Configuration
 # =============================================================================
 server:
