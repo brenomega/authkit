@@ -41,7 +41,8 @@ class AuthCookieConfigurationIntegrationTest {
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Configured refresh cookie name is used for login and refresh")
     void configuredRefreshCookieName_isUsedForLoginAndRefresh() throws Exception {
         registrationService.registerUser(new RegisterRequest(

@@ -155,6 +155,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Password successfully reset."));
     }
 
+    @SuppressWarnings("null")
     private ResponseCookie refreshCookie(String refreshToken) {
         AuthProperties.Cookie cookie = authProperties.getCookie();
 
@@ -168,6 +169,7 @@ public class AuthController {
                 .build();
     }
 
+    @SuppressWarnings("null")
     private ResponseCookie clearRefreshCookie() {
         AuthProperties.Cookie cookie = authProperties.getCookie();
 
