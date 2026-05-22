@@ -112,9 +112,13 @@ public class AuditLoggingAspect {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
             userId = jwt.getSubject();
-            tenantId = jwt.getClaimAsString("tenantId") != null
-                    ? jwt.getClaimAsString("tenantId")
-                    : "unknown";
+            tenantId = jwt.getClaimAsString("tenantId");
+            if (tenantId == null) {
+                tenantId = jwt.getClaimAsString("tenant_id");
+            }
+            if (tenantId == null) {
+                tenantId = "unknown";
+            }
         }
 
         // Extract HTTP request details

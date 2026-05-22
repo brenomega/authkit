@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,7 +23,9 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
+import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
@@ -77,6 +82,7 @@ class AuthServiceTest {
 
         assertNotNull(result);
         assertEquals("mock-access-token", result.response().accessToken());
+        assertNotNull(result.refreshToken());
         verify(tokenStorage).storeRefreshToken(any(), any(), any(), any(Long.class));
     }
 
@@ -115,5 +121,65 @@ class AuthServiceTest {
         // 6th attempt should remain indistinguishable from invalid credentials.
         assertThrows(InvalidCredentialsException.class, () ->
                 authService.login(new LoginRequest(email, "any")));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Refresh: Valid refresh token rotates session and returns new access token")
+    void refresh_Success_RotatesToken() {
+        String userId = "00000000-0000-0000-0000-000000000000";
+        String tenantId = "00000000-0000-0000-0000-000000000001";
+        RefreshTokenCodec.IssuedRefreshToken currentToken =
+                RefreshTokenCodec.issue(userId, "11111111-1111-1111-1111-111111111111");
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getEmail()).thenReturn("refresh@example.com");
+        when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(tokenStorage.rotateRefreshToken(
+                eq(userId),
+                eq(currentToken.jti()),
+                eq(currentToken.rawToken()),
+                anyString(),
+                anyString(),
+                eq(7L)
+        )).thenReturn(true);
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn("rotated-access-token");
+        when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(jwt);
+
+        AuthService.LoginResult result = authService.refresh(currentToken.rawToken());
+
+        assertEquals("rotated-access-token", result.response().accessToken());
+        assertNotNull(result.refreshToken());
+        assertNotNull(RefreshTokenCodec.parse(result.refreshToken()).orElse(null));
+    }
+
+    @Test
+    @DisplayName("Refresh: Malformed refresh token is rejected")
+    void refresh_MalformedToken_ThrowsException() {
+        assertThrows(InvalidRefreshTokenException.class, () -> authService.refresh("not-a-valid-token"));
+    }
+
+    @Test
+    @DisplayName("Logout: Valid refresh token revokes the referenced session")
+    void logout_RevokesSession() {
+        String userId = "00000000-0000-0000-0000-000000000000";
+        String jti = "11111111-1111-1111-1111-111111111111";
+        RefreshTokenCodec.IssuedRefreshToken token = RefreshTokenCodec.issue(userId, jti);
+
+        authService.logout(token.rawToken());
+
+        verify(tokenStorage).revokeSession(userId, jti);
+    }
+
+    @Test
+    @DisplayName("Logout: Missing or malformed refresh token is idempotent")
+    void logout_MalformedToken_Noops() {
+        authService.logout("malformed");
+
+        verify(tokenStorage, never()).revokeSession(anyString(), anyString());
     }
 }

@@ -2,7 +2,6 @@ package io.github.brenomega.authkit.infrastructure.cache;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 
@@ -10,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
@@ -63,6 +63,43 @@ public class RedisTokenStorage implements TokenStorage {
                 storedHash.getBytes(StandardCharsets.UTF_8),
                 inputHash.getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
+                                      String nextJti, String nextRawToken, long durationDays) {
+        String key = PREFIX + userId;
+        String currentHash = hashToken(currentRawToken);
+        String nextHash = hashToken(nextRawToken);
+        long durationSeconds = Duration.ofDays(durationDays).getSeconds();
+
+        String luaScript = """
+                local stored = redis.call('HGET', KEYS[1], ARGV[1])
+                if not stored then
+                    return 0
+                end
+                if stored ~= ARGV[2] then
+                    return 0
+                end
+                redis.call('HDEL', KEYS[1], ARGV[1])
+                redis.call('HSET', KEYS[1], ARGV[3], ARGV[4])
+                redis.call('EXPIRE', KEYS[1], ARGV[5])
+                return 1
+                """;
+
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>(luaScript, Long.class);
+
+        Long rotated = redisTemplate.execute(
+                script,
+                List.of(key),
+                currentJti,
+                currentHash,
+                nextJti,
+                nextHash,
+                String.valueOf(durationSeconds)
+        );
+        return rotated != null && rotated == 1L;
     }
 
     @Override
@@ -153,24 +190,6 @@ public class RedisTokenStorage implements TokenStorage {
     }
 
     private String hashToken(String rawToken) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = digest.digest(rawToken.getBytes(StandardCharsets.UTF_8));
-            return bytesToHex(hashBytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("Required cryptographic algorithm not found", e);
-        }
-    }
-
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder hexString = new StringBuilder(2 * bytes.length);
-        for (byte b : bytes) {
-            String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1) {
-                hexString.append('0');
-            }
-            hexString.append(hex);
-        }
-        return hexString.toString();
+        return TokenHasher.sha256Hex(rawToken);
     }
 }

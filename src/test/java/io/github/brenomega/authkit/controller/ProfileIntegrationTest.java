@@ -47,6 +47,7 @@ public class ProfileIntegrationTest {
     @DisplayName("PATCH /me: Updates profile successfully (RF 2.1.6)")
     void profileUpdate_Success() throws Exception {
         User user = new User("patchme@example.com", "Pass", "Old", null, true, true, null);
+        user.setEmailConfirmed(true);
         userRepository.save(user);
 
         String payload = """
@@ -61,5 +62,26 @@ public class ProfileIntegrationTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("New Name"));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("PATCH /me: Blocks profile updates until email is confirmed")
+    void profileUpdate_UnconfirmedEmail_Forbidden() throws Exception {
+        User user = new User("unconfirmed-patch@example.com", "Pass", "Old", null, true, true, "token");
+        userRepository.save(user);
+
+        String payload = """
+                {
+                   "name": "Blocked Name"
+                }
+                """;
+
+        mockMvc.perform(patch("/api/v1/users/me")
+                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString())))
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errors[0]").value("Email must be confirmed before performing this operation."));
     }
 }

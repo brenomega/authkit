@@ -96,6 +96,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/email-confirmation/confirm").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-recovery/**").permitAll()
                 .requestMatchers("/api/v1/users/me/**").authenticated()
                 .anyRequest().authenticated()

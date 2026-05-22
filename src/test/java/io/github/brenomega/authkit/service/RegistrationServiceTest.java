@@ -1,8 +1,10 @@
 package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
@@ -20,6 +22,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -72,5 +75,31 @@ class RegistrationServiceTest {
         when(userRepository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
 
         assertThrows(io.github.brenomega.authkit.exception.UserAlreadyExistsException.class, () -> service.registerUser(request));
+    }
+
+    @Test
+    @DisplayName("Email confirmation marks account confirmed and consumes activation token")
+    void confirmEmail_success() {
+        String rawToken = "activation-token";
+        String tokenHash = TokenHasher.sha256Hex(rawToken);
+        User user = new User("confirm@example.com", "pw", null, null, true, true, tokenHash);
+        when(userRepository.findByEmailConfirmationToken(tokenHash)).thenReturn(Optional.of(user));
+
+        service.confirmEmail(rawToken);
+
+        assertTrue(user.isEmailConfirmed());
+        assertNull(user.getEmailConfirmationToken());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Email confirmation rejects invalid or expired tokens")
+    void confirmEmail_invalidToken() {
+        String rawToken = "bad-token";
+        when(userRepository.findByEmailConfirmationToken(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
+        when(userRepository.findByEmailConfirmationToken(rawToken)).thenReturn(Optional.empty());
+
+        assertThrows(io.github.brenomega.authkit.exception.InvalidTokenException.class,
+                () -> service.confirmEmail(rawToken));
     }
 }

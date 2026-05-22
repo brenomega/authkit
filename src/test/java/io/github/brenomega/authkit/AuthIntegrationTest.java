@@ -1,5 +1,7 @@
 package io.github.brenomega.authkit;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,11 +15,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MvcResult;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
+import jakarta.servlet.http.Cookie;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -62,6 +66,88 @@ public class AuthIntegrationTest {
                 .andExpect(cookie().exists("Refresh-Token"))
                 .andExpect(cookie().httpOnly("Refresh-Token", true))
                 .andExpect(cookie().secure("Refresh-Token", true));
+    }
+
+    @Test
+    @DisplayName("Refresh rotates refresh token and rejects replay of the old cookie")
+    void refresh_success_rotatesAndRejectsReplay() throws Exception {
+        RegisterRequest registerRequest = new RegisterRequest(
+                "refresh-flow@example.com",
+                "SuperPassword123!",
+                true,
+                true
+        );
+        registrationService.registerUser(registerRequest);
+
+        String payload = """
+                {
+                   "email": "refresh-flow@example.com",
+                   "password": "SuperPassword123!"
+                }
+                """;
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(cookie().exists("Refresh-Token"))
+                .andReturn();
+
+        Cookie originalCookie = loginResult.getResponse().getCookie("Refresh-Token");
+        assertNotNull(originalCookie);
+
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(originalCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").exists())
+                .andExpect(cookie().exists("Refresh-Token"))
+                .andReturn();
+
+        Cookie rotatedCookie = refreshResult.getResponse().getCookie("Refresh-Token");
+        assertNotNull(rotatedCookie);
+        assertNotEquals(originalCookie.getValue(), rotatedCookie.getValue());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(originalCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Invalid or expired refresh token"));
+    }
+
+    @Test
+    @DisplayName("Logout revokes current refresh-token-backed session and clears cookie")
+    void logout_revokesSessionAndClearsCookie() throws Exception {
+        RegisterRequest registerRequest = new RegisterRequest(
+                "logout-flow@example.com",
+                "SuperPassword123!",
+                true,
+                true
+        );
+        registrationService.registerUser(registerRequest);
+
+        String payload = """
+                {
+                   "email": "logout-flow@example.com",
+                   "password": "SuperPassword123!"
+                }
+                """;
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Cookie refreshCookie = loginResult.getResponse().getCookie("Refresh-Token");
+        assertNotNull(refreshCookie);
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .cookie(refreshCookie))
+                .andExpect(status().isOk())
+                .andExpect(cookie().maxAge("Refresh-Token", 0));
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(refreshCookie))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

@@ -6,6 +6,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,6 +35,10 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+    private static final String REFRESH_COOKIE_NAME = "Refresh-Token";
+    private static final String REFRESH_COOKIE_PATH = "/api/v1/auth";
+    private static final long REFRESH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+
     private final RegistrationService registrationService;
     private final AuthService authService;
     private final PasswordRecoveryService recoveryService;
@@ -53,19 +58,38 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthService.LoginResult result = authService.login(request);
-        
-        // DT 3.2.22: Secure Transport mechanism mitigating XSS footprint completely
-        ResponseCookie cookie = ResponseCookie.from("Refresh-Token", result.refreshToken())
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Strict")
-                .path("/api/v1/auth")
-                .maxAge(7 * 24 * 60 * 60)
-                .build();
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken()).toString())
                 .body(ApiResponse.success(result.response()));
+    }
+
+    /**
+     * Rotates the refresh token and issues a fresh access token (RF 2.1.5, DT 3.2.4).
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<LoginResponse>> refresh(
+            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken) {
+
+        AuthService.LoginResult result = authService.refresh(refreshToken);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken()).toString())
+                .body(ApiResponse.success(result.response()));
+    }
+
+    /**
+     * Revokes the current refresh-token-backed session and clears the cookie (RF 2.1.5).
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<String>> logout(
+            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken) {
+
+        authService.logout(refreshToken);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, clearRefreshCookie().toString())
+                .body(ApiResponse.success("Logged out successfully."));
     }
 
     /**
@@ -85,6 +109,15 @@ public class AuthController {
         
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(responseDto));
+    }
+
+    /**
+     * Confirms a registered user's email address (RF 2.1.7).
+     */
+    @PostMapping("/email-confirmation/confirm")
+    public ResponseEntity<ApiResponse<String>> confirmEmail(@RequestParam String token) {
+        registrationService.confirmEmail(token);
+        return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
     }
 
     /**
@@ -117,5 +150,26 @@ public class AuthController {
         recoveryService.resetPassword(email, request.token(), request.newPassword());
         
         return ResponseEntity.ok(ApiResponse.success("Password successfully reset."));
+    }
+
+    private ResponseCookie refreshCookie(String refreshToken) {
+        // DT 3.2.22: HttpOnly cookie prevents client-side script access.
+        return ResponseCookie.from(REFRESH_COOKIE_NAME, refreshToken)
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path(REFRESH_COOKIE_PATH)
+                .maxAge(REFRESH_COOKIE_MAX_AGE_SECONDS)
+                .build();
+    }
+
+    private ResponseCookie clearRefreshCookie() {
+        return ResponseCookie.from(REFRESH_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path(REFRESH_COOKIE_PATH)
+                .maxAge(0)
+                .build();
     }
 }

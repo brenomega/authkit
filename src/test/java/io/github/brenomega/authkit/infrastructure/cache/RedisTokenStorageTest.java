@@ -39,6 +39,37 @@ public class RedisTokenStorageTest {
     }
 
     @Test
+    @DisplayName("Refresh token rotation consumes old session and stores replacement atomically")
+    void testRotateRefreshToken() {
+        String userId = UUID.randomUUID().toString();
+        String currentJti = UUID.randomUUID().toString();
+        String nextJti = UUID.randomUUID().toString();
+        String currentToken = UUID.randomUUID().toString();
+        String nextToken = UUID.randomUUID().toString();
+
+        redisTokenStorage.storeRefreshToken(userId, currentJti, currentToken, 7);
+
+        assertTrue(redisTokenStorage.rotateRefreshToken(
+                userId,
+                currentJti,
+                currentToken,
+                nextJti,
+                nextToken,
+                7
+        ));
+        assertFalse(redisTokenStorage.validateToken(userId, currentJti, currentToken));
+        assertTrue(redisTokenStorage.validateToken(userId, nextJti, nextToken));
+        assertFalse(redisTokenStorage.rotateRefreshToken(
+                userId,
+                currentJti,
+                currentToken,
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                7
+        ));
+    }
+
+    @Test
     @DisplayName("Recovery token consume validates and revokes atomically")
     void testConsumeRecoveryToken() {
         String email = "reset@example.com";

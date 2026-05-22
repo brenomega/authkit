@@ -30,6 +30,9 @@ public class TenantFilterAspect {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
             String tenantId = jwt.getClaimAsString("tenantId");
+            if (tenantId == null) {
+                tenantId = jwt.getClaimAsString("tenant_id");
+            }
             if (tenantId != null) {
                 // We unwrap the raw Hibernate Session to inject the filter parameter
                 Session session = entityManager.unwrap(Session.class);

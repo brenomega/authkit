@@ -14,6 +14,7 @@ import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
+import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import java.util.List;
@@ -98,6 +99,8 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(targetUserId))
                 .orElseThrow(UserNotFoundException::new);
 
+        requireEmailConfirmed(user);
+
         // Update conditionally
         if (request.name() != null) {
             user.setName(request.name());
@@ -135,6 +138,8 @@ public class ProfileService {
         if (lockoutService.isLocked(user.getEmail())) {
             throw new AccountLockedException();
         }
+
+        requireEmailConfirmed(user);
 
         // Security Check: Must verify current password before allowing change (RF 2.1.7)
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
@@ -190,5 +195,11 @@ public class ProfileService {
         }
 
         tokenStorage.revokeSession(userId, jti);
+    }
+
+    private void requireEmailConfirmed(User user) {
+        if (!user.isEmailConfirmed()) {
+            throw new EmailNotConfirmedException();
+        }
     }
 }

@@ -16,6 +16,20 @@ public interface TokenStorage {
     boolean validateToken(String userId, String jti, String rawToken);
 
     /**
+     * Atomically validates the current refresh token, consumes it, and stores the
+     * replacement token for rotation/replay resistance.
+     */
+    default boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
+                                       String nextJti, String nextRawToken, long durationDays) {
+        if (!validateToken(userId, currentJti, currentRawToken)) {
+            return false;
+        }
+        revokeSession(userId, currentJti);
+        storeRefreshToken(userId, nextJti, nextRawToken, durationDays);
+        return true;
+    }
+
+    /**
      * Lists all active session identifiers (JTIs) for a user.
      */
     java.util.List<String> listSessions(String userId);

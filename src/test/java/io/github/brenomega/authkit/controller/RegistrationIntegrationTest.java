@@ -1,11 +1,17 @@
 package io.github.brenomega.authkit.controller;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +19,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
@@ -23,6 +30,9 @@ public class RegistrationIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
@@ -74,5 +84,43 @@ public class RegistrationIntegrationTest {
                 // Ensure no password hashes or tokens are leaked in the response
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.emailConfirmationToken").doesNotExist());
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Email confirmation endpoint confirms account and consumes token")
+    void emailConfirmation_success() throws Exception {
+        String payload = """
+                {
+                   "email": "confirm-flow@example.com",
+                   "password": "LegitPassword!",
+                   "termsAccepted": true,
+                   "privacyPolicyAccepted": true
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isCreated());
+
+        var user = userRepository.findByEmail("confirm-flow@example.com").orElseThrow();
+        String storedTokenHash = user.getEmailConfirmationToken();
+        assertNotNull(storedTokenHash);
+
+        ArgumentCaptor<EmailPayload> captor = ArgumentCaptor.forClass(EmailPayload.class);
+        verify(emailPublisher).publish(captor.capture());
+        String htmlBody = captor.getValue().htmlBody();
+        String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("'>here"));
+        assertNotEquals(storedTokenHash, token);
+
+        mockMvc.perform(post("/api/v1/auth/email-confirmation/confirm")
+                        .param("token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value("Email confirmed successfully."));
+
+        var confirmedUser = userRepository.findByEmail("confirm-flow@example.com").orElseThrow();
+        assertTrue(confirmedUser.isEmailConfirmed());
+        assertNull(confirmedUser.getEmailConfirmationToken());
     }
 }

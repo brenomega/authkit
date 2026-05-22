@@ -18,8 +18,11 @@ import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec.IssuedRefreshToken;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
+import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -43,6 +46,8 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+    private static final long ACCESS_TOKEN_TTL_SECONDS = 900;
+    private static final long REFRESH_TOKEN_TTL_DAYS = 7;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -77,8 +82,8 @@ public class AuthService {
      * Executes the secure identity negotiation lifecycle (RF 2.1.2).
      *
      * <p>Lockout flow (DT 3.2.23): After 5 failed attempts, the account is locked
-     * and all subsequent login attempts return a stealth 200 OK response (DT 3.2.15)
-     * to prevent enumeration.</p>
+     * and all subsequent login attempts return the same generic credential failure
+     * used for invalid credentials.</p>
      *
      * @param request the login credentials
      * @return a {@link LoginResult} containing the access and refresh tokens
@@ -110,30 +115,81 @@ public class AuthService {
         // Clear limits on legit sign in
         lockoutService.clearLockout(email);
 
-        // Generate high-entropy secure Random UUID strictly for the Refresh Token
         String jti = UUID.randomUUID().toString();
-        String rawRefreshToken = UUID.randomUUID().toString();
-        
-        // Generate Access Token (JWT)
+        IssuedRefreshToken refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
+        tokenStorage.storeRefreshToken(
+                user.getId().toString(),
+                jti,
+                refreshToken.rawToken(),
+                REFRESH_TOKEN_TTL_DAYS
+        );
+
+        return issueTokenPair(user, refreshToken);
+    }
+
+    /**
+     * Rotates a refresh token and returns a new access/refresh token pair.
+     */
+    @LogExecutionTime
+    public LoginResult refresh(String rawRefreshToken) {
+        IssuedRefreshToken currentRefreshToken = RefreshTokenCodec.parse(rawRefreshToken)
+                .orElseThrow(InvalidRefreshTokenException::new);
+
+        @SuppressWarnings("null")
+        User user = userRepository.findById(UUID.fromString(currentRefreshToken.userId()))
+                .orElseThrow(InvalidRefreshTokenException::new);
+
+        if (lockoutService.isLocked(user.getEmail())) {
+            log.warn("Refresh rejected because lockout is active for normalized email.");
+            throw new InvalidRefreshTokenException();
+        }
+
+        String nextJti = UUID.randomUUID().toString();
+        IssuedRefreshToken nextRefreshToken = RefreshTokenCodec.issue(user.getId().toString(), nextJti);
+
+        boolean rotated = tokenStorage.rotateRefreshToken(
+                user.getId().toString(),
+                currentRefreshToken.jti(),
+                currentRefreshToken.rawToken(),
+                nextRefreshToken.jti(),
+                nextRefreshToken.rawToken(),
+                REFRESH_TOKEN_TTL_DAYS
+        );
+
+        if (!rotated) {
+            throw new InvalidRefreshTokenException();
+        }
+
+        return issueTokenPair(user, nextRefreshToken);
+    }
+
+    /**
+     * Revokes a refresh-token-backed session. Malformed or absent tokens are
+     * treated as a client cleanup no-op so logout remains idempotent.
+     */
+    @LogExecutionTime
+    public void logout(String rawRefreshToken) {
+        RefreshTokenCodec.parse(rawRefreshToken)
+                .ifPresent(token -> tokenStorage.revokeSession(token.userId(), token.jti()));
+    }
+
+    private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken) {
         Instant now = Instant.now();
-        long expiresInSeconds = 900; // 15 mins (Best practice TTL)
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer("authkit")
                 .issuedAt(now)
-                .expiresAt(now.plusSeconds(expiresInSeconds))
+                .expiresAt(now.plusSeconds(ACCESS_TOKEN_TTL_SECONDS))
                 .subject(user.getId().toString())
-                .id(jti) // DT 3.2.3: jti claim for session identification
-                .claim("tenantId", user.getTenantId().toString()) // Bind multitenant boundary explicitly
+                .id(refreshToken.jti()) // DT 3.2.3: bind access token to refresh session JTI
+                .claim("tenantId", user.getTenantId().toString())
+                .claim("tenant_id", user.getTenantId().toString())
                 .build();
 
         String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
-        
-        // TTL 7 days explicitly delegated to SPI
-        tokenStorage.storeRefreshToken(user.getId().toString(), jti, rawRefreshToken, 7);
 
-        LoginResponse responseDto = new LoginResponse(accessToken, expiresInSeconds);
-        return new LoginResult(responseDto, rawRefreshToken);
+        LoginResponse responseDto = new LoginResponse(accessToken, ACCESS_TOKEN_TTL_SECONDS);
+        return new LoginResult(responseDto, refreshToken.rawToken());
     }
 
     private boolean matchesWithCapacity(String rawPassword, String encodedPassword) {

@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.service;
 
-import java.util.UUID;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -10,6 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
@@ -50,7 +54,8 @@ public class RegistrationService {
         }
 
         String hashedPassword = passwordEncoder.encode(request.password());
-        String confirmationToken = UUID.randomUUID().toString();
+        String confirmationToken = SecureTokenGenerator.randomUrlSafeToken(32);
+        String confirmationTokenHash = TokenHasher.sha256Hex(confirmationToken);
 
         User user = new User(
                 email,
@@ -59,7 +64,7 @@ public class RegistrationService {
                 null,
                 request.termsAccepted(),
                 request.privacyPolicyAccepted(),
-                confirmationToken
+                confirmationTokenHash
         );
 
         try {
@@ -69,7 +74,8 @@ public class RegistrationService {
         }
 
         // Async activation trigger
-        String activationUrl = "https://authkit.io/activate?token=" + confirmationToken;
+        String activationUrl = "https://authkit.io/activate?token="
+                + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
         EmailPayload payload = new EmailPayload(
                 user.getEmail(),
                 "Welcome to AuthKit - Activate your account",
@@ -79,5 +85,26 @@ public class RegistrationService {
         emailPublisher.publish(payload);
 
         return user;
+    }
+
+    /**
+     * Confirms a user's email address using the one-time activation token.
+     */
+    @SuppressWarnings("null")
+    @Transactional
+    @LogExecutionTime
+    public void confirmEmail(String token) {
+        if (token == null || token.isBlank()) {
+            throw new InvalidTokenException();
+        }
+
+        String tokenHash = TokenHasher.sha256Hex(token);
+        User user = userRepository.findByEmailConfirmationToken(tokenHash)
+                .or(() -> userRepository.findByEmailConfirmationToken(token))
+                .orElseThrow(InvalidTokenException::new);
+
+        user.setEmailConfirmed(true);
+        user.setEmailConfirmationToken(null);
+        userRepository.save(user);
     }
 }

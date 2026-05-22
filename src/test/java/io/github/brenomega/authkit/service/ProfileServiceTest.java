@@ -16,6 +16,7 @@ import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.AccountLockedException;
+import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -57,6 +58,7 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getPassword()).thenReturn("old-hashed");
         when(user.getEmail()).thenReturn("test@example.com");
+        when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
@@ -81,6 +83,7 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getPassword()).thenReturn("hashed");
         when(user.getEmail()).thenReturn("test@example.com");
+        when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
@@ -170,6 +173,7 @@ class ProfileServiceTest {
         String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
         when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
@@ -179,6 +183,21 @@ class ProfileServiceTest {
         verify(user).setName("New Name");
         verify(user).setPhone("999");
         verify(userRepository).findById(java.util.UUID.fromString(userId));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Update: Unconfirmed email blocks write operations")
+    void updateProfile_UnconfirmedEmail_Throws403() {
+        String userId = "00000000-0000-0000-0000-000000000000";
+        User user = mock(User.class);
+        when(user.isEmailConfirmed()).thenReturn(false);
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+
+        assertThrows(EmailNotConfirmedException.class, () ->
+                profileService.updateProfile(userId, new ProfileUpdateRequest("Name", "123"), userId));
+
+        verify(user, never()).setName(org.mockito.ArgumentMatchers.any());
     }
 
     /**

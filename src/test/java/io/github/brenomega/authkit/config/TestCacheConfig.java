@@ -124,6 +124,32 @@ public class TestCacheConfig {
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
+            String currentJti = invocation.getArgument(2).toString();
+            String currentHash = invocation.getArgument(3).toString();
+            String nextJti = invocation.getArgument(4).toString();
+            String nextHash = invocation.getArgument(5).toString();
+            Map<Object, Object> sessions = hashCache.get(key);
+
+            if (sessions == null || !currentHash.equals(sessions.get(currentJti))) {
+                return 0L;
+            }
+
+            sessions.remove(currentJti);
+            sessions.put(nextJti, nextHash);
+            return 1L;
+        }).when(template).execute(
+                Mockito.any(org.springframework.data.redis.core.script.RedisScript.class),
+                Mockito.anyList(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any()
+        );
+
+        Mockito.doAnswer(invocation -> {
+            java.util.List<?> keys = invocation.getArgument(1);
+            String key = (String) keys.get(0);
             String inputHash = invocation.getArgument(2).toString();
             String storedHash = valueCache.get(key);
             if (storedHash != null && storedHash.equals(inputHash)) {
