@@ -73,6 +73,7 @@ public class NetworkSecurityIntegrationTest {
                 .andExpect(status().isTooManyRequests());
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Progressive Lockout executes Stealth Response on brute force attempts (DT 3.2.15)")
     void progressiveLockout_stealthResponse() throws Exception {

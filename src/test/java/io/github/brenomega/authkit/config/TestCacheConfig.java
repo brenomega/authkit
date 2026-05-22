@@ -24,13 +24,12 @@ import java.util.Set;
 @Profile("test")
 public class TestCacheConfig {
 
+    @SuppressWarnings({ "null", "unchecked" })
     @Bean
     @Primary
     public StringRedisTemplate stringRedisTemplate() {
         StringRedisTemplate template = Mockito.mock(StringRedisTemplate.class);
-        @SuppressWarnings("unchecked")
         ValueOperations<String, String> valueOps = Mockito.mock(ValueOperations.class);
-        @SuppressWarnings("unchecked")
         HashOperations<String, Object, Object> hashOps = Mockito.mock(HashOperations.class);
         
         Map<String, Map<Object, Object>> hashCache = new HashMap<>();

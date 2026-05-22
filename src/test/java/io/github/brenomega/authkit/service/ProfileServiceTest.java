@@ -21,7 +21,7 @@ import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 
 /**
  * Unit tests for ProfileService (DT 3.4.5).
@@ -48,6 +48,7 @@ class ProfileServiceTest {
     /**
      * RF 2.1.7 — Password Change: Confirms successful reset when current password is valid.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Successful change revokes other sessions")
     void changePassword_Success() {
@@ -72,6 +73,7 @@ class ProfileServiceTest {
     /**
      * RF 2.1.7 — Password Security: Confirms failure when current password is invalid.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Change fails with invalid current password")
     void changePassword_InvalidCurrent_ThrowsException() {
@@ -91,6 +93,7 @@ class ProfileServiceTest {
     /**
      * DT 3.2.23 — Lockout Enforcement: Confirms password change is BLOCKED when account is locked.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Change blocked when account is locked (DT 3.2.23)")
     void changePassword_LockedAccount_Throws403() {
@@ -111,6 +114,7 @@ class ProfileServiceTest {
     /**
      * DT 3.2.23 — Lockout Enforcement: Confirms session revocation is BLOCKED when account is locked.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Session: Revocation blocked when account is locked (DT 3.2.23)")
     void revokeSession_LockedAccount_Throws403() {
@@ -131,6 +135,7 @@ class ProfileServiceTest {
     /**
      * RF 2.1.8 — Session Management: Confirms individual revocation when not locked.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Session: Specific session revocation succeeds when not locked")
     void revokeSession_CallsStorage() {
@@ -158,6 +163,7 @@ class ProfileServiceTest {
     /**
      * RF 2.1.6 — Profile Update: Confirms successful update when IDs match.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Update: Own profile update succeeds")
     void updateProfile_Success() {
@@ -178,6 +184,7 @@ class ProfileServiceTest {
     /**
      * Edge Case: User not found in DB should throw UserNotFoundException.
      */
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Update: Missing user in database throws 404")
     void updateProfile_NotFound_ThrowsException() {

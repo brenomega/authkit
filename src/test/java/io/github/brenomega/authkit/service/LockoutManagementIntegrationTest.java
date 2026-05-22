@@ -49,7 +49,7 @@ public class LockoutManagementIntegrationTest {
     private QueuePublisher<EmailPayload> emailPublisher;
 
     @Test
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({ "unchecked", "null" })
     @DisplayName("Lockout Lifecycle: 5 failures -> management blocked -> reset -> unlocked (DT 3.2.23)")
     void lockoutLifecycle_ManagementBlocked_ThenReset() throws Exception {
         String email = "lockout-test@example.com";

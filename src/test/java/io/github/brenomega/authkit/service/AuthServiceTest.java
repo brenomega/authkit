@@ -23,7 +23,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
-import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 
 /**
  * Unit tests for AuthService (DT 3.4.5).

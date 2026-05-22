@@ -7,6 +7,7 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.lang.NonNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -30,7 +31,7 @@ public class RabbitMqConfig {
      * @return the JSON AMQP converter
      */
     @Bean
-    public Jackson2JsonMessageConverter messageConverter(ObjectMapper objectMapper) {
+    public Jackson2JsonMessageConverter messageConverter(@NonNull ObjectMapper objectMapper) {
         return new Jackson2JsonMessageConverter(objectMapper);
     }
 

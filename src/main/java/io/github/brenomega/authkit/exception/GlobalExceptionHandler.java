@@ -77,7 +77,8 @@ public class GlobalExceptionHandler {
      * @param ex the domain exception
      * @return a response with the appropriate status and message
      */
-    @ExceptionHandler(ApiBaseException.class)
+    @SuppressWarnings("null")
+@ExceptionHandler(ApiBaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiBaseException ex) {
         log.warn("Domain exception [{}]: {}", ex.getStatus(), ex.getMessage());
         return ResponseEntity

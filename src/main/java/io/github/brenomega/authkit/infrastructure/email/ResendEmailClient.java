@@ -39,6 +39,7 @@ public class ResendEmailClient {
      *
      * @param payload the target email definition
      */
+    @SuppressWarnings("null")
     public void sendEmail(EmailPayload payload) {
         Map<String, Object> requestBody = Map.of(
                 "from", DEFAULT_FROM,

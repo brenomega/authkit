@@ -39,6 +39,7 @@ class RegistrationServiceTest {
     @InjectMocks
     private RegistrationService service;
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Registers user successfully, hashes password, generates tenantId and queues email")
     void registerUser_success() {

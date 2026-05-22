@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.List;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ public class RedisTokenStorage implements TokenStorage {
         this.redisTemplate = redisTemplate;
     }
 
+    @SuppressWarnings("null")
     @Override
     public void storeRefreshToken(String userId, String jti, String rawToken, long durationDays) {
         // DT 3.2.4: Hashing refresh tokens prior to storage for cache compromise mitigation
@@ -39,9 +41,10 @@ public class RedisTokenStorage implements TokenStorage {
         org.springframework.data.redis.core.script.DefaultRedisScript<Boolean> script = 
             new org.springframework.data.redis.core.script.DefaultRedisScript<>(luaScript, Boolean.class);
             
-        redisTemplate.execute(script, java.util.List.of(key), jti, hashedToken, String.valueOf(durationSeconds));
+        redisTemplate.execute(script, List.of(key), jti, hashedToken, String.valueOf(durationSeconds));
     }
 
+    @SuppressWarnings("null")
     @Override
     public boolean validateToken(String userId, String jti, String rawToken) {
         String key = PREFIX + userId;
@@ -92,6 +95,7 @@ public class RedisTokenStorage implements TokenStorage {
         }
     }
 
+    @SuppressWarnings("null")
     @Override
     public void storeRecoveryToken(String email, String rawToken, long durationMinutes) {
         // DT 3.2.4: Hashing tokens prior to storage

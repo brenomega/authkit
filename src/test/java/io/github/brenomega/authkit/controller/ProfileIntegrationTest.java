@@ -28,6 +28,7 @@ public class ProfileIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("GET /me: Returns authenticated profile (RF 2.1.6)")
     void profileGet_Success() throws Exception {
@@ -41,6 +42,7 @@ public class ProfileIntegrationTest {
                 .andExpect(jsonPath("$.data.name").value("John"));
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("PATCH /me: Updates profile successfully (RF 2.1.6)")
     void profileUpdate_Success() throws Exception {

@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.infrastructure.cache;
+package io.github.brenomega.authkit.infrastructure.security;
 
 import java.time.Duration;
 import java.util.Optional;

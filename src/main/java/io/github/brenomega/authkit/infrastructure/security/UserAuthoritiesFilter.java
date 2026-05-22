@@ -32,6 +32,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
         this.userRepository = userRepository;
     }
 
+    @SuppressWarnings("null")
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
             throws ServletException, IOException {

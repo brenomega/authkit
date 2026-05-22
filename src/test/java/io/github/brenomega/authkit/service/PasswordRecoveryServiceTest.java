@@ -22,7 +22,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
-import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 
 /**
  * Unit tests for PasswordRecoveryService (DT 3.4.5).

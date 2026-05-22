@@ -8,7 +8,7 @@ import io.github.brenomega.authkit.exception.AccountLockedException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
-import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
@@ -66,6 +66,7 @@ public class ProfileService {
      */
     @LogExecutionTime
     public ProfileResponse getProfile(String userId) {
+        @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
@@ -82,6 +83,7 @@ public class ProfileService {
      * @return the updated profile response
      * @throws UserNotFoundException if IDs do not match or user does not exist
      */
+    @SuppressWarnings("null")
     @Transactional
     @LogExecutionTime
     public ProfileResponse updateProfile(String targetUserId, ProfileUpdateRequest request, String authenticatedUserId) {
@@ -91,6 +93,7 @@ public class ProfileService {
             throw new UserNotFoundException();
         }
 
+        @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(targetUserId))
                 .orElseThrow(UserNotFoundException::new);
 
@@ -123,6 +126,7 @@ public class ProfileService {
     @Transactional
     @LogExecutionTime
     public void changePassword(String userId, PasswordChangeRequest request, String currentJti) {
+        @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
@@ -173,6 +177,7 @@ public class ProfileService {
      * @throws AccountLockedException if the account is locked
      */
     public void revokeSession(String userId, String jti) {
+        @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 

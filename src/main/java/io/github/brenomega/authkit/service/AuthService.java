@@ -22,7 +22,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
-import io.github.brenomega.authkit.infrastructure.cache.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 
 /**
  * Core authentication service handling the login lifecycle (RF 2.1.2).
