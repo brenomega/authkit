@@ -235,6 +235,7 @@ public class AuthService {
                 });
 
         UUID userId = UUID.fromString(challenge.userId());
+        @SuppressWarnings("null")
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> {
                     securityEventService.record(

@@ -339,6 +339,7 @@ public class MfaService {
     }
 
     private User loadActiveUser(String userId) {
+        @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
