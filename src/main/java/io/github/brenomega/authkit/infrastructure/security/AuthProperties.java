@@ -48,6 +48,9 @@ public class AuthProperties {
     @Valid
     private EmailOutbox emailOutbox = new EmailOutbox();
 
+    @Valid
+    private Compliance compliance = new Compliance();
+
     public Token getToken() {
         return token;
     }
@@ -118,6 +121,14 @@ public class AuthProperties {
 
     public void setEmailOutbox(EmailOutbox emailOutbox) {
         this.emailOutbox = emailOutbox;
+    }
+
+    public Compliance getCompliance() {
+        return compliance;
+    }
+
+    public void setCompliance(Compliance compliance) {
+        this.compliance = compliance;
     }
 
     public static class Token {
@@ -441,6 +452,100 @@ public class AuthProperties {
 
         public void setLockTtlSeconds(long lockTtlSeconds) {
             this.lockTtlSeconds = lockTtlSeconds;
+        }
+    }
+
+    public static class Compliance {
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String termsVersion = "terms-v1";
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String privacyPolicyVersion = "privacy-v1";
+
+        @NotBlank
+        @Pattern(regexp = "consent|contract|legal_obligation|vital_interests|public_task|legitimate_interests")
+        private String lawfulBasis = "consent";
+
+        @Min(1)
+        private long securityEventRetentionDays = 365;
+
+        @Min(0)
+        private long deletedAccountRetentionDays = 0;
+
+        @Min(1)
+        @Max(500)
+        private int dataExportSecurityEventLimit = 100;
+
+        private boolean retentionJobEnabled = true;
+
+        @NotBlank
+        private String retentionJobCron = "0 30 3 * * *";
+
+        public String getTermsVersion() {
+            return termsVersion;
+        }
+
+        public void setTermsVersion(String termsVersion) {
+            this.termsVersion = termsVersion;
+        }
+
+        public String getPrivacyPolicyVersion() {
+            return privacyPolicyVersion;
+        }
+
+        public void setPrivacyPolicyVersion(String privacyPolicyVersion) {
+            this.privacyPolicyVersion = privacyPolicyVersion;
+        }
+
+        public String getLawfulBasis() {
+            return lawfulBasis;
+        }
+
+        public void setLawfulBasis(String lawfulBasis) {
+            this.lawfulBasis = lawfulBasis;
+        }
+
+        public long getSecurityEventRetentionDays() {
+            return securityEventRetentionDays;
+        }
+
+        public void setSecurityEventRetentionDays(long securityEventRetentionDays) {
+            this.securityEventRetentionDays = securityEventRetentionDays;
+        }
+
+        public long getDeletedAccountRetentionDays() {
+            return deletedAccountRetentionDays;
+        }
+
+        public void setDeletedAccountRetentionDays(long deletedAccountRetentionDays) {
+            this.deletedAccountRetentionDays = deletedAccountRetentionDays;
+        }
+
+        public int getDataExportSecurityEventLimit() {
+            return dataExportSecurityEventLimit;
+        }
+
+        public void setDataExportSecurityEventLimit(int dataExportSecurityEventLimit) {
+            this.dataExportSecurityEventLimit = dataExportSecurityEventLimit;
+        }
+
+        public boolean isRetentionJobEnabled() {
+            return retentionJobEnabled;
+        }
+
+        public void setRetentionJobEnabled(boolean retentionJobEnabled) {
+            this.retentionJobEnabled = retentionJobEnabled;
+        }
+
+        public String getRetentionJobCron() {
+            return retentionJobCron;
+        }
+
+        public void setRetentionJobCron(String retentionJobCron) {
+            this.retentionJobCron = retentionJobCron;
         }
     }
 }

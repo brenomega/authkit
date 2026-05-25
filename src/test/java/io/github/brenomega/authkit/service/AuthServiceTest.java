@@ -30,6 +30,7 @@ import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -47,6 +48,7 @@ class AuthServiceTest {
     private TokenStorage tokenStorage;
     private AccountLockoutService lockoutService;
     private AuthProperties authProperties;
+    private SecurityEventService securityEventService;
     private AuthService authService;
 
     @BeforeEach
@@ -59,7 +61,8 @@ class AuthServiceTest {
         // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
         lockoutService = new AccountLockoutService(Optional.empty());
         authProperties = new AuthProperties();
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter());
+        securityEventService = mock(SecurityEventService.class);
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService);
     }
 
     /**

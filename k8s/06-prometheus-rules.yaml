@@ -1,0 +1,56 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: authkit-security-alerts
+spec:
+  groups:
+    - name: authkit.security
+      rules:
+        - alert: AuthKitFailedLoginSpike
+          expr: increase(security_login_failed_total[5m]) > 50
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit failed-login spike
+            description: Failed login events exceeded the configured investigation threshold.
+        - alert: AuthKitAccountLockoutSpike
+          expr: increase(security_account_locked_total[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit account lockout spike
+            description: Progressive lockout events increased above normal baseline.
+        - alert: AuthKitPasswordResetFailures
+          expr: increase(security_password_reset_failed_total[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit password reset failures
+            description: Password reset token failures may indicate guessing or replay attempts.
+        - alert: AuthKitRefreshTokenReuse
+          expr: increase(security_refresh_token_reuse_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: AuthKit refresh token reuse detected
+            description: Refresh token family reuse indicates possible token theft. Investigate immediately.
+        - alert: AuthKitRateLimitDrops
+          expr: increase(rate_limit_dropped_total[5m]) > 100
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit rate-limit drops increased
+            description: Application-layer rate limiting is dropping a high volume of requests.
+        - alert: AuthKitInfrastructureFailure
+          expr: increase(security_infrastructure_failure_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit dependency failure
+            description: Redis, RabbitMQ, or outbox-backed infrastructure reported failures.

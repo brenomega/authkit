@@ -54,6 +54,9 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("authkit.auth.jwt.key-id");
         validateCredential("authkit.auth.frontend.activation-url", "https://authkit.io/activate");
         validateCredential("authkit.auth.frontend.password-reset-url", "https://frontend.url/reset-password");
+        validateCredential("authkit.auth.compliance.terms-version");
+        validateCredential("authkit.auth.compliance.privacy-policy-version");
+        validateCredential("authkit.auth.compliance.lawful-basis");
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
         validateBoolean("authkit.auth.csrf.enabled", true);

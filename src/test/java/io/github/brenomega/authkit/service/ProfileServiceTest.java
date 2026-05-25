@@ -22,6 +22,7 @@ import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 
 /**
@@ -35,6 +36,7 @@ class ProfileServiceTest {
     private PasswordEncoder passwordEncoder;
     private TokenStorage tokenStorage;
     private AccountLockoutService lockoutService;
+    private SecurityEventService securityEventService;
     private ProfileService profileService;
 
     @BeforeEach
@@ -43,7 +45,8 @@ class ProfileServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         tokenStorage = mock(TokenStorage.class);
         lockoutService = mock(AccountLockoutService.class);
-        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter());
+        securityEventService = mock(SecurityEventService.class);
+        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter(), securityEventService);
     }
 
     /**

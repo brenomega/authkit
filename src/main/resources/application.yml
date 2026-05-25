@@ -119,6 +119,15 @@ authkit:
       batch-size: ${AUTH_EMAIL_OUTBOX_BATCH_SIZE:50}
       poll-delay-ms: ${AUTH_EMAIL_OUTBOX_POLL_DELAY_MS:5000}
       lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}
+    compliance:
+      terms-version: ${AUTH_TERMS_VERSION}
+      privacy-policy-version: ${AUTH_PRIVACY_POLICY_VERSION}
+      lawful-basis: ${AUTH_LAWFUL_BASIS:consent}
+      security-event-retention-days: ${AUTH_SECURITY_EVENT_RETENTION_DAYS:365}
+      deleted-account-retention-days: ${AUTH_DELETED_ACCOUNT_RETENTION_DAYS:0}
+      data-export-security-event-limit: ${AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT:100}
+      retention-job-enabled: ${AUTH_RETENTION_JOB_ENABLED:true}
+      retention-job-cron: '${AUTH_RETENTION_JOB_CRON:0 30 3 * * *}'
 
 # =============================================================================
 # Server Configuration

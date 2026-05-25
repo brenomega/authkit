@@ -13,6 +13,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -34,7 +35,7 @@ class EmailOutboxProcessorTest {
         when(message.toPayload()).thenReturn(payload);
         when(outboxService.claimDueMessages(eq(50), any(Duration.class))).thenReturn(List.of(message));
 
-        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, emailPublisher, authProperties);
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, emailPublisher, authProperties, new SimpleMeterRegistry());
         processor.publishDueMessages();
 
         verify(emailPublisher).publish(payload);
@@ -58,7 +59,7 @@ class EmailOutboxProcessorTest {
         org.mockito.Mockito.doThrow(new IllegalStateException("broker down"))
                 .when(emailPublisher).publish(payload);
 
-        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, emailPublisher, authProperties);
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, emailPublisher, authProperties, new SimpleMeterRegistry());
         processor.publishDueMessages();
 
         verify(outboxService).markFailed(messageId, "broker down");

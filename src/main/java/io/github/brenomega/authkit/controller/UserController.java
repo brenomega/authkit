@@ -1,10 +1,14 @@
 package io.github.brenomega.authkit.controller;
 
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
+import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
+import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
+import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
+import io.github.brenomega.authkit.service.AccountLifecycleService;
 import io.github.brenomega.authkit.service.ProfileService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,9 +31,11 @@ import java.util.List;
 public class UserController {
 
     private final ProfileService profileService;
+    private final AccountLifecycleService accountLifecycleService;
 
-    public UserController(ProfileService profileService) {
+    public UserController(ProfileService profileService, AccountLifecycleService accountLifecycleService) {
         this.profileService = profileService;
+        this.accountLifecycleService = accountLifecycleService;
     }
 
     /**
@@ -39,6 +45,24 @@ public class UserController {
     public ApiResponse<ProfileResponse> getMyProfile(@AuthenticationPrincipal Jwt jwt) {
         ProfileResponse profile = profileService.getProfile(jwt.getSubject());
         return new ApiResponse<>(profile, null, Instant.now());
+    }
+
+    /**
+     * Returns the current versioned consent snapshot for the authenticated user.
+     */
+    @GetMapping("/consent")
+    public ApiResponse<ConsentSnapshotResponse> getMyConsent(@AuthenticationPrincipal Jwt jwt) {
+        ConsentSnapshotResponse consent = accountLifecycleService.getConsentSnapshot(jwt.getSubject());
+        return new ApiResponse<>(consent, null, Instant.now());
+    }
+
+    /**
+     * Returns a privacy-safe data export for access requests.
+     */
+    @GetMapping("/export")
+    public ApiResponse<UserDataExportResponse> exportMyData(@AuthenticationPrincipal Jwt jwt) {
+        UserDataExportResponse export = accountLifecycleService.exportUserData(jwt.getSubject());
+        return new ApiResponse<>(export, null, Instant.now());
     }
 
     /**
@@ -83,5 +107,14 @@ public class UserController {
             @PathVariable String jti) {
         profileService.revokeSession(jwt.getSubject(), jti);
         return new ApiResponse<>("Session revoked successfully.", null, Instant.now());
+    }
+
+    /**
+     * Requests account deletion and immediately anonymizes direct PII.
+     */
+    @DeleteMapping
+    public ApiResponse<AccountDeletionResponse> deleteMyAccount(@AuthenticationPrincipal Jwt jwt) {
+        AccountDeletionResponse deletion = accountLifecycleService.requestDeletion(jwt.getSubject());
+        return new ApiResponse<>(deletion, null, Instant.now());
     }
 }

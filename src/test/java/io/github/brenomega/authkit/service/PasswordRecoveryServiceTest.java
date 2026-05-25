@@ -21,6 +21,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -39,6 +40,7 @@ class PasswordRecoveryServiceTest {
     private PasswordEncoder passwordEncoder;
     private AccountLockoutService lockoutService;
     private AuthProperties authProperties;
+    private SecurityEventService securityEventService;
     private PasswordRecoveryService recoveryService;
 
     @BeforeEach
@@ -48,6 +50,7 @@ class PasswordRecoveryServiceTest {
         emailOutboxService = mock(EmailOutboxService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         lockoutService = mock(AccountLockoutService.class);
+        securityEventService = mock(SecurityEventService.class);
         authProperties = new AuthProperties();
         authProperties.getToken().setRecoveryTokenTtlMinutes(30);
         authProperties.getFrontend().setPasswordResetUrl("https://frontend.example.test/reset-password");
@@ -58,7 +61,8 @@ class PasswordRecoveryServiceTest {
                 passwordEncoder,
                 lockoutService,
                 authProperties,
-                new Argon2ConcurrencyLimiter()
+                new Argon2ConcurrencyLimiter(),
+                securityEventService
         );
     }
 

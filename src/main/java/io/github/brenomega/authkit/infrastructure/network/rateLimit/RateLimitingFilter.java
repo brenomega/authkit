@@ -183,6 +183,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                 }
             } catch (Exception e) {
                 // Fail-open: DT 3.2.21 & DT 3.1.18 — Redis unavailable at runtime, degrade to Layer 1
+                meterRegistry.counter("security.infrastructure.failure", "component", "rate_limiter_redis").increment();
                 logThrottledError("Redis proxy failure at runtime. Degrading to local limits. Error: " + e.getMessage());
             }
         }

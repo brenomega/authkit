@@ -9,6 +9,10 @@ import io.github.brenomega.authkit.exception.AccountLockedException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -51,15 +55,18 @@ public class ProfileService {
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
     private final Argon2ConcurrencyLimiter argon2Limiter;
+    private final SecurityEventService securityEventService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
-                          Argon2ConcurrencyLimiter argon2Limiter) {
+                          Argon2ConcurrencyLimiter argon2Limiter,
+                          SecurityEventService securityEventService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
         this.argon2Limiter = argon2Limiter;
+        this.securityEventService = securityEventService;
     }
 
     /**
@@ -75,6 +82,7 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
+        requireActive(user);
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
     }
 
@@ -104,6 +112,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
         user.requireEmailConfirmed();
 
         // Update conditionally
@@ -140,6 +149,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
 
         // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
@@ -168,6 +178,12 @@ public class ProfileService {
 
         // Session Revocation: Revoke all other active Refresh Tokens except current session (RF 2.1.12)
         tokenStorage.revokeOtherSessions(userId, currentJti);
+        securityEventService.recordForUser(
+                SecurityEventType.PASSWORD_CHANGED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                user,
+                "password_changed");
     }
 
     /**
@@ -181,6 +197,7 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
+        requireActive(user);
 
         return tokenStorage.listSessions(userId).stream()
                 .map(SessionResponse::new)
@@ -202,6 +219,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
 
         // DT 3.2.23: Block session management while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
@@ -209,6 +227,18 @@ public class ProfileService {
         }
 
         tokenStorage.revokeSession(userId, jti);
+        securityEventService.recordForUser(
+                SecurityEventType.LOGOUT,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.MEDIUM,
+                user,
+                "session_revoked");
+    }
+
+    private void requireActive(User user) {
+        if (user.isDeleted()) {
+            throw new UserNotFoundException();
+        }
     }
 
     private void requireTenantAccess(User user) {

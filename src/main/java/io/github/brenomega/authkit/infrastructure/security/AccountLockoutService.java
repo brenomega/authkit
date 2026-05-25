@@ -7,10 +7,13 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
@@ -54,6 +57,7 @@ public class AccountLockoutService {
     private final Cache<String, Bucket> localBuckets;
     private final ProxyManager<byte[]> proxyManager;
     private final Supplier<BucketConfiguration> bucketConfigSupplier;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Constructs the hybrid lockout service.
@@ -61,6 +65,12 @@ public class AccountLockoutService {
      * @param redisClient the optional Redis client for global state persistence
      */
     public AccountLockoutService(Optional<RedisClient> redisClient) {
+        this(redisClient, new SimpleMeterRegistry());
+    }
+
+    @Autowired
+    public AccountLockoutService(Optional<RedisClient> redisClient, MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
         // Layer 1 — Caffeine local cache
         this.localBuckets = Caffeine.newBuilder()
                 .maximumSize(10_000)
@@ -107,6 +117,7 @@ public class AccountLockoutService {
             }
             log.debug("Failed attempt recorded for account: {}", email);
         } catch (Exception e) {
+            meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
             log.debug("Error recording failed attempt. Fail-open fallback engaged. Error: {}", e.getMessage());
         }
     }
@@ -135,6 +146,7 @@ public class AccountLockoutService {
                 }
             }
         } catch (Exception e) {
+            meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
             log.debug("Redis unavailable for lockout check. Falling back to local cache. Error: {}", e.getMessage());
             Bucket localBucket = localBuckets.getIfPresent(email);
             return localBucket != null && localBucket.getAvailableTokens() == 0;
@@ -160,6 +172,7 @@ public class AccountLockoutService {
             try {
                 proxyManager.removeProxy(email.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             } catch (Exception e) {
+                meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
                 log.debug("Redis unavailable for lockout clearing. Local cache cleared. Error: {}", e.getMessage());
             }
         }
@@ -175,4 +188,3 @@ public class AccountLockoutService {
                 .build();
     }
 }
-

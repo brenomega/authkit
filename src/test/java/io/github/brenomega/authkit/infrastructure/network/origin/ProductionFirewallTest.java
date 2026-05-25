@@ -50,6 +50,10 @@ import java.security.KeyPair;
     "authkit.auth.jwt.key-id=authkit-test-key-1",
     "authkit.auth.frontend.activation-url=https://app.example.test/activate",
     "authkit.auth.frontend.password-reset-url=https://app.example.test/reset-password",
+    "authkit.auth.compliance.terms-version=terms-2026",
+    "authkit.auth.compliance.privacy-policy-version=privacy-2026",
+    "authkit.auth.compliance.lawful-basis=consent",
+    "authkit.auth.compliance.retention-job-enabled=false",
     "resend.api.key=test-resend-key"
 })
 public class ProductionFirewallTest {

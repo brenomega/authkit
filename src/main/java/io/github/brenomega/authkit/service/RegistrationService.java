@@ -15,6 +15,10 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -31,15 +35,18 @@ public class RegistrationService {
     private final PasswordEncoder passwordEncoder;
     private final EmailOutboxService emailOutboxService;
     private final AuthProperties authProperties;
+    private final SecurityEventService securityEventService;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
                                EmailOutboxService emailOutboxService,
-                               AuthProperties authProperties) {
+                               AuthProperties authProperties,
+                               SecurityEventService securityEventService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
+        this.securityEventService = securityEventService;
     }
 
     /**
@@ -70,6 +77,11 @@ public class RegistrationService {
                 request.privacyPolicyAccepted(),
                 confirmationTokenHash
         );
+        user.recordConsent(
+                authProperties.getCompliance().getTermsVersion(),
+                authProperties.getCompliance().getPrivacyPolicyVersion(),
+                authProperties.getCompliance().getLawfulBasis(),
+                java.time.Instant.now());
 
         try {
             user = userRepository.save(user);
@@ -109,5 +121,11 @@ public class RegistrationService {
         user.setEmailConfirmed(true);
         user.setEmailConfirmationToken(null);
         userRepository.save(user);
+        securityEventService.recordForUser(
+                SecurityEventType.EMAIL_VERIFIED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.MEDIUM,
+                user,
+                "email_verified");
     }
 }

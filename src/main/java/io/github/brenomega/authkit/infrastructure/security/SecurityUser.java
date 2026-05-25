@@ -103,13 +103,14 @@ public class SecurityUser implements UserDetails {
      * Indicates whether the user account is enabled.
      *
      * <p>Email confirmation is required before the account can receive runtime
-     * authorities or obtain fresh tokens.</p>
+     * authorities or obtain fresh tokens. Deleted/anonymized accounts are never
+     * enabled, even if an old JWT has not expired yet.</p>
      *
-     * @return {@code true} only after the email confirmation flow completes
+     * @return {@code true} only after email confirmation and before deletion
      */
     @Override
     public boolean isEnabled() {
-        return user.isEmailConfirmed();
+        return user.isEmailConfirmed() && !user.isDeleted();
     }
 
     /**

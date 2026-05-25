@@ -1,5 +1,7 @@
 package io.github.brenomega.authkit.domain.user.entity;
 
+import java.time.Instant;
+
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 
@@ -40,6 +42,10 @@ import org.hibernate.annotations.ParamDef;
 @FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = String.class)})
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class User {
+
+    private static final String DEFAULT_TERMS_VERSION = "terms-v1";
+    private static final String DEFAULT_PRIVACY_POLICY_VERSION = "privacy-v1";
+    private static final String DEFAULT_LAWFUL_BASIS = "consent";
 
     /**
      * Universally unique identifier — primary key (DT 3.1.21).
@@ -99,6 +105,34 @@ public class User {
     @Column(name = "email_confirmation_token", length = 100)
     private String emailConfirmationToken;
 
+    /** Terms of Use version accepted by the user. */
+    @Column(name = "terms_version", nullable = false, length = 64)
+    private String termsVersion = DEFAULT_TERMS_VERSION;
+
+    /** Privacy Policy version accepted by the user. */
+    @Column(name = "privacy_policy_version", nullable = false, length = 64)
+    private String privacyPolicyVersion = DEFAULT_PRIVACY_POLICY_VERSION;
+
+    /** Timestamp of consent acceptance for terms/privacy. */
+    @Column(name = "consent_accepted_at")
+    private Instant consentAcceptedAt;
+
+    /** Lawful basis for processing the account data. */
+    @Column(name = "lawful_basis", nullable = false, length = 64)
+    private String lawfulBasis = DEFAULT_LAWFUL_BASIS;
+
+    /** Timestamp when account deletion was requested. */
+    @Column(name = "deletion_requested_at")
+    private Instant deletionRequestedAt;
+
+    /** Timestamp when the account was deleted or made inactive. */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    /** Timestamp when direct PII was anonymized. */
+    @Column(name = "anonymized_at")
+    private Instant anonymizedAt;
+
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
@@ -123,6 +157,7 @@ public class User {
         this.termsAccepted = termsAccepted;
         this.privacyPolicyAccepted = privacyPolicyAccepted;
         this.emailConfirmationToken = emailConfirmationToken;
+        recordConsent(DEFAULT_TERMS_VERSION, DEFAULT_PRIVACY_POLICY_VERSION, DEFAULT_LAWFUL_BASIS, Instant.now());
 
         this.role = Role.USER;
         this.tenantId = java.util.UUID.randomUUID();
@@ -185,6 +220,44 @@ public class User {
     public void setEmailConfirmed(boolean emailConfirmed) { this.emailConfirmed = emailConfirmed; }
     public String getEmailConfirmationToken() { return emailConfirmationToken; }
     public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
+    public String getTermsVersion() { return termsVersion; }
+    public String getPrivacyPolicyVersion() { return privacyPolicyVersion; }
+    public Instant getConsentAcceptedAt() { return consentAcceptedAt; }
+    public String getLawfulBasis() { return lawfulBasis; }
+    public Instant getDeletionRequestedAt() { return deletionRequestedAt; }
+    public Instant getDeletedAt() { return deletedAt; }
+    public Instant getAnonymizedAt() { return anonymizedAt; }
+
+    public void recordConsent(String termsVersion, String privacyPolicyVersion, String lawfulBasis, Instant acceptedAt) {
+        this.termsVersion = termsVersion;
+        this.privacyPolicyVersion = privacyPolicyVersion;
+        this.lawfulBasis = lawfulBasis;
+        this.consentAcceptedAt = (termsAccepted && privacyPolicyAccepted) ? acceptedAt : null;
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null || anonymizedAt != null;
+    }
+
+    public void requestDeletion(Instant requestedAt) {
+        if (this.deletionRequestedAt == null) {
+            this.deletionRequestedAt = requestedAt;
+        }
+    }
+
+    public void anonymizeForDeletion(String anonymizedEmail, String anonymizedPasswordHash, Instant anonymizedAt) {
+        requestDeletion(anonymizedAt);
+        this.email = anonymizedEmail;
+        this.password = anonymizedPasswordHash;
+        this.name = null;
+        this.phone = null;
+        this.emailConfirmationToken = null;
+        this.emailConfirmed = false;
+        this.termsAccepted = false;
+        this.privacyPolicyAccepted = false;
+        this.deletedAt = anonymizedAt;
+        this.anonymizedAt = anonymizedAt;
+    }
 
     /**
      * Guards operations that require a confirmed email address.
@@ -192,7 +265,7 @@ public class User {
      * @throws EmailNotConfirmedException if the email has not been confirmed
      */
     public void requireEmailConfirmed() {
-        if (!this.emailConfirmed) {
+        if (!this.emailConfirmed || isDeleted()) {
             throw new EmailNotConfirmedException();
         }
     }

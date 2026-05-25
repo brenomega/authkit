@@ -127,6 +127,14 @@ services:
       AUTH_FRONTEND_ACTIVATION_URL: https://authkit.local/activate
       AUTH_FRONTEND_PASSWORD_RESET_URL: https://authkit.local/reset-password
       AUTH_REGISTRATION_STEALTH_CONFLICTS: "false"
+      AUTH_TERMS_VERSION: terms-v1
+      AUTH_PRIVACY_POLICY_VERSION: privacy-v1
+      AUTH_LAWFUL_BASIS: consent
+      AUTH_SECURITY_EVENT_RETENTION_DAYS: 365
+      AUTH_DELETED_ACCOUNT_RETENTION_DAYS: 0
+      AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT: 100
+      AUTH_RETENTION_JOB_ENABLED: "true"
+      AUTH_RETENTION_JOB_CRON: "0 30 3 * * *"
       WORKER_TOKEN: local-development-worker-token
       RESEND_API_KEY: re_local_development_token
     ports:

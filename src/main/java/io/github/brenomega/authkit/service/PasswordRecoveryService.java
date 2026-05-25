@@ -17,6 +17,10 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -51,6 +55,7 @@ public class PasswordRecoveryService {
     private final AccountLockoutService lockoutService;
     private final AuthProperties authProperties;
     private final Argon2ConcurrencyLimiter argon2Limiter;
+    private final SecurityEventService securityEventService;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
@@ -59,7 +64,8 @@ public class PasswordRecoveryService {
             PasswordEncoder passwordEncoder,
             AccountLockoutService lockoutService,
             AuthProperties authProperties,
-            Argon2ConcurrencyLimiter argon2Limiter) {
+            Argon2ConcurrencyLimiter argon2Limiter,
+            SecurityEventService securityEventService) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailOutboxService = emailOutboxService;
@@ -67,6 +73,7 @@ public class PasswordRecoveryService {
         this.lockoutService = lockoutService;
         this.authProperties = authProperties;
         this.argon2Limiter = argon2Limiter;
+        this.securityEventService = securityEventService;
     }
 
     /**
@@ -83,6 +90,12 @@ public class PasswordRecoveryService {
 
         userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
                 user -> {
+                    securityEventService.recordForUser(
+                            SecurityEventType.PASSWORD_RESET_REQUESTED,
+                            SecurityEventOutcome.INFO,
+                            SecurityEventSeverity.MEDIUM,
+                            user,
+                            "password_reset_requested");
                     String token = SecureTokenGenerator.randomUrlSafeToken(32);
                     long ttlMinutes = authProperties.getToken().getRecoveryTokenTtlMinutes();
                     tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
@@ -98,7 +111,15 @@ public class PasswordRecoveryService {
                     emailOutboxService.enqueue(emailPayload);
                     log.info("Password recovery requested for existing user. Token generated and event published.");
                 },
-                () -> log.info("Password recovery requested for non-existing account. Stealth response triggered.")
+                () -> {
+                    securityEventService.recordForEmail(
+                            SecurityEventType.PASSWORD_RESET_REQUESTED,
+                            SecurityEventOutcome.INFO,
+                            SecurityEventSeverity.MEDIUM,
+                            normalizedEmail,
+                            "password_reset_requested_stealth");
+                    log.info("Password recovery requested for non-existing account. Stealth response triggered.");
+                }
         );
     }
 
@@ -123,11 +144,35 @@ public class PasswordRecoveryService {
         try {
             if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
                 log.warn("Invalid or expired password recovery token.");
+                securityEventService.recordForEmail(
+                        SecurityEventType.PASSWORD_RESET_FAILED,
+                        SecurityEventOutcome.FAILURE,
+                        SecurityEventSeverity.HIGH,
+                        normalizedEmail,
+                        "invalid_or_expired_reset_token");
                 throw new InvalidTokenException();
             }
 
             User user = userRepository.findByEmail(normalizedEmail)
-                    .orElseThrow(UserNotFoundException::new);
+                    .orElseThrow(() -> {
+                        securityEventService.recordForEmail(
+                                SecurityEventType.PASSWORD_RESET_FAILED,
+                                SecurityEventOutcome.FAILURE,
+                                SecurityEventSeverity.HIGH,
+                                normalizedEmail,
+                                "reset_user_not_found");
+                        return new UserNotFoundException();
+                    });
+
+            if (user.isDeleted()) {
+                securityEventService.recordForEmail(
+                        SecurityEventType.PASSWORD_RESET_FAILED,
+                        SecurityEventOutcome.DENIED,
+                        SecurityEventSeverity.HIGH,
+                        normalizedEmail,
+                        "deleted_account");
+                throw new UserNotFoundException();
+            }
 
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
@@ -144,6 +189,13 @@ public class PasswordRecoveryService {
                     "Your password has been successfully changed."
             );
             emailOutboxService.enqueue(confirmation);
+
+            securityEventService.recordForUser(
+                    SecurityEventType.PASSWORD_RESET_COMPLETED,
+                    SecurityEventOutcome.SUCCESS,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "password_reset_completed");
 
             log.info("Password successfully reset for user: {}", user.getId());
         } finally {
