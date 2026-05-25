@@ -18,6 +18,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
+import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -38,6 +39,9 @@ class AuthCookieConfigurationIntegrationTest {
     @Autowired
     private RegistrationService registrationService;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
 
@@ -45,12 +49,14 @@ class AuthCookieConfigurationIntegrationTest {
 @Test
     @DisplayName("Configured refresh cookie name is used for login and refresh")
     void configuredRefreshCookieName_isUsedForLoginAndRefresh() throws Exception {
-        registrationService.registerUser(new RegisterRequest(
+        var user = registrationService.registerUser(new RegisterRequest(
                 "custom-cookie@example.com",
                 "SuperPassword123!",
                 true,
                 true
         ));
+        user.setEmailConfirmed(true);
+        userRepository.save(user);
 
         String payload = """
                 {
@@ -69,12 +75,16 @@ class AuthCookieConfigurationIntegrationTest {
                 .andReturn();
 
         Cookie refreshCookie = loginResult.getResponse().getCookie("AuthKit-Refresh");
+        Cookie csrfCookie = loginResult.getResponse().getCookie("XSRF-TOKEN");
         assertNotNull(refreshCookie);
+        assertNotNull(csrfCookie);
 
         mockMvc.perform(post("/api/v1/auth/refresh")
-                        .cookie(refreshCookie))
+                        .cookie(refreshCookie, csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfCookie.getValue()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").exists())
-                .andExpect(cookie().exists("AuthKit-Refresh"));
+                .andExpect(cookie().exists("AuthKit-Refresh"))
+                .andExpect(cookie().exists("XSRF-TOKEN"));
     }
 }

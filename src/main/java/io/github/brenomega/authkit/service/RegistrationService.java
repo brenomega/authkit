@@ -15,10 +15,10 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 
 /**
@@ -29,16 +29,16 @@ public class RegistrationService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final QueuePublisher<EmailPayload> emailPublisher;
+    private final EmailOutboxService emailOutboxService;
     private final AuthProperties authProperties;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
-                               QueuePublisher<EmailPayload> emailPublisher,
+                               EmailOutboxService emailOutboxService,
                                AuthProperties authProperties) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
-        this.emailPublisher = emailPublisher;
+        this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
     }
 
@@ -77,7 +77,6 @@ public class RegistrationService {
             throw new UserAlreadyExistsException("Email already in use");
         }
 
-        // Async activation trigger
         String activationUrl = authProperties.getFrontend().getActivationUrl()
                 + "?token=" + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
         EmailPayload payload = new EmailPayload(
@@ -85,8 +84,8 @@ public class RegistrationService {
                 "Welcome to AuthKit - Activate your account",
                 "<p>Click <a href='" + activationUrl + "'>here</a> to activate your account.</p>"
         );
-        
-        emailPublisher.publish(payload);
+
+        emailOutboxService.enqueue(payload);
 
         return user;
     }

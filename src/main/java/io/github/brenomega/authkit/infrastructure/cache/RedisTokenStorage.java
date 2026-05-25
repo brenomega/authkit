@@ -10,10 +10,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
  * Implementation of TokenStorage utilizing Spring Data Redis.
+ *
+ * <p>Implements Token Family Tracking and Reuse Detection (DT 3.2.5) via atomic
+ * Lua scripts to prevent session replay attacks.</p>
  */
 @Component
 public class RedisTokenStorage implements TokenStorage {
@@ -28,34 +33,45 @@ public class RedisTokenStorage implements TokenStorage {
     @SuppressWarnings("null")
     @Override
     public void storeRefreshToken(String userId, String jti, String rawToken, long durationDays) {
-        // DT 3.2.4: Hashing refresh tokens prior to storage for cache compromise mitigation
         String hashedToken = hashToken(rawToken);
         String key = PREFIX + userId;
         long durationSeconds = Duration.ofDays(durationDays).getSeconds();
-        
-        // Use Lua script to ensure atomicity of HSET and EXPIRE
-        String luaScript = 
+
+        // Extract token family ID from the raw token structure
+        String familyId = RefreshTokenCodec.parse(rawToken)
+                .map(RefreshTokenCodec.IssuedRefreshToken::familyId)
+                .orElseThrow(() -> new IllegalArgumentException("Malformed refresh token"));
+
+        String storedValue = hashedToken + ":" + familyId;
+
+        String luaScript =
             "redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]); " +
             "redis.call('EXPIRE', KEYS[1], ARGV[3]); " +
             "return true;";
-            
-        org.springframework.data.redis.core.script.DefaultRedisScript<Boolean> script = 
-            new org.springframework.data.redis.core.script.DefaultRedisScript<>(luaScript, Boolean.class);
-            
-        redisTemplate.execute(script, List.of(key), jti, hashedToken, String.valueOf(durationSeconds));
+
+        DefaultRedisScript<Boolean> script =
+            new DefaultRedisScript<>(luaScript, Boolean.class);
+
+        redisTemplate.execute(script, List.of(key), jti, storedValue, String.valueOf(durationSeconds));
     }
 
     @SuppressWarnings("null")
     @Override
     public boolean validateToken(String userId, String jti, String rawToken) {
         String key = PREFIX + userId;
-        Object storedHashObj = redisTemplate.opsForHash().get(key, jti);
+        Object storedValObj = redisTemplate.opsForHash().get(key, jti);
 
-        if (storedHashObj == null) {
+        if (storedValObj == null) {
             return false;
         }
 
-        String storedHash = (String) storedHashObj;
+        String storedVal = (String) storedValObj;
+        String storedHash = storedVal;
+        int colonIdx = storedVal.indexOf(':');
+        if (colonIdx != -1) {
+            storedHash = storedVal.substring(0, colonIdx);
+        }
+
         String inputHash = hashToken(rawToken);
 
         // DT 3.2.13: Preventing Side-Channel Timing Attacks using constant-time comparison
@@ -74,32 +90,105 @@ public class RedisTokenStorage implements TokenStorage {
         String nextHash = hashToken(nextRawToken);
         long durationSeconds = Duration.ofDays(durationDays).getSeconds();
 
+        RefreshTokenCodec.IssuedRefreshToken currentToken = RefreshTokenCodec.parse(currentRawToken)
+                .orElse(null);
+        RefreshTokenCodec.IssuedRefreshToken nextToken = RefreshTokenCodec.parse(nextRawToken)
+                .orElse(null);
+
+        if (currentToken == null
+                || nextToken == null
+                || !userId.equals(currentToken.userId())
+                || !userId.equals(nextToken.userId())
+                || !currentJti.equals(currentToken.jti())
+                || !nextJti.equals(nextToken.jti())
+                || !currentToken.familyId().equals(nextToken.familyId())) {
+            return false;
+        }
+
+        String currentFamilyId = currentToken.familyId();
+
+        // Lua Script for Atomic Token Rotation & Reuse Detection (DT 3.2.5)
         String luaScript = """
-                local stored = redis.call('HGET', KEYS[1], ARGV[1])
-                if not stored then
-                    return 0
+                local key = KEYS[1]
+                local current_jti = ARGV[1]
+                local current_hash = ARGV[2]
+                local next_jti = ARGV[3]
+                local next_hash = ARGV[4]
+                local duration_seconds = ARGV[5]
+                local current_family_id = ARGV[6]
+
+                -- 1. Check if the current JTI exists
+                local stored = redis.call('HGET', key, current_jti)
+                if stored then
+                    local colon_idx = string.find(stored, ":")
+                    local stored_hash = stored
+                    local stored_family = "unknown-family"
+                    if colon_idx then
+                        stored_hash = string.sub(stored, 1, colon_idx - 1)
+                        stored_family = string.sub(stored, colon_idx + 1)
+                    end
+
+                    if stored_hash == current_hash then
+                        -- Valid rotation: swap tokens, propagate token family
+                        redis.call('HDEL', key, current_jti)
+                        redis.call('HSET', key, next_jti, next_hash .. ":" .. stored_family)
+                        redis.call('EXPIRE', key, duration_seconds)
+                        return 1 -- Successful rotation
+                    end
                 end
-                if stored ~= ARGV[2] then
-                    return 0
+
+                -- 2. Token mismatch or missing JTI. Check for reuse attack of the same family
+                local all_fields = redis.call('HGETALL', key)
+                local reuse_detected = false
+                for i = 1, #all_fields, 2 do
+                    local jti = all_fields[i]
+                    local val = all_fields[i+1]
+                    local colon_idx = string.find(val, ":")
+                    if colon_idx then
+                        local stored_family = string.sub(val, colon_idx + 1)
+                        if stored_family == current_family_id then
+                            reuse_detected = true
+                        end
+                    end
                 end
-                redis.call('HDEL', KEYS[1], ARGV[1])
-                redis.call('HSET', KEYS[1], ARGV[3], ARGV[4])
-                redis.call('EXPIRE', KEYS[1], ARGV[5])
-                return 1
+
+                if reuse_detected then
+                    -- Revoke all sessions sharing the compromised token family!
+                    for i = 1, #all_fields, 2 do
+                        local jti = all_fields[i]
+                        local val = all_fields[i+1]
+                        local colon_idx = string.find(val, ":")
+                        if colon_idx then
+                            local stored_family = string.sub(val, colon_idx + 1)
+                            if stored_family == current_family_id then
+                                redis.call('HDEL', key, jti)
+                            end
+                        end
+                    end
+                    return -1 -- Compromise detected & family fully revoked
+                end
+
+                return 0 -- Generic token invalidation
                 """;
 
         DefaultRedisScript<Long> script = new DefaultRedisScript<>(luaScript, Long.class);
 
-        Long rotated = redisTemplate.execute(
+        Long result = redisTemplate.execute(
                 script,
                 List.of(key),
                 currentJti,
                 currentHash,
                 nextJti,
                 nextHash,
-                String.valueOf(durationSeconds)
+                String.valueOf(durationSeconds),
+                currentFamilyId
         );
-        return rotated != null && rotated == 1L;
+
+        if (result != null && result == -1L) {
+            throw new TokenFamilyCompromisedException();
+        }
+
+        return result != null && result == 1L;
     }
 
     @Override
@@ -122,21 +211,27 @@ public class RedisTokenStorage implements TokenStorage {
         redisTemplate.delete(key);
     }
 
+    @SuppressWarnings("null")
     @Override
     public void revokeOtherSessions(String userId, String currentJti) {
         String key = PREFIX + userId;
-        java.util.Set<Object> keys = redisTemplate.opsForHash().keys(key);
-        for (Object jti : keys) {
-            if (!jti.equals(currentJti)) {
-                redisTemplate.opsForHash().delete(key, jti);
-            }
-        }
+        String luaScript = """
+                local fields = redis.call('HKEYS', KEYS[1])
+                for i = 1, #fields do
+                    if fields[i] ~= ARGV[1] then
+                        redis.call('HDEL', KEYS[1], fields[i])
+                    end
+                end
+                return #fields
+                """;
+
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>(luaScript, Long.class);
+        redisTemplate.execute(script, List.of(key), currentJti);
     }
 
     @SuppressWarnings("null")
     @Override
     public void storeRecoveryToken(String email, String rawToken, long durationMinutes) {
-        // DT 3.2.4: Hashing tokens prior to storage
         String hashedToken = hashToken(rawToken);
         String key = "recovery:token:" + email;
         redisTemplate.opsForValue().set(key, hashedToken, Duration.ofMinutes(durationMinutes));
@@ -152,7 +247,6 @@ public class RedisTokenStorage implements TokenStorage {
         }
 
         String inputHash = hashToken(rawToken);
-        // DT 3.2.13: Constant-time verification
         return MessageDigest.isEqual(
                 storedHash.getBytes(StandardCharsets.UTF_8),
                 inputHash.getBytes(StandardCharsets.UTF_8)

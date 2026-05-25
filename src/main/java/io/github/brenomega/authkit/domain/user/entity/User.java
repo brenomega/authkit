@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.domain.user.entity;
 
 import io.github.brenomega.authkit.domain.user.enums.Role;
+import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -184,6 +185,17 @@ public class User {
     public void setEmailConfirmed(boolean emailConfirmed) { this.emailConfirmed = emailConfirmed; }
     public String getEmailConfirmationToken() { return emailConfirmationToken; }
     public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
+
+    /**
+     * Guards operations that require a confirmed email address.
+     *
+     * @throws EmailNotConfirmedException if the email has not been confirmed
+     */
+    public void requireEmailConfirmed() {
+        if (!this.emailConfirmed) {
+            throw new EmailNotConfirmedException();
+        }
+    }
 
     // -------------------------------------------------------------------------
     // PII-safe toString (DT 3.4.9)

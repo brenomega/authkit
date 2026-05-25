@@ -16,7 +16,7 @@ public class ResendConfig {
     /**
      * @param resendApiKey injected from RESEND_API_KEY environment variable
      */
-    public ResendConfig(@Value("${resend.api.key:mock-key}") String resendApiKey) {
+    public ResendConfig(@Value("${resend.api.key}") String resendApiKey) {
         this.resendApiKey = resendApiKey;
     }
 

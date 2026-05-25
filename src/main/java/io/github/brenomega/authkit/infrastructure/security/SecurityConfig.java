@@ -36,7 +36,7 @@ import jakarta.servlet.http.HttpServletResponse;
  *   <li>Session management: {@code STATELESS} (DT 3.2.5)</li>
  *   <li>CSRF: disabled for Bearer Token API (DT 3.2.6)</li>
  *   <li>Method-level security: enabled via {@code @PreAuthorize} (DT 3.2.8)</li>
- *   <li>Security headers: {@code nosniff}, {@code DENY} (DT 3.2.14)</li>
+ *   <li>Security headers: {@code nosniff}, {@code DENY}, HSTS, CSP (DT 3.2.14)</li>
  * </ul>
  */
 @Configuration
@@ -49,6 +49,7 @@ public class SecurityConfig {
     private final OriginFirewallFilter originFirewallFilter;
     private final RateLimitingFilter rateLimitingFilter;
     private final WorkerAuthFilter workerAuthFilter;
+    private final RequestBodySizeLimitFilter requestBodySizeLimitFilter;
 
     /**
      * @param objectMapper Jackson mapper for serializing error responses
@@ -61,12 +62,14 @@ public class SecurityConfig {
             UserAuthoritiesFilter userAuthoritiesFilter,
             OriginFirewallFilter originFirewallFilter,
             RateLimitingFilter rateLimitingFilter,
-            WorkerAuthFilter workerAuthFilter) {
+            WorkerAuthFilter workerAuthFilter,
+            RequestBodySizeLimitFilter requestBodySizeLimitFilter) {
         this.objectMapper = objectMapper;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.originFirewallFilter = originFirewallFilter;
         this.rateLimitingFilter = rateLimitingFilter;
         this.workerAuthFilter = workerAuthFilter;
+        this.requestBodySizeLimitFilter = requestBodySizeLimitFilter;
     }
 
     /**
@@ -90,18 +93,28 @@ public class SecurityConfig {
             .headers(headers -> headers
                 .contentTypeOptions(cto -> {})          // X-Content-Type-Options: nosniff
                 .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)          // X-Frame-Options: DENY
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .includeSubDomains(true)
+                        .preload(true)
+                        .maxAgeInSeconds(31536000))
+                .contentSecurityPolicy(csp -> csp
+                        .policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"))
             )
 
-            // DT 3.2.8 — Authorization rules
+            // DT 3.2.8 — Authorization rules (Enforcing Deny-by-Default pattern)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout-all").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/email-confirmation/confirm").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-recovery/**").permitAll()
-                .requestMatchers("/api/v1/users/me/**").authenticated()
-                .anyRequest().authenticated()
+                .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/.well-known/**").permitAll()
+                .requestMatchers("/api/v1/internal/**").hasRole("WORKER")
+                .requestMatchers("/api/v1/users/me", "/api/v1/users/me/**").hasAnyRole("USER", "OWNER", "ADMIN")
+                .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .anyRequest().denyAll()
             )
 
             // DT 3.2.7 — OAuth2 Resource Server with JWT validation
@@ -116,6 +129,9 @@ public class SecurityConfig {
 
             // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
             .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)
+
+            // DT 3.1.30 — Reject oversized bodies before JSON parsing or password hashing.
+            .addFilterAfter(requestBodySizeLimitFilter, RateLimitingFilter.class)
 
             // DT 3.2.11 — Worker Auth injection immediately after standard extraction
             .addFilterAfter(workerAuthFilter, BearerTokenAuthenticationFilter.class)

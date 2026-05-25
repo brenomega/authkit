@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.infrastructure.security;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -27,10 +28,25 @@ public class AuthProperties {
     private Cookie cookie = new Cookie();
 
     @Valid
+    private Csrf csrf = new Csrf();
+
+    @Valid
     private Jwt jwt = new Jwt();
 
     @Valid
     private Frontend frontend = new Frontend();
+
+    @Valid
+    private Registration registration = new Registration();
+
+    @Valid
+    private AuthorityCache authorityCache = new AuthorityCache();
+
+    @Valid
+    private Request request = new Request();
+
+    @Valid
+    private EmailOutbox emailOutbox = new EmailOutbox();
 
     public Token getToken() {
         return token;
@@ -48,6 +64,14 @@ public class AuthProperties {
         this.cookie = cookie;
     }
 
+    public Csrf getCsrf() {
+        return csrf;
+    }
+
+    public void setCsrf(Csrf csrf) {
+        this.csrf = csrf;
+    }
+
     public Jwt getJwt() {
         return jwt;
     }
@@ -62,6 +86,38 @@ public class AuthProperties {
 
     public void setFrontend(Frontend frontend) {
         this.frontend = frontend;
+    }
+
+    public Registration getRegistration() {
+        return registration;
+    }
+
+    public void setRegistration(Registration registration) {
+        this.registration = registration;
+    }
+
+    public AuthorityCache getAuthorityCache() {
+        return authorityCache;
+    }
+
+    public void setAuthorityCache(AuthorityCache authorityCache) {
+        this.authorityCache = authorityCache;
+    }
+
+    public Request getRequest() {
+        return request;
+    }
+
+    public void setRequest(Request request) {
+        this.request = request;
+    }
+
+    public EmailOutbox getEmailOutbox() {
+        return emailOutbox;
+    }
+
+    public void setEmailOutbox(EmailOutbox emailOutbox) {
+        this.emailOutbox = emailOutbox;
     }
 
     public static class Token {
@@ -163,10 +219,78 @@ public class AuthProperties {
         }
     }
 
+    public static class Csrf {
+
+        private boolean enabled = true;
+
+        @NotBlank
+        private String cookieName = "XSRF-TOKEN";
+
+        @NotBlank
+        private String headerName = "X-XSRF-TOKEN";
+
+        @NotBlank
+        @Pattern(regexp = "/.*")
+        private String path = "/api/v1/auth";
+
+        @Min(16)
+        @Max(128)
+        private int tokenBytes = 32;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getCookieName() {
+            return cookieName;
+        }
+
+        public void setCookieName(String cookieName) {
+            this.cookieName = cookieName;
+        }
+
+        public String getHeaderName() {
+            return headerName;
+        }
+
+        public void setHeaderName(String headerName) {
+            this.headerName = headerName;
+        }
+
+        public String getPath() {
+            return path;
+        }
+
+        public void setPath(String path) {
+            this.path = path;
+        }
+
+        public int getTokenBytes() {
+            return tokenBytes;
+        }
+
+        public void setTokenBytes(int tokenBytes) {
+            this.tokenBytes = tokenBytes;
+        }
+    }
+
     public static class Jwt {
 
         @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
         private String issuer = "authkit";
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String audience = "authkit-api";
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String keyId = "authkit-key-1";
 
         public String getIssuer() {
             return issuer;
@@ -174,6 +298,22 @@ public class AuthProperties {
 
         public void setIssuer(String issuer) {
             this.issuer = issuer;
+        }
+
+        public String getAudience() {
+            return audience;
+        }
+
+        public void setAudience(String audience) {
+            this.audience = audience;
+        }
+
+        public String getKeyId() {
+            return keyId;
+        }
+
+        public void setKeyId(String keyId) {
+            this.keyId = keyId;
         }
     }
 
@@ -201,6 +341,106 @@ public class AuthProperties {
 
         public void setPasswordResetUrl(String passwordResetUrl) {
             this.passwordResetUrl = passwordResetUrl;
+        }
+    }
+
+    public static class Registration {
+
+        private boolean stealthConflicts = true;
+
+        public boolean isStealthConflicts() {
+            return stealthConflicts;
+        }
+
+        public void setStealthConflicts(boolean stealthConflicts) {
+            this.stealthConflicts = stealthConflicts;
+        }
+    }
+
+    public static class AuthorityCache {
+
+        @Min(1)
+        @Max(300)
+        private long ttlSeconds = 30;
+
+        @Min(1)
+        private long maxSize = 10000;
+
+        public long getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(long ttlSeconds) {
+            this.ttlSeconds = ttlSeconds;
+        }
+
+        public long getMaxSize() {
+            return maxSize;
+        }
+
+        public void setMaxSize(long maxSize) {
+            this.maxSize = maxSize;
+        }
+    }
+
+    public static class Request {
+
+        @Min(1024)
+        private long maxBodyBytes = 65536;
+
+        public long getMaxBodyBytes() {
+            return maxBodyBytes;
+        }
+
+        public void setMaxBodyBytes(long maxBodyBytes) {
+            this.maxBodyBytes = maxBodyBytes;
+        }
+    }
+
+    public static class EmailOutbox {
+
+        private boolean enabled = true;
+
+        @Min(1)
+        @Max(500)
+        private int batchSize = 50;
+
+        @Min(1000)
+        private long pollDelayMs = 5000;
+
+        @Min(1)
+        private long lockTtlSeconds = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getBatchSize() {
+            return batchSize;
+        }
+
+        public void setBatchSize(int batchSize) {
+            this.batchSize = batchSize;
+        }
+
+        public long getPollDelayMs() {
+            return pollDelayMs;
+        }
+
+        public void setPollDelayMs(long pollDelayMs) {
+            this.pollDelayMs = pollDelayMs;
+        }
+
+        public long getLockTtlSeconds() {
+            return lockTtlSeconds;
+        }
+
+        public void setLockTtlSeconds(long lockTtlSeconds) {
+            this.lockTtlSeconds = lockTtlSeconds;
         }
     }
 }

@@ -62,9 +62,9 @@ public class SecurityUser implements UserDetails {
     /**
      * Indicates whether the user's account has not expired.
      *
-     * <p><strong>Placeholder:</strong> always returns {@code true} until
-     * account expiration logic is implemented as part of the session
-     * management RFs (RF 2.1.10).</p>
+     * <p>Account expiration is not currently part of the AuthKit user model,
+     * so this remains unrestricted until a durable account lifecycle field is
+     * introduced.</p>
      *
      * @return {@code true} (default — no expiration policy yet)
      */
@@ -76,9 +76,8 @@ public class SecurityUser implements UserDetails {
     /**
      * Indicates whether the user's account is not locked.
      *
-     * <p><strong>Placeholder:</strong> always returns {@code true} until
-     * the progressive lockout policy is implemented (DT 3.2.23,
-     * RF 2.1.11).</p>
+     * <p>Progressive lockout is enforced by {@link AccountLockoutService} in
+     * the login and profile management flows rather than through this adapter.</p>
      *
      * @return {@code true} (default — no lockout policy yet)
      */
@@ -90,8 +89,8 @@ public class SecurityUser implements UserDetails {
     /**
      * Indicates whether the user's credentials (password) have not expired.
      *
-     * <p><strong>Placeholder:</strong> always returns {@code true} until
-     * credential rotation policies are defined.</p>
+     * <p>Credential expiration is not currently modeled as a persisted user
+     * attribute.</p>
      *
      * @return {@code true} (default — no credential expiration yet)
      */
@@ -103,15 +102,14 @@ public class SecurityUser implements UserDetails {
     /**
      * Indicates whether the user account is enabled.
      *
-     * <p><strong>Placeholder:</strong> always returns {@code true} until
-     * email confirmation (RF 2.1.7) and account deletion (RF 2.1.9)
-     * workflows are implemented.</p>
+     * <p>Email confirmation is required before the account can receive runtime
+     * authorities or obtain fresh tokens.</p>
      *
-     * @return {@code true} (default — no enable/disable logic yet)
+     * @return {@code true} only after the email confirmation flow completes
      */
     @Override
     public boolean isEnabled() {
-        return true;
+        return user.isEmailConfirmed();
     }
 
     /**

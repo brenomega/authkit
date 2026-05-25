@@ -8,19 +8,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
-
-import static org.mockito.Mockito.verify;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
+import io.github.brenomega.authkit.repository.UserRepository;
 
 /**
  * Integration test validating the progressive lockout lifecycle (DT 3.2.23).
@@ -45,11 +41,14 @@ public class LockoutManagementIntegrationTest {
     @Autowired
     private RegistrationService registrationService;
 
-    @MockitoBean
-    private QueuePublisher<EmailPayload> emailPublisher;
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private EmailOutboxRepository emailOutboxRepository;
 
     @Test
-    @SuppressWarnings({ "unchecked", "null" })
+    @SuppressWarnings({ "null" })
     @DisplayName("Lockout Lifecycle: 5 failures -> management blocked -> reset -> unlocked (DT 3.2.23)")
     void lockoutLifecycle_ManagementBlocked_ThenReset() throws Exception {
         String email = "lockout-test@example.com";
@@ -58,10 +57,11 @@ public class LockoutManagementIntegrationTest {
 
         // --- SETUP: Register user ---
         var user = registrationService.registerUser(new RegisterRequest(email, password, true, true));
+        user.setEmailConfirmed(true);
+        userRepository.save(user);
         String userId = user.getId().toString();
 
-        // Reset mock to clear registration email
-        org.mockito.Mockito.reset(emailPublisher);
+        emailOutboxRepository.deleteAll();
 
         // --- STEP 1: Simulate 5 failed login attempts ---
         for (int i = 0; i < 5; i++) {
@@ -80,7 +80,7 @@ public class LockoutManagementIntegrationTest {
 
         // --- STEP 3: Attempt password change with valid JWT → should be REJECTED (403) ---
         mockMvc.perform(post("/api/v1/users/me/password")
-                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenantId", "t1")))
+                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenant_id", user.getTenantId().toString())))
                         .contentType("application/json")
                         .content("{\"currentPassword\": \"" + password + "\", \"newPassword\": \"" + newPassword + "\"}"))
                 .andExpect(status().isForbidden())
@@ -89,7 +89,7 @@ public class LockoutManagementIntegrationTest {
 
         // --- STEP 4: Attempt session revocation with valid JWT → should be REJECTED (403) ---
         mockMvc.perform(delete("/api/v1/users/me/sessions/some-jti")
-                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenantId", "t1"))))
+                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenant_id", user.getTenantId().toString()))))
                 .andExpect(status().isForbidden());
 
         // --- STEP 5: Initiate password recovery ---
@@ -98,10 +98,10 @@ public class LockoutManagementIntegrationTest {
                         .content("{\"email\": \"" + email + "\"}"))
                 .andExpect(status().isOk());
 
-        // Capture the recovery token from the published email
-        ArgumentCaptor<EmailPayload> captor = ArgumentCaptor.forClass(EmailPayload.class);
-        verify(emailPublisher).publish(captor.capture());
-        String htmlBody = captor.getValue().htmlBody();
+        // Capture the recovery token from the durable outbox event
+        String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
+                .orElseThrow()
+                .getBody();
         String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("&email="));
 
         // --- STEP 6: Complete password reset → should clear lockout ---

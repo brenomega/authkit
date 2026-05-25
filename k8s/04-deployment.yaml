@@ -12,9 +12,26 @@ spec:
       labels:
         app: authkit
     spec:
+      # Pod-level security hardening (DT 3.6.4)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: authkit
-          image: brenomega/authkit:latest
+          # Replace the digest with the immutable sha256 of the promoted release image.
+          image: brenomega/authkit@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          # Container-level security hardening
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8080
           envFrom:
@@ -22,6 +39,9 @@ spec:
                 name: authkit-secrets
             - configMapRef:
                 name: authkit-network-config
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -41,3 +61,6 @@ spec:
             limits:
               cpu: "2000m"
               memory: "1024Mi"
+      volumes:
+        - name: tmp
+          emptyDir: {}

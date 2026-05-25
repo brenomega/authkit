@@ -40,11 +40,17 @@ import java.security.KeyPair;
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
     "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
+    "spring.rabbitmq.host=localhost",
     "spring.rabbitmq.port=0",
+    "spring.rabbitmq.listener.simple.auto-startup=false",
+    "spring.rabbitmq.listener.direct.auto-startup=false",
     "app.security.worker-token=mock-token",
     "authkit.auth.jwt.issuer=https://auth.example.test",
+    "authkit.auth.jwt.audience=https://api.example.test",
+    "authkit.auth.jwt.key-id=authkit-test-key-1",
     "authkit.auth.frontend.activation-url=https://app.example.test/activate",
-    "authkit.auth.frontend.password-reset-url=https://app.example.test/reset-password"
+    "authkit.auth.frontend.password-reset-url=https://app.example.test/reset-password",
+    "resend.api.key=test-resend-key"
 })
 public class ProductionFirewallTest {
 

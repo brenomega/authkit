@@ -1,6 +1,11 @@
 # =============================================================================
 # AuthKit — Docker Compose Orchestration
 # Services: PostgreSQL, Redis, RabbitMQ, pgAdmin, Backend
+#
+# Development-only: credentials in this file are intentionally local defaults.
+# Production deployments must inject secrets through a secret manager or K8s
+# Secret manifests and will be rejected by ProductionConfigValidator if these
+# placeholder values are used outside dev/test profiles.
 # =============================================================================
 
 services:
@@ -97,16 +102,33 @@ services:
       JWT_PRIVATE_KEY: file:/app/keys/app.key
       JWT_PUBLIC_KEY: file:/app/keys/app.pub
       AUTH_JWT_ISSUER: authkit-local
+      AUTH_JWT_AUDIENCE: authkit-local-api
+      AUTH_JWT_KEY_ID: authkit-local-key-1
       AUTH_ACCESS_TOKEN_TTL_SECONDS: 900
       AUTH_REFRESH_TOKEN_TTL_DAYS: 7
       AUTH_RECOVERY_TOKEN_TTL_MINUTES: 15
+      AUTH_AUTHORITY_CACHE_TTL_SECONDS: 30
+      AUTH_AUTHORITY_CACHE_MAX_SIZE: 10000
+      AUTH_MAX_REQUEST_BODY_BYTES: 65536
+      AUTH_EMAIL_OUTBOX_ENABLED: "true"
+      AUTH_EMAIL_OUTBOX_BATCH_SIZE: 50
+      AUTH_EMAIL_OUTBOX_POLL_DELAY_MS: 5000
+      AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS: 300
       AUTH_REFRESH_COOKIE_NAME: Refresh-Token
       AUTH_REFRESH_COOKIE_PATH: /api/v1/auth
       AUTH_REFRESH_COOKIE_HTTP_ONLY: "true"
       AUTH_REFRESH_COOKIE_SECURE: "true"
       AUTH_REFRESH_COOKIE_SAME_SITE: Strict
+      AUTH_CSRF_ENABLED: "true"
+      AUTH_CSRF_COOKIE_NAME: XSRF-TOKEN
+      AUTH_CSRF_HEADER_NAME: X-XSRF-TOKEN
+      AUTH_CSRF_COOKIE_PATH: /api/v1/auth
+      AUTH_CSRF_TOKEN_BYTES: 32
       AUTH_FRONTEND_ACTIVATION_URL: https://authkit.local/activate
       AUTH_FRONTEND_PASSWORD_RESET_URL: https://authkit.local/reset-password
+      AUTH_REGISTRATION_STEALTH_CONFLICTS: "false"
+      WORKER_TOKEN: local-development-worker-token
+      RESEND_API_KEY: re_local_development_token
     ports:
       - "8080:8080"
     depends_on:

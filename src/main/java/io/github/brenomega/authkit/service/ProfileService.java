@@ -4,21 +4,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.exception.AccountLockedException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
-import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import java.util.List;
-import java.util.concurrent.Semaphore;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
  * Service for user profile and session management (RF 2.1.6, RF 2.1.7, RF 2.1.8).
@@ -46,17 +50,16 @@ public class ProfileService {
     private final PasswordEncoder passwordEncoder;
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
-    private final Semaphore argon2Semaphore;
+    private final Argon2ConcurrencyLimiter argon2Limiter;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                          TokenStorage tokenStorage, AccountLockoutService lockoutService) {
+                          TokenStorage tokenStorage, AccountLockoutService lockoutService,
+                          Argon2ConcurrencyLimiter argon2Limiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
-        
-        int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
-        this.argon2Semaphore = new Semaphore(Math.max(2, permits));
+        this.argon2Limiter = argon2Limiter;
     }
 
     /**
@@ -71,6 +74,7 @@ public class ProfileService {
         @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
     }
 
@@ -99,7 +103,8 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(targetUserId))
                 .orElseThrow(UserNotFoundException::new);
 
-        requireEmailConfirmed(user);
+        requireTenantAccess(user);
+        user.requireEmailConfirmed();
 
         // Update conditionally
         if (request.name() != null) {
@@ -134,12 +139,14 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
+        requireTenantAccess(user);
+
         // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
             throw new AccountLockedException();
         }
 
-        requireEmailConfirmed(user);
+        user.requireEmailConfirmed();
 
         // Security Check: Must verify current password before allowing change (RF 2.1.7)
         if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
@@ -147,7 +154,7 @@ public class ProfileService {
         }
 
         // Hashing: Apply Argon2id with semaphore protection (DT 3.2.26)
-        boolean acquired = argon2Semaphore.tryAcquire();
+        boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
@@ -156,7 +163,7 @@ public class ProfileService {
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {
-            argon2Semaphore.release();
+            argon2Limiter.release();
         }
 
         // Session Revocation: Revoke all other active Refresh Tokens except current session (RF 2.1.12)
@@ -170,6 +177,11 @@ public class ProfileService {
      * @return a list of active session identifiers (JTIs)
      */
     public List<SessionResponse> listSessions(String userId) {
+        @SuppressWarnings("null")
+        User user = userRepository.findById(java.util.UUID.fromString(userId))
+                .orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
+
         return tokenStorage.listSessions(userId).stream()
                 .map(SessionResponse::new)
                 .toList();
@@ -189,6 +201,8 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
+        requireTenantAccess(user);
+
         // DT 3.2.23: Block session management while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
             throw new AccountLockedException();
@@ -197,9 +211,16 @@ public class ProfileService {
         tokenStorage.revokeSession(userId, jti);
     }
 
-    private void requireEmailConfirmed(User user) {
-        if (!user.isEmailConfirmed()) {
-            throw new EmailNotConfirmedException();
+    private void requireTenantAccess(User user) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return;
+        }
+
+        String tenantId = JwtTenantResolver.extractTenantId(jwt);
+
+        if (tenantId == null || !tenantId.equals(user.getTenantId().toString())) {
+            throw new UserNotFoundException();
         }
     }
 }

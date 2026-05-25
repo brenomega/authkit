@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.service;
 
-import java.util.concurrent.Semaphore;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -14,14 +13,15 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
@@ -46,28 +46,27 @@ public class PasswordRecoveryService {
 
     private final UserRepository userRepository;
     private final TokenStorage tokenStorage;
-    private final QueuePublisher<EmailPayload> emailPublisher;
+    private final EmailOutboxService emailOutboxService;
     private final PasswordEncoder passwordEncoder;
     private final AccountLockoutService lockoutService;
     private final AuthProperties authProperties;
-    private final Semaphore argon2Semaphore;
+    private final Argon2ConcurrencyLimiter argon2Limiter;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
             TokenStorage tokenStorage,
-            QueuePublisher<EmailPayload> emailPublisher,
+            EmailOutboxService emailOutboxService,
             PasswordEncoder passwordEncoder,
             AccountLockoutService lockoutService,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            Argon2ConcurrencyLimiter argon2Limiter) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
-        this.emailPublisher = emailPublisher;
+        this.emailOutboxService = emailOutboxService;
         this.passwordEncoder = passwordEncoder;
         this.lockoutService = lockoutService;
         this.authProperties = authProperties;
-        
-        int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
-        this.argon2Semaphore = new Semaphore(Math.max(2, permits));
+        this.argon2Limiter = argon2Limiter;
     }
 
     /**
@@ -96,7 +95,7 @@ public class PasswordRecoveryService {
                             "Password Recovery",
                             "Click here to reset your password: " + resetLink
                     );
-                    emailPublisher.publish(emailPayload);
+                    emailOutboxService.enqueue(emailPayload);
                     log.info("Password recovery requested for existing user. Token generated and event published.");
                 },
                 () -> log.info("Password recovery requested for non-existing account. Stealth response triggered.")
@@ -115,7 +114,7 @@ public class PasswordRecoveryService {
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {
         String normalizedEmail = EmailNormalizer.normalize(email);
-        boolean acquired = argon2Semaphore.tryAcquire();
+        boolean acquired = argon2Limiter.tryAcquire();
 
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
@@ -144,11 +143,11 @@ public class PasswordRecoveryService {
                     "Password Changed",
                     "Your password has been successfully changed."
             );
-            emailPublisher.publish(confirmation);
+            emailOutboxService.enqueue(confirmation);
 
             log.info("Password successfully reset for user: {}", user.getId());
         } finally {
-            argon2Semaphore.release();
+            argon2Limiter.release();
         }
     }
 }

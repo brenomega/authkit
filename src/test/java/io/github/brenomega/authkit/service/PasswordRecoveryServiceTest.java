@@ -20,12 +20,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 
 /**
  * Unit tests for PasswordRecoveryService (DT 3.4.5).
@@ -35,18 +35,17 @@ class PasswordRecoveryServiceTest {
 
     private UserRepository userRepository;
     private TokenStorage tokenStorage;
-    private QueuePublisher<EmailPayload> emailPublisher;
+    private EmailOutboxService emailOutboxService;
     private PasswordEncoder passwordEncoder;
     private AccountLockoutService lockoutService;
     private AuthProperties authProperties;
     private PasswordRecoveryService recoveryService;
 
     @BeforeEach
-    @SuppressWarnings("unchecked")
     void setUp() {
         userRepository = mock(UserRepository.class);
         tokenStorage = mock(TokenStorage.class);
-        emailPublisher = mock(QueuePublisher.class);
+        emailOutboxService = mock(EmailOutboxService.class);
         passwordEncoder = mock(PasswordEncoder.class);
         lockoutService = mock(AccountLockoutService.class);
         authProperties = new AuthProperties();
@@ -55,10 +54,11 @@ class PasswordRecoveryServiceTest {
         recoveryService = new PasswordRecoveryService(
                 userRepository,
                 tokenStorage,
-                emailPublisher,
+                emailOutboxService,
                 passwordEncoder,
                 lockoutService,
-                authProperties
+                authProperties,
+                new Argon2ConcurrencyLimiter()
         );
     }
 
@@ -76,7 +76,7 @@ class PasswordRecoveryServiceTest {
         recoveryService.requestRecovery(email);
 
         verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(30L));
-        verify(emailPublisher).publish(argThat(payload ->
+        verify(emailOutboxService).enqueue(argThat(payload ->
                 payload.htmlBody().contains("https://frontend.example.test/reset-password?token=")
                         && payload.htmlBody().contains("&email=exists%40example.com")));
     }
@@ -93,7 +93,7 @@ class PasswordRecoveryServiceTest {
         recoveryService.requestRecovery(email);
 
         verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
-        verify(emailPublisher, never()).publish(any());
+        verify(emailOutboxService, never()).enqueue(any());
     }
 
     /**
@@ -120,7 +120,7 @@ class PasswordRecoveryServiceTest {
         verify(lockoutService).clearLockout(email);
         // RF 2.1.12: All sessions must be revoked after password reset
         verify(tokenStorage).revokeAllSessions("00000000-0000-0000-0000-000000000000");
-        verify(emailPublisher).publish(any()); // Reset confirmation
+        verify(emailOutboxService).enqueue(any()); // Reset confirmation
     }
 
     /**

@@ -4,24 +4,20 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -34,8 +30,8 @@ public class RegistrationIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
-    @MockitoBean
-    private QueuePublisher<EmailPayload> emailPublisher;
+    @Autowired
+    private EmailOutboxRepository emailOutboxRepository;
 
     @Test
     @DisplayName("Registers user and prevents mass assignment maliciously attempting to inject role")
@@ -108,9 +104,9 @@ public class RegistrationIntegrationTest {
         String storedTokenHash = user.getEmailConfirmationToken();
         assertNotNull(storedTokenHash);
 
-        ArgumentCaptor<EmailPayload> captor = ArgumentCaptor.forClass(EmailPayload.class);
-        verify(emailPublisher).publish(captor.capture());
-        String htmlBody = captor.getValue().htmlBody();
+        String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc("confirm-flow@example.com")
+                .orElseThrow()
+                .getBody();
         String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("'>here"));
         assertNotEquals(storedTokenHash, token);
 

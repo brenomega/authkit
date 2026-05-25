@@ -14,8 +14,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.repository.UserRepository;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -33,10 +33,11 @@ public class ProfileIntegrationTest {
     @DisplayName("GET /me: Returns authenticated profile (RF 2.1.6)")
     void profileGet_Success() throws Exception {
         User user = new User("getme@example.com", "Pass", "John", null, true, true, null);
+        user.setEmailConfirmed(true);
         userRepository.save(user);
 
         mockMvc.perform(get("/api/v1/users/me")
-                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString()))))
+                        .with(userJwt(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.email").value("getme@example.com"))
                 .andExpect(jsonPath("$.data.name").value("John"));
@@ -57,7 +58,7 @@ public class ProfileIntegrationTest {
                 """;
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString())))
+                        .with(userJwt(user))
                         .contentType("application/json")
                         .content(payload))
                 .andExpect(status().isOk())
@@ -78,10 +79,16 @@ public class ProfileIntegrationTest {
                 """;
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .with(jwt().jwt(builder -> builder.subject(user.getId().toString())))
+                        .with(userJwt(user))
                         .contentType("application/json")
                         .content(payload))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errors[0]").value("Email must be confirmed before performing this operation."));
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Unauthorized"));
+    }
+
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor userJwt(User user) {
+        return jwt().jwt(builder -> builder
+                .subject(user.getId().toString())
+                .claim("tenant_id", user.getTenantId().toString()));
     }
 }

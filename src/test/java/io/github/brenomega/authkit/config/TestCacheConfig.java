@@ -106,6 +106,15 @@ public class TestCacheConfig {
             Object[] args = invocation.getArguments();
 
             if (args.length == 3) {
+                if (key.startsWith("refresh:token:")) {
+                    String currentJti = args[2].toString();
+                    Map<Object, Object> sessions = hashCache.get(key);
+                    if (sessions != null) {
+                        sessions.keySet().removeIf(jti -> !jti.equals(currentJti));
+                        return Long.valueOf(sessions.size());
+                    }
+                    return 0L;
+                }
                 String inputHash = args[2].toString();
                 String storedHash = valueCache.get(key);
                 if (storedHash != null && storedHash.equals(inputHash)) {
@@ -128,18 +137,69 @@ public class TestCacheConfig {
             String currentHash = invocation.getArgument(3).toString();
             String nextJti = invocation.getArgument(4).toString();
             String nextHash = invocation.getArgument(5).toString();
+            String currentFamilyId = invocation.getArgument(7).toString();
             Map<Object, Object> sessions = hashCache.get(key);
 
-            if (sessions == null || !currentHash.equals(sessions.get(currentJti))) {
+            if (sessions == null) {
                 return 0L;
             }
 
-            sessions.remove(currentJti);
-            sessions.put(nextJti, nextHash);
-            return 1L;
+            Object storedValObj = sessions.get(currentJti);
+            if (storedValObj != null) {
+                String storedVal = storedValObj.toString();
+                String storedHash = storedVal;
+                String storedFamily = "unknown-family";
+                int colonIdx = storedVal.indexOf(':');
+                if (colonIdx != -1) {
+                    storedHash = storedVal.substring(0, colonIdx);
+                    storedFamily = storedVal.substring(colonIdx + 1);
+                }
+
+                if (currentHash.equals(storedHash)) {
+                    sessions.remove(currentJti);
+                    sessions.put(nextJti, nextHash + ":" + storedFamily);
+                    return 1L;
+                }
+            }
+
+            // Reuse detection: if the old token is replayed, revoke the remaining token family.
+            boolean reuseDetected = false;
+            for (Map.Entry<Object, Object> entry : sessions.entrySet()) {
+                String val = entry.getValue().toString();
+                int colonIdx = val.indexOf(':');
+                if (colonIdx != -1) {
+                    String storedFamily = val.substring(colonIdx + 1);
+                    if (storedFamily.equals(currentFamilyId)) {
+                        reuseDetected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (reuseDetected) {
+                // Revoke all keys belonging to this family!
+                java.util.List<Object> keysToRemove = new java.util.ArrayList<>();
+                for (Map.Entry<Object, Object> entry : sessions.entrySet()) {
+                    String val = entry.getValue().toString();
+                    int colonIdx = val.indexOf(':');
+                    if (colonIdx != -1) {
+                        String storedFamily = val.substring(colonIdx + 1);
+                        if (storedFamily.equals(currentFamilyId)) {
+                            keysToRemove.add(entry.getKey());
+                        }
+                    }
+                }
+                for (Object k : keysToRemove) {
+                    sessions.remove(k);
+                }
+                return -1L; // Compromised!
+            }
+
+            return 0L;
         }).when(template).execute(
                 Mockito.any(org.springframework.data.redis.core.script.RedisScript.class),
                 Mockito.anyList(),
+                Mockito.any(),
                 Mockito.any(),
                 Mockito.any(),
                 Mockito.any(),
@@ -150,6 +210,15 @@ public class TestCacheConfig {
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
+            if (key.startsWith("refresh:token:")) {
+                String currentJti = invocation.getArgument(2).toString();
+                Map<Object, Object> sessions = hashCache.get(key);
+                if (sessions != null) {
+                    sessions.keySet().removeIf(jti -> !jti.equals(currentJti));
+                    return Long.valueOf(sessions.size());
+                }
+                return 0L;
+            }
             String inputHash = invocation.getArgument(2).toString();
             String storedHash = valueCache.get(key);
             if (storedHash != null && storedHash.equals(inputHash)) {

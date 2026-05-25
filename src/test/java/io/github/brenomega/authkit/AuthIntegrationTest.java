@@ -18,6 +18,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
+import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -34,6 +36,9 @@ public class AuthIntegrationTest {
     @Autowired
     private RegistrationService registrationService;
 
+    @Autowired
+    private UserRepository userRepository;
+
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
 
@@ -47,7 +52,7 @@ public class AuthIntegrationTest {
                 true,
                 true
         );
-        registrationService.registerUser(registerRequest);
+        registerConfirmed(registerRequest);
 
         String payload = """
                 {
@@ -65,7 +70,10 @@ public class AuthIntegrationTest {
                 // Validate DT 3.2.22 Secure Transport mapping
                 .andExpect(cookie().exists("Refresh-Token"))
                 .andExpect(cookie().httpOnly("Refresh-Token", true))
-                .andExpect(cookie().secure("Refresh-Token", true));
+                .andExpect(cookie().secure("Refresh-Token", true))
+                .andExpect(cookie().exists("XSRF-TOKEN"))
+                .andExpect(cookie().httpOnly("XSRF-TOKEN", false))
+                .andExpect(cookie().secure("XSRF-TOKEN", true));
     }
 
     @Test
@@ -77,7 +85,7 @@ public class AuthIntegrationTest {
                 true,
                 true
         );
-        registrationService.registerUser(registerRequest);
+        registerConfirmed(registerRequest);
 
         String payload = """
                 {
@@ -94,13 +102,17 @@ public class AuthIntegrationTest {
                 .andReturn();
 
         Cookie originalCookie = loginResult.getResponse().getCookie("Refresh-Token");
+        Cookie originalCsrfCookie = loginResult.getResponse().getCookie("XSRF-TOKEN");
         assertNotNull(originalCookie);
+        assertNotNull(originalCsrfCookie);
 
         MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
-                        .cookie(originalCookie))
+                        .cookie(originalCookie, originalCsrfCookie)
+                        .header("X-XSRF-TOKEN", originalCsrfCookie.getValue()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").exists())
                 .andExpect(cookie().exists("Refresh-Token"))
+                .andExpect(cookie().exists("XSRF-TOKEN"))
                 .andReturn();
 
         Cookie rotatedCookie = refreshResult.getResponse().getCookie("Refresh-Token");
@@ -108,9 +120,45 @@ public class AuthIntegrationTest {
         assertNotEquals(originalCookie.getValue(), rotatedCookie.getValue());
 
         mockMvc.perform(post("/api/v1/auth/refresh")
-                        .cookie(originalCookie))
+                        .cookie(originalCookie, originalCsrfCookie)
+                        .header("X-XSRF-TOKEN", originalCsrfCookie.getValue()))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.errors[0]").value("Invalid or expired refresh token"));
+                .andExpect(jsonPath("$.errors[0]").value("Refresh token reuse detected. All sessions revoked for your security."));
+    }
+
+    @Test
+    @DisplayName("Refresh with cookie but without CSRF header is rejected")
+    void refresh_missingCsrfHeader_returns403() throws Exception {
+        RegisterRequest registerRequest = new RegisterRequest(
+                "csrf-flow@example.com",
+                "SuperPassword123!",
+                true,
+                true
+        );
+        registerConfirmed(registerRequest);
+
+        String payload = """
+                {
+                   "email": "csrf-flow@example.com",
+                   "password": "SuperPassword123!"
+                }
+                """;
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Cookie refreshCookie = loginResult.getResponse().getCookie("Refresh-Token");
+        Cookie csrfCookie = loginResult.getResponse().getCookie("XSRF-TOKEN");
+        assertNotNull(refreshCookie);
+        assertNotNull(csrfCookie);
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .cookie(refreshCookie, csrfCookie))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errors[0]").value("Invalid CSRF token"));
     }
 
     @Test
@@ -122,7 +170,7 @@ public class AuthIntegrationTest {
                 true,
                 true
         );
-        registrationService.registerUser(registerRequest);
+        registerConfirmed(registerRequest);
 
         String payload = """
                 {
@@ -138,15 +186,20 @@ public class AuthIntegrationTest {
                 .andReturn();
 
         Cookie refreshCookie = loginResult.getResponse().getCookie("Refresh-Token");
+        Cookie csrfCookie = loginResult.getResponse().getCookie("XSRF-TOKEN");
         assertNotNull(refreshCookie);
+        assertNotNull(csrfCookie);
 
         mockMvc.perform(post("/api/v1/auth/logout")
-                        .cookie(refreshCookie))
+                        .cookie(refreshCookie, csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfCookie.getValue()))
                 .andExpect(status().isOk())
-                .andExpect(cookie().maxAge("Refresh-Token", 0));
+                .andExpect(cookie().maxAge("Refresh-Token", 0))
+                .andExpect(cookie().maxAge("XSRF-TOKEN", 0));
 
         mockMvc.perform(post("/api/v1/auth/refresh")
-                        .cookie(refreshCookie))
+                        .cookie(refreshCookie, csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfCookie.getValue()))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -165,5 +218,28 @@ public class AuthIntegrationTest {
                         .content(payload))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errors[0]").value("Invalid email or password"));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Oversized login password is rejected before hashing")
+    void login_oversizedPassword_returns400() throws Exception {
+        String payload = """
+                {
+                   "email": "dos@example.com",
+                   "password": "%s"
+                }
+                """.formatted("A".repeat(129));
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content(payload))
+                .andExpect(status().isBadRequest());
+    }
+
+    private User registerConfirmed(RegisterRequest registerRequest) {
+        User user = registrationService.registerUser(registerRequest);
+        user.setEmailConfirmed(true);
+        return userRepository.save(user);
     }
 }

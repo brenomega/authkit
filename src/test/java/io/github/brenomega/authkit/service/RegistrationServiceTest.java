@@ -23,10 +23,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.exception.InvalidTokenException;
+import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 @ExtendWith(MockitoExtension.class)
 class RegistrationServiceTest {
@@ -38,7 +39,7 @@ class RegistrationServiceTest {
     private PasswordEncoder passwordEncoder;
 
     @Mock
-    private QueuePublisher<EmailPayload> emailPublisher;
+    private EmailOutboxService emailOutboxService;
 
     private RegistrationService service;
     private AuthProperties authProperties;
@@ -47,7 +48,7 @@ class RegistrationServiceTest {
     void setUp() {
         authProperties = new AuthProperties();
         authProperties.getFrontend().setActivationUrl("https://frontend.example.test/activate");
-        service = new RegistrationService(userRepository, passwordEncoder, emailPublisher, authProperties);
+        service = new RegistrationService(userRepository, passwordEncoder, emailOutboxService, authProperties);
     }
 
     @SuppressWarnings("null")
@@ -67,7 +68,7 @@ class RegistrationServiceTest {
         assertNotNull(user.getTenantId(), "Multi-tenancy ID must be generated");
         assertFalse(user.isEmailConfirmed(), "Email must not be confirmed yet");
 
-        verify(emailPublisher).publish(argThat(payload -> 
+        verify(emailOutboxService).enqueue(argThat(payload ->
                 payload.to().equals("new@example.com") &&
                 payload.htmlBody().contains("https://frontend.example.test/activate?token=")
         ));
@@ -82,7 +83,7 @@ class RegistrationServiceTest {
         User existingUser = new User("existing@example.com", "pw", null, null, true, true, null);
         when(userRepository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
 
-        assertThrows(io.github.brenomega.authkit.exception.UserAlreadyExistsException.class, () -> service.registerUser(request));
+        assertThrows(UserAlreadyExistsException.class, () -> service.registerUser(request));
     }
 
     @Test
@@ -107,7 +108,7 @@ class RegistrationServiceTest {
         when(userRepository.findByEmailConfirmationToken(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
         when(userRepository.findByEmailConfirmationToken(rawToken)).thenReturn(Optional.empty());
 
-        assertThrows(io.github.brenomega.authkit.exception.InvalidTokenException.class,
+        assertThrows(InvalidTokenException.class,
                 () -> service.confirmEmail(rawToken));
     }
 }

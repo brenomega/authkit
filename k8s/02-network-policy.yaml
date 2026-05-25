@@ -1,18 +1,20 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: authkit-ingress-only
+  name: authkit-network-policy
 spec:
   podSelector:
     matchLabels:
       app: authkit
   policyTypes:
   - Ingress
+  - Egress
+
+  # Ingress Hardening (Strictly restrict inbound traffic to ingress controller)
   ingress:
   - from:
     - namespaceSelector:
         matchLabels:
-          # Assumes the ingress controller is in a namespace labeled kubernetes.io/metadata.name: ingress-nginx
           kubernetes.io/metadata.name: ingress-nginx
       podSelector:
         matchLabels:
@@ -20,3 +22,58 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
+
+  # Egress Hardening (DT 3.6.4 — Restrict outbound traffic solely to required services)
+  egress:
+  # Outbound rule for DNS resolution (CoreDNS)
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+  # Outbound rule for PostgreSQL database connection
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+
+  # Outbound rule for Redis token storage cache
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+
+  # Outbound rule for RabbitMQ asynchronous message broker
+  - to:
+    - podSelector:
+        matchLabels:
+          app: rabbitmq
+    ports:
+    - protocol: TCP
+      port: 5672
+
+  # Outbound HTTPS for the external email provider. Kubernetes NetworkPolicy
+  # cannot restrict by FQDN, so constrain this at DNS/proxy/egress-gateway level
+  # in production if available.
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443

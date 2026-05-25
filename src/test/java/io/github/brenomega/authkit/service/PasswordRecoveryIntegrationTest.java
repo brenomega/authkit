@@ -10,14 +10,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.mockito.ArgumentCaptor;
-import static org.mockito.Mockito.verify;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
+import io.github.brenomega.authkit.repository.UserRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,8 +27,11 @@ public class PasswordRecoveryIntegrationTest {
     @Autowired
     private RegistrationService registrationService;
 
-    @MockitoBean
-    private QueuePublisher<EmailPayload> emailPublisher;
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private EmailOutboxRepository emailOutboxRepository;
 
     @Test
     @DisplayName("Stealth Strategy: Recovery initiation returns 200 OK regardless of email existence (DT 3.2.15)")
@@ -55,16 +55,16 @@ public class PasswordRecoveryIntegrationTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Password Reset: Full cycle (Recovery -> Validation -> Reset -> Revocation) (RF 2.1.4)")
     void passwordReset_fullCycle() throws Exception {
         String email = "reset@example.com";
         String oldPass = "OldPass123!";
         String newPass = "NewSecurePass999!";
         registrationService.registerUser(new RegisterRequest(email, oldPass, true, true));
-        
-        // Reset the mock to clear the registration email event
-        org.mockito.Mockito.reset(emailPublisher);
+        var user = userRepository.findByEmail(email).orElseThrow();
+        user.setEmailConfirmed(true);
+        userRepository.save(user);
+        emailOutboxRepository.deleteAll();
 
         // 1. Request recovery
         mockMvc.perform(post("/api/v1/auth/password-recovery/request")
@@ -72,10 +72,10 @@ public class PasswordRecoveryIntegrationTest {
                         .content("{\"email\": \"" + email + "\"}"))
                 .andExpect(status().isOk());
 
-        // 2. Capture the generated token from the published email event
-        ArgumentCaptor<EmailPayload> captor = ArgumentCaptor.forClass(EmailPayload.class);
-        verify(emailPublisher).publish(captor.capture());
-        String htmlBody = captor.getValue().htmlBody();
+        // 2. Capture the generated token from the durable outbox event
+        String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
+                .orElseThrow()
+                .getBody();
         String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("&email="));
 
         // 3. Reset password using the captured token

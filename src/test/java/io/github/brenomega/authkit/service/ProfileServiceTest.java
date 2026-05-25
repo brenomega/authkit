@@ -43,7 +43,7 @@ class ProfileServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         tokenStorage = mock(TokenStorage.class);
         lockoutService = mock(AccountLockoutService.class);
-        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService);
+        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter());
     }
 
     /**
@@ -191,7 +191,8 @@ class ProfileServiceTest {
     void updateProfile_UnconfirmedEmail_Throws403() {
         String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
-        when(user.isEmailConfirmed()).thenReturn(false);
+        io.github.brenomega.authkit.exception.EmailNotConfirmedException ex = new io.github.brenomega.authkit.exception.EmailNotConfirmedException();
+        org.mockito.Mockito.doThrow(ex).when(user).requireEmailConfirmed();
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         assertThrows(EmailNotConfirmedException.class, () ->

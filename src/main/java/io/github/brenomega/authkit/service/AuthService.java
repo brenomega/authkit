@@ -9,8 +9,6 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.Semaphore;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +26,7 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
@@ -54,25 +53,22 @@ public class AuthService {
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
     private final AuthProperties authProperties;
+    private final Argon2ConcurrencyLimiter argon2Limiter;
     private final String dummyPasswordHash;
-
-    // Concurrency Limit (N = cores * 1.5) to brutally protect against Thread Exhaustion
-    private final Semaphore argon2Semaphore;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                        JwtEncoder jwtEncoder, TokenStorage tokenStorage,
                        AccountLockoutService lockoutService,
-                       AuthProperties authProperties) {
+                       AuthProperties authProperties,
+                       Argon2ConcurrencyLimiter argon2Limiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtEncoder = jwtEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
         this.authProperties = authProperties;
+        this.argon2Limiter = argon2Limiter;
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
-        
-        int permits = (int) (Runtime.getRuntime().availableProcessors() * 1.5);
-        this.argon2Semaphore = new Semaphore(Math.max(2, permits)); 
     }
 
     /**
@@ -113,6 +109,7 @@ public class AuthService {
         }
 
         User user = userOptional.get();
+        user.requireEmailConfirmed();
         
         // Clear limits on legit sign in
         lockoutService.clearLockout(email);
@@ -145,9 +142,11 @@ public class AuthService {
             log.warn("Refresh rejected because lockout is active for normalized email.");
             throw new InvalidRefreshTokenException();
         }
+        user.requireEmailConfirmed();
 
         String nextJti = UUID.randomUUID().toString();
-        IssuedRefreshToken nextRefreshToken = RefreshTokenCodec.issue(user.getId().toString(), nextJti);
+        IssuedRefreshToken nextRefreshToken = RefreshTokenCodec.issueRotated(
+                user.getId().toString(), nextJti, currentRefreshToken.familyId());
 
         boolean rotated = tokenStorage.rotateRefreshToken(
                 user.getId().toString(),
@@ -166,6 +165,14 @@ public class AuthService {
     }
 
     /**
+     * Proactively revokes all active refresh token sessions for the given user (DT 3.2.11).
+     */
+    @LogExecutionTime
+    public void logoutAll(String userId) {
+        tokenStorage.revokeAllSessions(userId);
+    }
+
+    /**
      * Revokes a refresh-token-backed session. Malformed or absent tokens are
      * treated as a client cleanup no-op so logout remains idempotent.
      */
@@ -181,11 +188,11 @@ public class AuthService {
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(authProperties.getJwt().getIssuer())
+                .audience(java.util.List.of(authProperties.getJwt().getAudience()))
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(accessTokenTtlSeconds))
                 .subject(user.getId().toString())
                 .id(refreshToken.jti()) // DT 3.2.3: bind access token to refresh session JTI
-                .claim("tenantId", user.getTenantId().toString())
                 .claim("tenant_id", user.getTenantId().toString())
                 .build();
 
@@ -196,7 +203,7 @@ public class AuthService {
     }
 
     private boolean matchesWithCapacity(String rawPassword, String encodedPassword) {
-        boolean acquired = argon2Semaphore.tryAcquire();
+        boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
@@ -204,7 +211,7 @@ public class AuthService {
         try {
             return passwordEncoder.matches(rawPassword, encodedPassword);
         } finally {
-            argon2Semaphore.release();
+            argon2Limiter.release();
         }
     }
 }

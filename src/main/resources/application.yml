@@ -64,6 +64,10 @@ spring:
     parser:
       strict-duplicate-detection: true
 
+resend:
+  api:
+    key: ${RESEND_API_KEY}
+
 # =============================================================================
 # JWT RSA Key Configuration (DT 3.2.2)
 # Keys are loaded from external files via environment variables.
@@ -90,17 +94,38 @@ authkit:
       http-only: ${AUTH_REFRESH_COOKIE_HTTP_ONLY:true}
       secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
       same-site: ${AUTH_REFRESH_COOKIE_SAME_SITE:Strict}
+    csrf:
+      enabled: ${AUTH_CSRF_ENABLED:true}
+      cookie-name: ${AUTH_CSRF_COOKIE_NAME:XSRF-TOKEN}
+      header-name: ${AUTH_CSRF_HEADER_NAME:X-XSRF-TOKEN}
+      path: ${AUTH_CSRF_COOKIE_PATH:/api/v1/auth}
+      token-bytes: ${AUTH_CSRF_TOKEN_BYTES:32}
     jwt:
       issuer: ${AUTH_JWT_ISSUER}
+      audience: ${AUTH_JWT_AUDIENCE}
+      key-id: ${AUTH_JWT_KEY_ID:authkit-key-1}
     frontend:
       activation-url: ${AUTH_FRONTEND_ACTIVATION_URL}
       password-reset-url: ${AUTH_FRONTEND_PASSWORD_RESET_URL}
+    registration:
+      stealth-conflicts: ${AUTH_REGISTRATION_STEALTH_CONFLICTS:true}
+    authority-cache:
+      ttl-seconds: ${AUTH_AUTHORITY_CACHE_TTL_SECONDS:30}
+      max-size: ${AUTH_AUTHORITY_CACHE_MAX_SIZE:10000}
+    request:
+      max-body-bytes: ${AUTH_MAX_REQUEST_BODY_BYTES:65536}
+    email-outbox:
+      enabled: ${AUTH_EMAIL_OUTBOX_ENABLED:true}
+      batch-size: ${AUTH_EMAIL_OUTBOX_BATCH_SIZE:50}
+      poll-delay-ms: ${AUTH_EMAIL_OUTBOX_POLL_DELAY_MS:5000}
+      lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}
 
 # =============================================================================
 # Server Configuration
 # =============================================================================
 server:
   port: 8080
+  forward-headers-strategy: framework
 
 # =============================================================================
 # Security Configuration (Argon2id)

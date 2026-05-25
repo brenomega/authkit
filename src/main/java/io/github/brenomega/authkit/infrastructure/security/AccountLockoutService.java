@@ -15,8 +15,8 @@ import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
-import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
+import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFactory;
 
 /**
  * Hybrid service for managing progressive account lockout state (DT 3.2.23).
@@ -77,7 +77,7 @@ public class AccountLockoutService {
 
         // Layer 2 — Redis ProxyManager
         this.proxyManager = redisClient
-                .map(this::buildProxyManager)
+                .map(client -> Bucket4jProxyManagerFactory.create(client, "AccountLockoutService"))
                 .orElse(null);
 
         if (this.proxyManager != null) {
@@ -174,13 +174,5 @@ public class AccountLockoutService {
                 .addLimit(Bandwidth.builder().capacity(15).refillIntervally(15, Duration.ofHours(24)).build())
                 .build();
     }
-
-    private ProxyManager<byte[]> buildProxyManager(RedisClient client) {
-        try {
-            return LettuceBasedProxyManager.builderFor(client).build();
-        } catch (Exception e) {
-            log.error("Failed to build ProxyManager for AccountLockoutService. Disabled (DT 3.1.18 fail-open). Error: {}", e.getMessage());
-            return null;
-        }
-    }
 }
+

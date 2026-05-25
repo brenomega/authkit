@@ -29,14 +29,29 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `JWT_PUBLIC_KEY`: The absolute path to the RSA Public Key (`.pub` or `.pem`). This file must be mounted securely into the container.
 * `JWT_PRIVATE_KEY`: The absolute path to the RSA Private Key (`.key` or `.pem`). This file must be mounted securely into the container.
 * `AUTH_JWT_ISSUER`: Expected JWT issuer value. Must match the issuer used by downstream services validating AuthKit access tokens.
+* `AUTH_JWT_AUDIENCE`: Expected JWT audience value. Downstream services should reject tokens not issued for this audience.
+* `AUTH_JWT_KEY_ID`: Public key identifier published in JWKS and embedded in issued JWT headers.
 * `AUTH_ACCESS_TOKEN_TTL_SECONDS`: Access token lifetime in seconds. Default: `900`.
 * `AUTH_REFRESH_TOKEN_TTL_DAYS`: Refresh-token-backed session lifetime in days. Default: `7`.
 * `AUTH_RECOVERY_TOKEN_TTL_MINUTES`: Password recovery token lifetime in minutes. Default: `15`.
+* `AUTH_AUTHORITY_CACHE_TTL_SECONDS`: Per-user authority cache TTL. Default: `30`; keep short because it trades revocation freshness for DB load reduction.
+* `AUTH_AUTHORITY_CACHE_MAX_SIZE`: Maximum cached user authority snapshots per instance. Default: `10000`.
+* `AUTH_MAX_REQUEST_BODY_BYTES`: Maximum accepted request body size before controller parsing. Default: `65536`.
 * `AUTH_REFRESH_COOKIE_NAME`: Refresh cookie name. Default: `Refresh-Token`.
 * `AUTH_REFRESH_COOKIE_PATH`: Refresh cookie path scope. Default: `/api/v1/auth`.
 * `AUTH_REFRESH_COOKIE_HTTP_ONLY`: Whether the refresh cookie is `HttpOnly`. Production should keep this `true`.
 * `AUTH_REFRESH_COOKIE_SECURE`: Whether the refresh cookie requires HTTPS. Production should keep this `true`.
 * `AUTH_REFRESH_COOKIE_SAME_SITE`: SameSite policy for refresh cookies. Default: `Strict`.
+* `AUTH_CSRF_ENABLED`: Enables stateless double-submit CSRF protection for cookie-backed refresh/logout endpoints. Default: `true`.
+* `AUTH_CSRF_COOKIE_NAME`: Name of the readable CSRF cookie. Default: `XSRF-TOKEN`.
+* `AUTH_CSRF_HEADER_NAME`: Header clients must echo from the CSRF cookie. Default: `X-XSRF-TOKEN`.
+* `AUTH_CSRF_COOKIE_PATH`: CSRF cookie path scope. Default: `/api/v1/auth`.
+* `AUTH_CSRF_TOKEN_BYTES`: Random bytes used before URL-safe Base64 encoding. Default: `32`.
+* `AUTH_REGISTRATION_STEALTH_CONFLICTS`: When `true`, public registration returns the same generic `202 Accepted` acknowledgement for both new and duplicate emails. Production must keep this `true`.
+* `AUTH_EMAIL_OUTBOX_ENABLED`: Enables the durable email outbox dispatcher. Default: `true`.
+* `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
+* `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
+* `AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS`: Time before an abandoned `PROCESSING` email is eligible for retry. Default: `300`.
 
 #### External Integrations
 * `RESEND_API_KEY`: API Token for the Resend email service.
@@ -61,14 +76,29 @@ REDIS_HOST=localhost
 JWT_PUBLIC_KEY=file:/etc/authkit/keys/app.pub
 JWT_PRIVATE_KEY=file:/etc/authkit/keys/app.key
 AUTH_JWT_ISSUER=https://auth.example.com
+AUTH_JWT_AUDIENCE=https://api.example.com
+AUTH_JWT_KEY_ID=authkit-prod-key-1
 AUTH_ACCESS_TOKEN_TTL_SECONDS=900
 AUTH_REFRESH_TOKEN_TTL_DAYS=7
 AUTH_RECOVERY_TOKEN_TTL_MINUTES=15
+AUTH_AUTHORITY_CACHE_TTL_SECONDS=30
+AUTH_AUTHORITY_CACHE_MAX_SIZE=10000
+AUTH_MAX_REQUEST_BODY_BYTES=65536
 AUTH_REFRESH_COOKIE_NAME=Refresh-Token
 AUTH_REFRESH_COOKIE_PATH=/api/v1/auth
 AUTH_REFRESH_COOKIE_HTTP_ONLY=true
 AUTH_REFRESH_COOKIE_SECURE=true
 AUTH_REFRESH_COOKIE_SAME_SITE=Strict
+AUTH_CSRF_ENABLED=true
+AUTH_CSRF_COOKIE_NAME=XSRF-TOKEN
+AUTH_CSRF_HEADER_NAME=X-XSRF-TOKEN
+AUTH_CSRF_COOKIE_PATH=/api/v1/auth
+AUTH_CSRF_TOKEN_BYTES=32
+AUTH_REGISTRATION_STEALTH_CONFLICTS=true
+AUTH_EMAIL_OUTBOX_ENABLED=true
+AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
+AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
+AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS=300
 AUTH_FRONTEND_ACTIVATION_URL=https://app.example.com/activate
 AUTH_FRONTEND_PASSWORD_RESET_URL=https://app.example.com/reset-password
 RESEND_API_KEY=re_123456789
@@ -93,6 +123,12 @@ volumeMounts:
 ## 3. Horizontal Scalability and State
 
 * **Statelessness:** Security tokens are stateless JWTs validated dynamically. There is no active session `HttpSession` replicating across instances.
-* **Distributed Caching:** Caching (when implemented) and Rate Limiting rely on a centralized **Redis** server. Multiple AuthKit app containers will coordinate seamlessly.
+* **Distributed Caching:** Rate limiting and refresh-token state rely on centralized **Redis**. Per-request authority snapshots use a deliberately short local Caffeine cache; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` if revocation latency requirements are stricter.
 * **Database Concurrency:** All migrations run via Flyway at application startup. Concurrency limits should be monitored per instance, ensuring max pool limits do not overwhelm PostgreSQL.
-* **Asynchronous Jobs:** Heavy background tasks (like external API calls to Resend) are managed by RabbitMQ. You can scale the RabbitMQ worker nodes dynamically via AMQP without hindering API request threads.
+* **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and retries failed messages with backoff, so RabbitMQ latency does not hold user database transactions open.
+* **Registration Enumeration:** Public deployments must keep `AUTH_REGISTRATION_STEALTH_CONFLICTS=true`, which makes `/api/v1/auth/register` return a generic acknowledgement without exposing whether an email is already registered. Development and trusted internal integrations may disable it if they require explicit conflict responses.
+* **Tenant Strategy:** AuthKit currently models one tenant identifier per user and emits only the canonical JWT claim `tenant_id`. Hibernate tenant filtering is enabled from authenticated service calls when a valid UUID tenant claim is present, and profile/session operations also perform object-level tenant checks. New tenant-owned tables must add equivalent service tests before production use.
+* **CSRF:** Refresh and logout are cookie-backed, so clients must echo the readable CSRF cookie in the configured CSRF header. This is stateless double-submit protection and does not introduce server sessions.
+* **Reverse Proxy:** Production traffic must terminate TLS before reaching AuthKit and forward `X-Forwarded-Proto`. The application uses forwarded headers so HSTS is emitted for HTTPS requests behind a proxy.
+* **Image Pinning:** Production manifests should reference immutable image digests. The sample Kubernetes deployment uses a digest placeholder that must be replaced by the release artifact digest generated by the build pipeline.
+* **NetworkPolicy HTTPS Egress:** The sample Kubernetes NetworkPolicy allows external HTTPS because standard NetworkPolicy cannot restrict by FQDN. Enforce provider-specific FQDN egress allow-lists at the gateway/firewall layer for Resend and image/security-update endpoints.

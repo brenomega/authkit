@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.containsString;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -117,6 +118,35 @@ class SecurityIntegrationTest {
                 .andExpect(jsonPath("$.errors[0]").value("Unauthorized"));
     }
 
+    @Test
+    @DisplayName("Bearer JWT without required audience is rejected")
+    void bearerJwtWithoutAudience_returns401() throws Exception {
+        Instant now = Instant.now();
+        JwtClaimsSet claims = JwtClaimsSet.builder()
+                .issuer("authkit")
+                .issuedAt(now)
+                .expiresAt(now.plusSeconds(300))
+                .subject(UUID.randomUUID().toString())
+                .build();
+        String token = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
+
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errors[0]").value("Unauthorized"));
+    }
+
+    @Test
+    @DisplayName("JWKS endpoint exposes the configured public signing key metadata")
+    void jwksEndpoint_exposesConfiguredSigningKey() throws Exception {
+        mockMvc.perform(get("/.well-known/jwks.json"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.keys[0].kid").value("authkit-key-1"))
+                .andExpect(jsonPath("$.keys[0].use").value("sig"))
+                .andExpect(jsonPath("$.keys[0].alg").value("RS256"))
+                .andExpect(jsonPath("$.keys[0].kty").value("RSA"));
+    }
+
     // -------------------------------------------------------------------------
     // Security headers (DT 3.2.14)
     // -------------------------------------------------------------------------
@@ -135,6 +165,36 @@ class SecurityIntegrationTest {
                 .andExpect(header().string("X-Frame-Options", "DENY"));
     }
 
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Secure responses include HSTS")
+    void securityHeader_hsts() throws Exception {
+        mockMvc.perform(get("/api/v1/anything").secure(true))
+                .andExpect(header().string("Strict-Transport-Security", containsString("max-age=31536000")))
+                .andExpect(header().string("Strict-Transport-Security", containsString("includeSubDomains")))
+                .andExpect(header().string("Strict-Transport-Security", containsString("preload")));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Responses include strict API Content-Security-Policy")
+    void securityHeader_contentSecurityPolicy() throws Exception {
+        mockMvc.perform(get("/api/v1/anything"))
+                .andExpect(header().string("Content-Security-Policy", containsString("default-src 'none'")))
+                .andExpect(header().string("Content-Security-Policy", containsString("frame-ancestors 'none'")));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Oversized request bodies are rejected before controller parsing")
+    void requestBodyLimit_rejectsOversizedPayload() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content("A".repeat(65537)))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.errors[0]").value("Request body too large"));
+    }
+
     // -------------------------------------------------------------------------
     // Filter Chain Order (DT 3.2.12)
     // -------------------------------------------------------------------------
@@ -148,6 +208,7 @@ class SecurityIntegrationTest {
         List<Filter> filters = targetChain.getFilters();
 
         int rateLimitingIndex = -1;
+        int requestBodySizeIndex = -1;
         int bearerIndex = -1;
         int workerIndex = -1;
         int userAuthIndex = -1;
@@ -156,6 +217,7 @@ class SecurityIntegrationTest {
         for (int i = 0; i < filters.size(); i++) {
             Filter f = filters.get(i);
             if (f instanceof RateLimitingFilter) rateLimitingIndex = i;
+            else if (f instanceof RequestBodySizeLimitFilter) requestBodySizeIndex = i;
             else if (f instanceof BearerTokenAuthenticationFilter) bearerIndex = i;
             else if (f instanceof WorkerAuthFilter) workerIndex = i;
             else if (f instanceof UserAuthoritiesFilter) userAuthIndex = i;
@@ -163,12 +225,15 @@ class SecurityIntegrationTest {
         }
 
         assertTrue(rateLimitingIndex != -1, "RateLimitingFilter must be in the chain");
+        assertTrue(requestBodySizeIndex != -1, "RequestBodySizeLimitFilter must be in the chain");
         assertTrue(bearerIndex != -1, "BearerTokenAuthenticationFilter must be in the chain");
         assertTrue(workerIndex != -1, "WorkerAuthFilter must be in the chain");
         assertTrue(userAuthIndex != -1, "UserAuthoritiesFilter must be in the chain");
         assertTrue(authorizationIndex != -1, "AuthorizationFilter must be in the chain");
 
         assertTrue(rateLimitingIndex < bearerIndex, "RateLimitingFilter must precede BearerTokenAuthenticationFilter");
+        assertTrue(rateLimitingIndex < requestBodySizeIndex, "RateLimitingFilter must precede RequestBodySizeLimitFilter");
+        assertTrue(requestBodySizeIndex < bearerIndex, "RequestBodySizeLimitFilter must precede BearerTokenAuthenticationFilter");
         assertTrue(bearerIndex < workerIndex, "BearerTokenAuthenticationFilter must precede WorkerAuthFilter");
         assertTrue(workerIndex < userAuthIndex, "WorkerAuthFilter must precede UserAuthoritiesFilter");
         assertTrue(userAuthIndex < authorizationIndex, "UserAuthoritiesFilter must precede AuthorizationFilter");

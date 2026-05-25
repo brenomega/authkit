@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -29,7 +30,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * <ul>
  *   <li>{@code userId} — from {@code SecurityContextHolder} JWT {@code sub} claim</li>
  *   <li>{@code action} — HTTP method and endpoint path</li>
- *   <li>{@code tenant_id} — from JWT {@code tenantId} claim</li>
+ *   <li>{@code tenant_id} — from JWT {@code tenant_id} claim</li>
  *   <li>{@code client_ip} — resolved via {@link NetworkIPResolver} (DT 3.2.17)</li>
  *   <li>{@code timestamp} — ISO-8601 formatted instant</li>
  * </ul>
@@ -112,10 +113,7 @@ public class AuditLoggingAspect {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
             userId = jwt.getSubject();
-            tenantId = jwt.getClaimAsString("tenantId");
-            if (tenantId == null) {
-                tenantId = jwt.getClaimAsString("tenant_id");
-            }
+            tenantId = JwtTenantResolver.extractTenantId(jwt);
             if (tenantId == null) {
                 tenantId = "unknown";
             }

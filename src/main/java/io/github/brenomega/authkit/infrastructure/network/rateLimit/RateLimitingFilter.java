@@ -23,9 +23,9 @@ import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
-import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFactory;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -128,7 +128,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
         // Layer 2 — Redis ProxyManager (eagerly built if client is available)
         this.proxyManager = redisClient
-                .map(this::buildProxyManager)
+                .map(client -> Bucket4jProxyManagerFactory.create(client, "RateLimitingFilter"))
                 .orElse(null);
 
         if (this.proxyManager != null) {
@@ -203,24 +203,6 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return Bucket.builder().addLimit(limit).build();
     }
 
-    /**
-     * Builds the distributed {@link ProxyManager} from the injected {@link RedisClient}.
-     *
-     * <p>If construction fails (e.g., misconfigured client), returns {@code null}
-     * to trigger fail-open behavior (DT 3.1.18).</p>
-     *
-     * @param client the Lettuce Redis client
-     * @return the constructed ProxyManager, or {@code null} on failure
-     */
-    private ProxyManager<byte[]> buildProxyManager(RedisClient client) {
-        try {
-            return LettuceBasedProxyManager.builderFor(client).build();
-        } catch (Exception e) {
-            log.error("Failed to build LettuceBasedProxyManager. " +
-                      "Distributed rate limiting disabled (DT 3.1.18 fail-open). Error: {}", e.getMessage());
-            return null;
-        }
-    }
 
     /**
      * Logs rate limit enforcement with forensic context for edge-bypass analysis (DT 3.2.16).

@@ -141,6 +141,21 @@
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<!-- Argon2 Provider -->
 		<dependency>
@@ -162,6 +177,47 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.cyclonedx</groupId>
+				<artifactId>cyclonedx-maven-plugin</artifactId>
+				<version>2.9.1</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>makeAggregateBom</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<projectType>library</projectType>
+					<schemaVersion>1.5</schemaVersion>
+					<includeBomSerialNumber>true</includeBomSerialNumber>
+					<includeCompileScope>true</includeCompileScope>
+					<includeProvidedScope>true</includeProvidedScope>
+					<includeRuntimeScope>true</includeRuntimeScope>
+					<includeSystemScope>true</includeSystemScope>
+					<includeTestScope>false</includeTestScope>
+					<includeLicenseText>false</includeLicenseText>
+					<outputFormat>all</outputFormat>
+					<outputName>bom</outputName>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.owasp</groupId>
+				<artifactId>dependency-check-maven</artifactId>
+				<version>12.1.0</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<failBuildOnCVSS>9</failBuildOnCVSS>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

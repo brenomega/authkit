@@ -25,11 +25,13 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
@@ -57,7 +59,7 @@ class AuthServiceTest {
         // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
         lockoutService = new AccountLockoutService(Optional.empty());
         authProperties = new AuthProperties();
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties);
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter());
     }
 
     /**
@@ -74,6 +76,7 @@ class AuthServiceTest {
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
         when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
@@ -107,6 +110,7 @@ class AuthServiceTest {
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
         when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
@@ -123,6 +127,28 @@ class AuthServiceTest {
         ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
         verify(jwtEncoder).encode(parameters.capture());
         assertEquals("https://issuer.example.test", parameters.getValue().getClaims().getClaims().get("iss").toString());
+        assertEquals(java.util.List.of("authkit-api"), parameters.getValue().getClaims().getClaims().get("aud"));
+        assertEquals(
+                "00000000-0000-0000-0000-000000000001",
+                parameters.getValue().getClaims().getClaims().get("tenant_id"));
+        org.junit.jupiter.api.Assertions.assertFalse(parameters.getValue().getClaims().getClaims().containsKey("tenantId"));
+    }
+
+    @Test
+    @DisplayName("Login: Confirmed email is required before token issuance")
+    void login_UnconfirmedEmail_ThrowsException() {
+        String email = "unconfirmed@example.com";
+        String pass = "Pass123!";
+
+        User user = mock(User.class);
+        when(user.getPassword()).thenReturn("hashed-pass");
+        EmailNotConfirmedException ex = new EmailNotConfirmedException();
+        org.mockito.Mockito.doThrow(ex).when(user).requireEmailConfirmed();
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
+
+        assertThrows(EmailNotConfirmedException.class, () ->
+                authService.login(new LoginRequest(email, pass)));
     }
 
     /**
@@ -175,6 +201,7 @@ class AuthServiceTest {
         when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
         when(user.getEmail()).thenReturn("refresh@example.com");
         when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
+        when(user.isEmailConfirmed()).thenReturn(true);
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.rotateRefreshToken(
                 eq(userId),

@@ -7,6 +7,7 @@ import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.ProfileService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
@@ -22,6 +23,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/v1/users/me")
+@PreAuthorize("hasAnyRole('USER', 'OWNER', 'ADMIN')")
 public class UserController {
 
     private final ProfileService profileService;
