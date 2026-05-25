@@ -52,11 +52,27 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
 * `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
 * `AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS`: Time before an abandoned `PROCESSING` email is eligible for retry. Default: `300`.
+* `AUTH_TERMS_VERSION`: Current Terms of Use version recorded at registration.
+* `AUTH_PRIVACY_POLICY_VERSION`: Current Privacy Policy version recorded at registration.
+* `AUTH_LAWFUL_BASIS`: Lawful basis for account data processing. Allowed values include `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, and `legitimate_interests`.
+* `AUTH_SECURITY_EVENT_RETENTION_DAYS`: Retention window for durable security events. Default: `365`.
+* `AUTH_DELETED_ACCOUNT_RETENTION_DAYS`: Retention window for deleted account tombstones/anonymized records. Default: `30`.
+* `AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT`: Maximum durable security events included in a user data export. Default: `100`.
+* `AUTH_RETENTION_BATCH_SIZE`: Maximum rows purged per retention batch. Default: `500`.
+* `AUTH_RETENTION_JOB_ENABLED`: Enables scheduled security-event retention cleanup. Default: `true`.
+* `AUTH_RETENTION_JOB_CRON`: Cron expression for retention cleanup. Default: `0 30 3 * * *`.
+* `AUTH_AUDIT_HASH_PEPPER`: Secret pepper used to HMAC audit identifiers and event hashes. Store only in a secret manager and rotate with a documented investigation plan.
+* `AUTH_AUDIT_ASYNC_ENABLED`: Enables bounded asynchronous security-event persistence. Default: `true`.
+* `AUTH_AUDIT_WRITER_CORE_POOL_SIZE`: Core writer threads for durable security events. Default: `2`.
+* `AUTH_AUDIT_WRITER_MAX_POOL_SIZE`: Maximum writer threads for durable security events. Default: `4`.
+* `AUTH_AUDIT_WRITER_QUEUE_CAPACITY`: Bounded in-memory queue for security-event writes. Default: `5000`.
+* `AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS`: Graceful shutdown wait for queued security events. Default: `10`.
+* `AUTH_AUDIT_SYNC_ON_OVERLOAD`: Persists security events synchronously if the queue is saturated. Default: `true`.
 
 #### External Integrations
 * `RESEND_API_KEY`: API Token for the Resend email service.
-* `AUTH_FRONTEND_ACTIVATION_URL`: Public frontend activation URL, without query string.
-* `AUTH_FRONTEND_PASSWORD_RESET_URL`: Public frontend password reset URL, without query string.
+* `AUTH_FRONTEND_ACTIVATION_URL`: Public HTTPS frontend activation URL, without query string.
+* `AUTH_FRONTEND_PASSWORD_RESET_URL`: Public HTTPS frontend password reset URL, without query string.
 
 ## 2. Secrets Management Strategy
 
@@ -99,6 +115,22 @@ AUTH_EMAIL_OUTBOX_ENABLED=true
 AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
 AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
 AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS=300
+AUTH_TERMS_VERSION=terms-v1
+AUTH_PRIVACY_POLICY_VERSION=privacy-v1
+AUTH_LAWFUL_BASIS=consent
+AUTH_SECURITY_EVENT_RETENTION_DAYS=365
+AUTH_DELETED_ACCOUNT_RETENTION_DAYS=30
+AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT=100
+AUTH_RETENTION_BATCH_SIZE=500
+AUTH_RETENTION_JOB_ENABLED=true
+AUTH_RETENTION_JOB_CRON="0 30 3 * * *"
+AUTH_AUDIT_HASH_PEPPER=replace-with-secret-random-audit-pepper-at-least-32-chars
+AUTH_AUDIT_ASYNC_ENABLED=true
+AUTH_AUDIT_WRITER_CORE_POOL_SIZE=2
+AUTH_AUDIT_WRITER_MAX_POOL_SIZE=4
+AUTH_AUDIT_WRITER_QUEUE_CAPACITY=5000
+AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS=10
+AUTH_AUDIT_SYNC_ON_OVERLOAD=true
 AUTH_FRONTEND_ACTIVATION_URL=https://app.example.com/activate
 AUTH_FRONTEND_PASSWORD_RESET_URL=https://app.example.com/reset-password
 RESEND_API_KEY=re_123456789
@@ -126,6 +158,9 @@ volumeMounts:
 * **Distributed Caching:** Rate limiting and refresh-token state rely on centralized **Redis**. Per-request authority snapshots use a deliberately short local Caffeine cache; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` if revocation latency requirements are stricter.
 * **Database Concurrency:** All migrations run via Flyway at application startup. Concurrency limits should be monitored per instance, ensuring max pool limits do not overwhelm PostgreSQL.
 * **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and retries failed messages with backoff, so RabbitMQ latency does not hold user database transactions open.
+* **Durable Security Events:** Authentication and account lifecycle flows enqueue privacy-safe rows to `security_events` through a bounded writer. Events store masked identifiers and keyed HMAC identifiers, never raw passwords, tokens, or request bodies. If the writer queue saturates and `AUTH_AUDIT_SYNC_ON_OVERLOAD=true`, events fall back to synchronous persistence to preserve forensic coverage under load.
+* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, token reuse, event drops, rate-limit drops, and infrastructure failures. The sample `k8s/07-service-monitor.yaml` wires `/actuator/prometheus` for Prometheus Operator deployments.
+* **Data Governance:** Account export is available at `POST /api/v1/users/me/export` with the current password as step-up proof, consent snapshot at `GET /api/v1/users/me/consent`, and account deletion/anonymization at `DELETE /api/v1/users/me` with the current password as step-up proof. Registration records append-only consent history in `consent_events`; exports include both the current consent snapshot and historical consent events. Deletion immediately anonymizes direct PII, evicts the per-user authority cache, then revokes refresh sessions and emits lifecycle events after the database commit. Retention purges expired security events and deleted-account tombstones in bounded batches according to configured windows.
 * **Registration Enumeration:** Public deployments must keep `AUTH_REGISTRATION_STEALTH_CONFLICTS=true`, which makes `/api/v1/auth/register` return a generic acknowledgement without exposing whether an email is already registered. Development and trusted internal integrations may disable it if they require explicit conflict responses.
 * **Tenant Strategy:** AuthKit currently models one tenant identifier per user and emits only the canonical JWT claim `tenant_id`. Hibernate tenant filtering is enabled from authenticated service calls when a valid UUID tenant claim is present, and profile/session operations also perform object-level tenant checks. New tenant-owned tables must add equivalent service tests before production use.
 * **CSRF:** Refresh and logout are cookie-backed, so clients must echo the readable CSRF cookie in the configured CSRF header. This is stateless double-submit protection and does not introduce server sessions.

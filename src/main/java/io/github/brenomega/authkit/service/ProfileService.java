@@ -9,6 +9,10 @@ import io.github.brenomega.authkit.exception.AccountLockedException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -51,15 +55,18 @@ public class ProfileService {
     private final TokenStorage tokenStorage;
     private final AccountLockoutService lockoutService;
     private final Argon2ConcurrencyLimiter argon2Limiter;
+    private final SecurityEventService securityEventService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
-                          Argon2ConcurrencyLimiter argon2Limiter) {
+                          Argon2ConcurrencyLimiter argon2Limiter,
+                          SecurityEventService securityEventService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
         this.argon2Limiter = argon2Limiter;
+        this.securityEventService = securityEventService;
     }
 
     /**
@@ -75,6 +82,7 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
+        requireActive(user);
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
     }
 
@@ -104,6 +112,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
         user.requireEmailConfirmed();
 
         // Update conditionally
@@ -140,26 +149,38 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
 
         // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
+            securityEventService.recordForAuthenticatedUser(
+                    SecurityEventType.PASSWORD_CHANGED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "password_change_account_locked");
             throw new AccountLockedException();
         }
 
         user.requireEmailConfirmed();
 
-        // Security Check: Must verify current password before allowing change (RF 2.1.7)
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-            throw new InvalidCredentialsException();
-        }
-
-        // Hashing: Apply Argon2id with semaphore protection (DT 3.2.26)
         boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
 
         try {
+            // Bound both Argon2 verify and encode work to prevent authenticated hashing DoS.
+            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+                securityEventService.recordForAuthenticatedUser(
+                        SecurityEventType.PASSWORD_CHANGED,
+                        SecurityEventOutcome.DENIED,
+                        SecurityEventSeverity.HIGH,
+                        user,
+                        "password_change_current_password_invalid");
+                throw new InvalidCredentialsException();
+            }
+
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {
@@ -168,6 +189,12 @@ public class ProfileService {
 
         // Session Revocation: Revoke all other active Refresh Tokens except current session (RF 2.1.12)
         tokenStorage.revokeOtherSessions(userId, currentJti);
+        securityEventService.recordForAuthenticatedUser(
+                SecurityEventType.PASSWORD_CHANGED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                user,
+                "password_changed");
     }
 
     /**
@@ -181,6 +208,7 @@ public class ProfileService {
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
+        requireActive(user);
 
         return tokenStorage.listSessions(userId).stream()
                 .map(SessionResponse::new)
@@ -202,6 +230,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
+        requireActive(user);
 
         // DT 3.2.23: Block session management while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
@@ -209,6 +238,18 @@ public class ProfileService {
         }
 
         tokenStorage.revokeSession(userId, jti);
+        securityEventService.recordForAuthenticatedUser(
+                SecurityEventType.LOGOUT,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.MEDIUM,
+                user,
+                "session_revoked");
+    }
+
+    private void requireActive(User user) {
+        if (user.isDeleted()) {
+            throw new UserNotFoundException();
+        }
     }
 
     private void requireTenantAccess(User user) {

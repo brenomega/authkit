@@ -47,13 +47,20 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("spring.datasource.password", "secretpassword", "CHANGE-ME-DB-PASSWORD");
         validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
         validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
-        validateCredential("app.security.worker-token", "secure-production-worker-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
-        validateCredential("resend.api.key", "mock-key", "CHANGE-ME-RESEND-API-KEY");
+        validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
+        validateCredential("resend.api.key", "mock-key", "test-resend-key", "CHANGE-ME-RESEND-API-KEY");
         validateCredential("authkit.auth.jwt.issuer", "authkit");
         validateCredential("authkit.auth.jwt.audience", "authkit-api");
         validateCredential("authkit.auth.jwt.key-id");
-        validateCredential("authkit.auth.frontend.activation-url", "https://authkit.io/activate");
-        validateCredential("authkit.auth.frontend.password-reset-url", "https://frontend.url/reset-password");
+        validateHttpsUrl("authkit.auth.frontend.activation-url", "https://authkit.io/activate");
+        validateHttpsUrl("authkit.auth.frontend.password-reset-url", "https://frontend.url/reset-password");
+        validateCredential("authkit.auth.compliance.terms-version");
+        validateCredential("authkit.auth.compliance.privacy-policy-version");
+        validateCredential("authkit.auth.compliance.lawful-basis");
+        validateCredential("authkit.auth.audit.hash-pepper",
+                "test-only-authkit-audit-hash-pepper-32-bytes",
+                "local-development-audit-hash-pepper-change-for-prod",
+                "CHANGE-ME-AUDIT-HASH-PEPPER-AT-LEAST-32-CHARS");
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
         validateBoolean("authkit.auth.csrf.enabled", true);
@@ -93,6 +100,15 @@ public class ProductionConfigValidator implements ApplicationRunner {
         if (actual != requiredValue) {
             log.error("CRITICAL SECURITY ERROR: Key '{}' must be set to '{}'.", propertyKey, requiredValue);
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an insecure value. Startup aborted.");
+        }
+    }
+
+    private void validateHttpsUrl(@NonNull String propertyKey, String... illegalValues) {
+        validateCredential(propertyKey, illegalValues);
+        String value = environment.getProperty(propertyKey);
+        if (value == null || !value.startsWith("https://")) {
+            log.error("CRITICAL SECURITY ERROR: Key '{}' must use HTTPS.", propertyKey);
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use HTTPS. Startup aborted.");
         }
     }
 }

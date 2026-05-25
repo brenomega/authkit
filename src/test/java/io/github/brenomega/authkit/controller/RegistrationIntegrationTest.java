@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.controller;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,6 +17,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
@@ -32,6 +36,12 @@ public class RegistrationIntegrationTest {
 
     @Autowired
     private EmailOutboxRepository emailOutboxRepository;
+
+    @Autowired
+    private SecurityEventRepository securityEventRepository;
+
+    @Autowired
+    private ConsentEventRepository consentEventRepository;
 
     @Test
     @DisplayName("Registers user and prevents mass assignment maliciously attempting to inject role")
@@ -80,6 +90,11 @@ public class RegistrationIntegrationTest {
                 // Ensure no password hashes or tokens are leaked in the response
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.emailConfirmationToken").doesNotExist());
+
+        var user = userRepository.findByEmail("legit@example.com").orElseThrow();
+        var consentHistory = consentEventRepository.findByUserIdOrderByAcceptedAtDesc(user.getId());
+        assertEquals(1, consentHistory.size());
+        assertNotNull(consentHistory.getFirst().getEventHash());
     }
 
     @SuppressWarnings("null")
@@ -118,5 +133,8 @@ public class RegistrationIntegrationTest {
         var confirmedUser = userRepository.findByEmail("confirm-flow@example.com").orElseThrow();
         assertTrue(confirmedUser.isEmailConfirmed());
         assertNull(confirmedUser.getEmailConfirmationToken());
+        assertTrue(securityEventRepository.findTop100ByTargetUserIdOrderByOccurredAtDesc(confirmedUser.getId())
+                .stream()
+                .anyMatch(event -> event.getEventType() == SecurityEventType.EMAIL_VERIFIED));
     }
 }

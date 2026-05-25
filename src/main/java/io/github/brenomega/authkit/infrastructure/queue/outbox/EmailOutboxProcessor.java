@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
@@ -21,14 +22,17 @@ public class EmailOutboxProcessor {
     private final EmailOutboxService outboxService;
     private final QueuePublisher<EmailPayload> emailPublisher;
     private final AuthProperties authProperties;
+    private final MeterRegistry meterRegistry;
 
     public EmailOutboxProcessor(
             EmailOutboxService outboxService,
             QueuePublisher<EmailPayload> emailPublisher,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            MeterRegistry meterRegistry) {
         this.outboxService = outboxService;
         this.emailPublisher = emailPublisher;
         this.authProperties = authProperties;
+        this.meterRegistry = meterRegistry;
     }
 
     @Scheduled(fixedDelayString = "${authkit.auth.email-outbox.poll-delay-ms:5000}")
@@ -44,6 +48,7 @@ public class EmailOutboxProcessor {
                 outboxService.markSent(message.getId());
             } catch (RuntimeException ex) {
                 log.warn("Email outbox publish failed for message {}.", message.getId());
+                meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
                 outboxService.markFailed(message.getId(), ex.getMessage());
             }
         }

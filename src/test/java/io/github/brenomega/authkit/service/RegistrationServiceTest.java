@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,6 +26,8 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -43,12 +46,24 @@ class RegistrationServiceTest {
 
     private RegistrationService service;
     private AuthProperties authProperties;
+    private SecurityEventService securityEventService;
+    private ConsentEventService consentEventService;
 
     @BeforeEach
     void setUp() {
         authProperties = new AuthProperties();
         authProperties.getFrontend().setActivationUrl("https://frontend.example.test/activate");
-        service = new RegistrationService(userRepository, passwordEncoder, emailOutboxService, authProperties);
+        authProperties.getCompliance().setTermsVersion("terms-2026");
+        authProperties.getCompliance().setPrivacyPolicyVersion("privacy-2026");
+        securityEventService = org.mockito.Mockito.mock(SecurityEventService.class);
+        consentEventService = org.mockito.Mockito.mock(ConsentEventService.class);
+        service = new RegistrationService(
+                userRepository,
+                passwordEncoder,
+                emailOutboxService,
+                authProperties,
+                securityEventService,
+                consentEventService);
     }
 
     @SuppressWarnings("null")
@@ -67,11 +82,16 @@ class RegistrationServiceTest {
         assertNotNull(user);
         assertNotNull(user.getTenantId(), "Multi-tenancy ID must be generated");
         assertFalse(user.isEmailConfirmed(), "Email must not be confirmed yet");
+        assertEquals("terms-2026", user.getTermsVersion());
+        assertEquals("privacy-2026", user.getPrivacyPolicyVersion());
+        assertEquals("consent", user.getLawfulBasis());
+        assertNotNull(user.getConsentAcceptedAt());
 
         verify(emailOutboxService).enqueue(argThat(payload ->
                 payload.to().equals("new@example.com") &&
                 payload.htmlBody().contains("https://frontend.example.test/activate?token=")
         ));
+        verify(consentEventService).recordCurrentConsent(user);
     }
 
     @Test

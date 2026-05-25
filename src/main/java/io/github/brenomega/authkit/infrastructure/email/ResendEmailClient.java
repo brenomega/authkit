@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 
 /**
@@ -48,16 +49,17 @@ public class ResendEmailClient {
                 "html", payload.htmlBody()
         );
 
-        log.debug("Dispatching HTTP request to Resend API for: {}", payload.to());
+        String maskedRecipient = EmailMasker.mask(payload.to());
+        log.debug("Dispatching HTTP request to Resend API for: {}", maskedRecipient);
 
         try {
             resendRestClient.post()
                     .body(requestBody)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("Email delivered to Resend API for: {}", payload.to());
+            log.info("Email delivered to Resend API for: {}", maskedRecipient);
         } catch (Exception e) {
-            log.error("Failed to send email to {}", payload.to(), e);
+            log.error("Failed to send email to {}", maskedRecipient, e);
             throw new RuntimeException("Email delivery failed", e);
         }
     }
