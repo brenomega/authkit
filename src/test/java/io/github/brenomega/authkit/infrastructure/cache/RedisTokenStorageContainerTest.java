@@ -60,6 +60,12 @@ class RedisTokenStorageContainerTest {
 
             storage.revokeOtherSessions(userId, nextJti);
             assertTrue(storage.validateToken(userId, nextJti, nextToken.rawToken()));
+
+            String mfaJti = UUID.randomUUID().toString();
+            String mfaChallenge = "mfa-token-" + UUID.randomUUID();
+            storage.storeMfaChallenge(userId, mfaJti, mfaChallenge, 5);
+            assertTrue(storage.consumeMfaChallenge(userId, mfaJti, mfaChallenge));
+            assertFalse(storage.consumeMfaChallenge(userId, mfaJti, mfaChallenge));
         } finally {
             connectionFactory.destroy();
         }

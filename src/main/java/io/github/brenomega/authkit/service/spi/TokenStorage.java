@@ -89,4 +89,12 @@ public interface TokenStorage {
      * @param email the user's email
      */
     void revokeRecoveryToken(String email);
+
+    default void storeMfaChallenge(String userId, String jti, String rawToken, long durationMinutes) {
+        throw new UnsupportedOperationException("MFA challenge storage is not configured");
+    }
+
+    default boolean consumeMfaChallenge(String userId, String jti, String rawToken) {
+        throw new UnsupportedOperationException("MFA challenge storage is not configured");
+    }
 }

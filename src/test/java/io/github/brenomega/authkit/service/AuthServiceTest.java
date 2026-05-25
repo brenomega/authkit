@@ -2,7 +2,9 @@ package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -22,11 +24,14 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 
+import io.github.brenomega.authkit.domain.mfa.util.MfaChallengeCodec;
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
+import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
+import io.github.brenomega.authkit.exception.InvalidMfaCodeException;
 import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -49,6 +54,7 @@ class AuthServiceTest {
     private AccountLockoutService lockoutService;
     private AuthProperties authProperties;
     private SecurityEventService securityEventService;
+    private MfaService mfaService;
     private AuthService authService;
 
     @BeforeEach
@@ -62,7 +68,9 @@ class AuthServiceTest {
         lockoutService = new AccountLockoutService(Optional.empty());
         authProperties = new AuthProperties();
         securityEventService = mock(SecurityEventService.class);
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService);
+        mfaService = mock(MfaService.class);
+        when(mfaService.isMfaEnabled(any(User.class))).thenReturn(false);
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService);
     }
 
     /**
@@ -135,6 +143,88 @@ class AuthServiceTest {
                 "00000000-0000-0000-0000-000000000001",
                 parameters.getValue().getClaims().getClaims().get("tenant_id"));
         org.junit.jupiter.api.Assertions.assertFalse(parameters.getValue().getClaims().getClaims().containsKey("tenantId"));
+    }
+
+    @Test
+    @DisplayName("Login: MFA-enabled users receive only a one-time MFA challenge")
+    void login_MfaEnabled_IssuesChallengeWithoutSession() {
+        String email = "mfa@example.com";
+        String pass = "Pass123!";
+        String userId = "00000000-0000-0000-0000-000000000010";
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getEmail()).thenReturn(email);
+        when(user.getPassword()).thenReturn("hashed-pass");
+        when(user.isEmailConfirmed()).thenReturn(true);
+
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
+        when(mfaService.isMfaEnabled(user)).thenReturn(true);
+
+        AuthService.LoginResult result = authService.login(new LoginRequest(email, pass));
+
+        assertTrue(result.response().mfaRequired());
+        assertNotNull(result.response().mfaToken());
+        assertNull(result.response().accessToken());
+        assertNull(result.refreshToken());
+        verify(tokenStorage).storeMfaChallenge(eq(userId), anyString(), eq(result.response().mfaToken()), eq(5L));
+        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("MFA login: Valid challenge and code issue token pair with MFA claims")
+    void verifyMfaLogin_Success_IssuesSession() {
+        String userId = "00000000-0000-0000-0000-000000000011";
+        String tenantId = "00000000-0000-0000-0000-000000000012";
+        var challenge = MfaChallengeCodec.issue(userId);
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getEmail()).thenReturn("mfa-login@example.com");
+        when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
+        when(user.isEmailConfirmed()).thenReturn(true);
+
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
+        when(mfaService.verifyMfaCode(user, "123456", "login_mfa"))
+                .thenReturn(MfaService.MfaVerificationResult.totp());
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn("mfa-access-token");
+        when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(jwt);
+
+        AuthService.LoginResult result = authService.verifyMfaLogin(
+                new MfaLoginVerificationRequest(challenge.rawToken(), "123456"));
+
+        assertEquals("mfa-access-token", result.response().accessToken());
+        assertNotNull(result.refreshToken());
+        verify(tokenStorage).storeRefreshToken(eq(userId), anyString(), anyString(), eq(7L));
+
+        ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+        verify(jwtEncoder).encode(parameters.capture());
+        assertEquals(java.util.List.of("pwd", "otp"), parameters.getValue().getClaims().getClaims().get("amr"));
+        assertEquals(Boolean.TRUE, parameters.getValue().getClaims().getClaims().get("mfa"));
+    }
+
+    @Test
+    @DisplayName("MFA login: Expired or replayed challenge is rejected before token issuance")
+    void verifyMfaLogin_InvalidChallenge_ThrowsException() {
+        String userId = "00000000-0000-0000-0000-000000000013";
+        var challenge = MfaChallengeCodec.issue(userId);
+
+        User user = mock(User.class);
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(false);
+
+        assertThrows(InvalidMfaCodeException.class, () ->
+                authService.verifyMfaLogin(new MfaLoginVerificationRequest(challenge.rawToken(), "123456")));
+
+        verify(mfaService, never()).verifyMfaCode(any(), anyString(), anyString());
+        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
     @Test
@@ -251,5 +341,18 @@ class AuthServiceTest {
         authService.logout("malformed");
 
         verify(tokenStorage, never()).revokeSession(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Logout all: MFA step-up is enforced when configured for the account")
+    void logoutAll_RequiresMfaWhenEnabled() {
+        String userId = "00000000-0000-0000-0000-000000000014";
+        User user = mock(User.class);
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+
+        authService.logoutAll(userId, "123456");
+
+        verify(mfaService).requireMfaIfEnabled(user, "123456", "logout_all");
+        verify(tokenStorage).revokeAllSessions(userId);
     }
 }

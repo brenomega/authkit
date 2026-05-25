@@ -56,6 +56,7 @@ import java.security.KeyPair;
     "authkit.auth.compliance.retention-job-enabled=false",
     "authkit.auth.audit.hash-pepper=production-firewall-test-audit-pepper-32-chars",
     "authkit.auth.audit.async-enabled=false",
+    "authkit.auth.mfa.secret-encryption-key=production-firewall-test-mfa-secret-key-32-chars",
     "resend.api.key=re_prod_firewall_secret"
 })
 public class ProductionFirewallTest {

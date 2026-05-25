@@ -38,6 +38,22 @@ spec:
           annotations:
             summary: AuthKit refresh token reuse detected
             description: Refresh token family reuse indicates possible token theft. Investigate immediately.
+        - alert: AuthKitMfaChallengeFailures
+          expr: increase(security_mfa_challenge_failed_total[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit MFA challenge failures increased
+            description: MFA challenge failures may indicate account takeover attempts, replayed challenges, or authenticator drift.
+        - alert: AuthKitBackupCodeUsage
+          expr: increase(security_mfa_backup_code_used_total[10m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit MFA backup code used
+            description: Backup code usage is high-signal account recovery activity and should be investigated for the affected account.
         - alert: AuthKitRateLimitDrops
           expr: increase(rate_limit_dropped_total[5m]) > 100
           for: 5m

@@ -94,6 +94,20 @@ public class RedisTokenStorageTest {
     }
 
     @Test
+    @DisplayName("MFA challenge consume validates and revokes atomically")
+    void testConsumeMfaChallenge() {
+        String userId = UUID.randomUUID().toString();
+        String jti = UUID.randomUUID().toString();
+        String rawToken = "mfa-token-" + UUID.randomUUID();
+
+        redisTokenStorage.storeMfaChallenge(userId, jti, rawToken, 5);
+
+        assertFalse(redisTokenStorage.consumeMfaChallenge(userId, jti, "forged-token"));
+        assertTrue(redisTokenStorage.consumeMfaChallenge(userId, jti, rawToken));
+        assertFalse(redisTokenStorage.consumeMfaChallenge(userId, jti, rawToken));
+    }
+
+    @Test
     @DisplayName("Revoking other sessions preserves current session atomically")
     void testRevokeOtherSessions() {
         String userId = UUID.randomUUID().toString();

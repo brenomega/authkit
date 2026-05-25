@@ -16,6 +16,12 @@ public record PasswordChangeRequest(
 
     @NotBlank
     @Size(min = 12, max = 128)
-    String newPassword
+    String newPassword,
+
+    @Size(min = 6, max = 32)
+    String mfaCode
 ) {
+    public PasswordChangeRequest(String currentPassword, String newPassword) {
+        this(currentPassword, newPassword, null);
+    }
 }

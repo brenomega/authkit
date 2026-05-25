@@ -40,6 +40,7 @@ class ProfileServiceTest {
     private TokenStorage tokenStorage;
     private AccountLockoutService lockoutService;
     private SecurityEventService securityEventService;
+    private MfaService mfaService;
     private ProfileService profileService;
 
     @BeforeEach
@@ -49,7 +50,8 @@ class ProfileServiceTest {
         tokenStorage = mock(TokenStorage.class);
         lockoutService = mock(AccountLockoutService.class);
         securityEventService = mock(SecurityEventService.class);
-        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter(), securityEventService);
+        mfaService = mock(MfaService.class);
+        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter(), securityEventService, mfaService);
     }
 
     /**

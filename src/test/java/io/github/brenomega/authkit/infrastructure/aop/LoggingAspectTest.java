@@ -54,6 +54,15 @@ class LoggingAspectTest {
         assertTrue(LoggingAspect.isSensitive("Authorization"));
     }
 
+    @Test
+    @DisplayName("MFA proof fields are detected as sensitive")
+    void mfaFieldsAreSensitive() {
+        assertTrue(LoggingAspect.isSensitive("mfaToken"));
+        assertTrue(LoggingAspect.isSensitive("mfaCode"));
+        assertTrue(LoggingAspect.isSensitive("code"));
+        assertTrue(LoggingAspect.isSensitive("backupCodes"));
+    }
+
     // -------------------------------------------------------------------------
     // Non-sensitive parameters
     // -------------------------------------------------------------------------
