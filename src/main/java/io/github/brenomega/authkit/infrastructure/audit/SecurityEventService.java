@@ -1,9 +1,8 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -13,20 +12,22 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
-import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
- * Persists privacy-safe security events in an independent transaction.
+ * Builds privacy-safe security events and persists them through a bounded writer.
  */
 @Service
 public class SecurityEventService {
@@ -35,43 +36,71 @@ public class SecurityEventService {
     private static final Logger alertLog = LoggerFactory.getLogger("SECURITY_ALERT");
     private static final int MAX_REASON_LENGTH = 120;
     private static final int MAX_PATH_LENGTH = 512;
+    private static final int MAX_METADATA_KEY_LENGTH = 64;
     private static final int MAX_METADATA_VALUE_LENGTH = 160;
+    private static final String REDACTED = "[REDACTED]";
+    private static final Set<String> SENSITIVE_METADATA_TOKENS = Set.of(
+            "password", "passwd", "secret", "token", "jwt", "authorization", "cookie",
+            "session", "csrf", "credential", "key", "otp", "totp", "webauthn");
 
-    private final SecurityEventRepository repository;
+    private final SecurityEventWriter eventWriter;
+    private final ThreadPoolTaskExecutor eventExecutor;
     private final NetworkIpResolver networkIpResolver;
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
+    private final AuthProperties authProperties;
+    private final AuditDigestService auditDigestService;
 
-    public SecurityEventService(SecurityEventRepository repository,
+    public SecurityEventService(SecurityEventWriter eventWriter,
+                                @Qualifier("securityEventExecutor") ThreadPoolTaskExecutor eventExecutor,
                                 NetworkIpResolver networkIpResolver,
                                 MeterRegistry meterRegistry,
-                                ObjectMapper objectMapper) {
-        this.repository = repository;
+                                ObjectMapper objectMapper,
+                                AuthProperties authProperties,
+                                AuditDigestService auditDigestService) {
+        this.eventWriter = eventWriter;
+        this.eventExecutor = eventExecutor;
         this.networkIpResolver = networkIpResolver;
         this.meterRegistry = meterRegistry;
         this.objectMapper = objectMapper;
+        this.authProperties = authProperties;
+        this.auditDigestService = auditDigestService;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordForUser(SecurityEventType type,
-                              SecurityEventOutcome outcome,
-                              SecurityEventSeverity severity,
-                              User user,
-                              String reason) {
+    public void recordForAuthenticatedUser(SecurityEventType type,
+                                           SecurityEventOutcome outcome,
+                                           SecurityEventSeverity severity,
+                                           User user,
+                                           String reason) {
         record(type, outcome, severity, user.getId(), user.getId(), user.getTenantId(), user.getEmail(), reason, Map.of());
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void recordForUser(SecurityEventType type,
-                              SecurityEventOutcome outcome,
-                              SecurityEventSeverity severity,
-                              User user,
-                              String reason,
-                              Map<String, String> metadata) {
+    public void recordForAuthenticatedUser(SecurityEventType type,
+                                           SecurityEventOutcome outcome,
+                                           SecurityEventSeverity severity,
+                                           User user,
+                                           String reason,
+                                           Map<String, String> metadata) {
         record(type, outcome, severity, user.getId(), user.getId(), user.getTenantId(), user.getEmail(), reason, metadata);
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordForTargetUser(SecurityEventType type,
+                                    SecurityEventOutcome outcome,
+                                    SecurityEventSeverity severity,
+                                    User user,
+                                    String reason) {
+        record(type, outcome, severity, null, user.getId(), user.getTenantId(), user.getEmail(), reason, Map.of());
+    }
+
+    public void recordForTargetUser(SecurityEventType type,
+                                    SecurityEventOutcome outcome,
+                                    SecurityEventSeverity severity,
+                                    User user,
+                                    String reason,
+                                    Map<String, String> metadata) {
+        record(type, outcome, severity, null, user.getId(), user.getTenantId(), user.getEmail(), reason, metadata);
+    }
+
     public void recordForEmail(SecurityEventType type,
                                SecurityEventOutcome outcome,
                                SecurityEventSeverity severity,
@@ -80,7 +109,15 @@ public class SecurityEventService {
         record(type, outcome, severity, null, null, null, email, reason, Map.of());
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordForEmail(SecurityEventType type,
+                               SecurityEventOutcome outcome,
+                               SecurityEventSeverity severity,
+                               String email,
+                               String reason,
+                               Map<String, String> metadata) {
+        record(type, outcome, severity, null, null, null, email, reason, metadata);
+    }
+
     public void record(SecurityEventType type,
                        SecurityEventOutcome outcome,
                        SecurityEventSeverity severity,
@@ -93,6 +130,7 @@ public class SecurityEventService {
         Instant occurredAt = Instant.now();
         RequestSnapshot request = currentRequestSnapshot();
         String normalizedEmail = normalizeNullable(email);
+        String emailHash = hashNullable(normalizedEmail);
         String metadataJson = toJson(metadata);
         String storedReason = truncate(reason, MAX_REASON_LENGTH);
 
@@ -104,7 +142,7 @@ public class SecurityEventService {
                 actorUserId,
                 targetUserId,
                 tenantId,
-                hashNullable(normalizedEmail),
+                emailHash,
                 request.clientIpHash(),
                 request.userAgentHash(),
                 request.method(),
@@ -120,8 +158,8 @@ public class SecurityEventService {
                 actorUserId,
                 targetUserId,
                 tenantId,
-                hashNullable(normalizedEmail),
-                maskEmail(normalizedEmail),
+                emailHash,
+                normalizedEmail == null ? null : EmailMasker.mask(normalizedEmail),
                 request.clientIpHash(),
                 request.clientIpMasked(),
                 request.userAgentHash(),
@@ -131,11 +169,55 @@ public class SecurityEventService {
                 metadataJson,
                 eventHash);
 
-        repository.save(event);
         meterRegistry.counter("security.events", "type", type.name(), "outcome", outcome.name(), "severity", severity.name())
                 .increment();
         recordSpecificMetric(type);
+        persist(event);
         alertIfNeeded(type, outcome, severity, eventHash);
+    }
+
+    private void persist(SecurityEvent event) {
+        if (!authProperties.getAudit().isAsyncEnabled()) {
+            persistDirect(event);
+            return;
+        }
+
+        try {
+            eventExecutor.execute(() -> persistDirect(event));
+        } catch (TaskRejectedException ex) {
+            meterRegistry.counter("security.events.overloaded",
+                    "type", event.getEventType().name(),
+                    "severity", event.getSeverity().name()).increment();
+
+            if (authProperties.getAudit().isPersistSynchronouslyOnOverload()) {
+                meterRegistry.counter("security.events.fallback.persisted",
+                        "type", event.getEventType().name(),
+                        "severity", event.getSeverity().name()).increment();
+                persistDirect(event);
+                return;
+            }
+
+            meterRegistry.counter("security.events.dropped",
+                    "type", event.getEventType().name(),
+                    "severity", event.getSeverity().name(),
+                    "reason", "queue_saturated").increment();
+            log.warn("Security event writer queue saturated; dropped event type={} severity={} eventHash={}",
+                    event.getEventType(), event.getSeverity(), event.getEventHash());
+        }
+    }
+
+    private void persistDirect(SecurityEvent event) {
+        try {
+            eventWriter.persist(event);
+        } catch (RuntimeException ex) {
+            meterRegistry.counter("security.infrastructure.failure", "component", "security_event_store").increment();
+            meterRegistry.counter("security.events.dropped",
+                    "type", event.getEventType().name(),
+                    "severity", event.getSeverity().name(),
+                    "reason", "persistence_failure").increment();
+            log.error("Security event persistence failed type={} severity={} eventHash={}",
+                    event.getEventType(), event.getSeverity(), event.getEventHash(), ex);
+        }
     }
 
     private void recordSpecificMetric(SecurityEventType type) {
@@ -160,9 +242,7 @@ public class SecurityEventService {
     }
 
     private RequestSnapshot currentRequestSnapshot() {
-        ServletRequestAttributes attributes =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attributes == null) {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes)) {
             return new RequestSnapshot(null, null, null, null, null);
         }
 
@@ -185,7 +265,9 @@ public class SecurityEventService {
         TreeMap<String, String> sanitized = new TreeMap<>();
         metadata.forEach((key, value) -> {
             if (key != null && value != null) {
-                sanitized.put(truncate(key, 64), truncate(value, MAX_METADATA_VALUE_LENGTH));
+                String storedKey = truncate(key, MAX_METADATA_KEY_LENGTH);
+                String storedValue = isSensitiveMetadataKey(key) ? REDACTED : truncate(value, MAX_METADATA_VALUE_LENGTH);
+                sanitized.put(storedKey, storedValue);
             }
         });
 
@@ -201,6 +283,11 @@ public class SecurityEventService {
         }
     }
 
+    private boolean isSensitiveMetadataKey(String key) {
+        String normalized = key.toLowerCase(java.util.Locale.ROOT);
+        return SENSITIVE_METADATA_TOKENS.stream().anyMatch(normalized::contains);
+    }
+
     private String normalizeNullable(String email) {
         if (email == null || email.isBlank()) {
             return null;
@@ -208,21 +295,11 @@ public class SecurityEventService {
         return EmailNormalizer.normalize(email);
     }
 
-    private String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return null;
-        }
-        int atIndex = email.indexOf('@');
-        String local = email.substring(0, atIndex);
-        String domain = email.substring(atIndex);
-        return local.charAt(0) + "***" + domain;
-    }
-
     private String hashNullable(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
-        return TokenHasher.sha256Hex(value);
+        return auditDigestService.hmacHex(value);
     }
 
     private String eventHash(Instant occurredAt,
@@ -255,21 +332,7 @@ public class SecurityEventService {
                 stringValue(reason),
                 stringValue(metadataJson));
 
-        byte[] digest = sha256(canonical);
-        StringBuilder hex = new StringBuilder(digest.length * 2);
-        for (byte b : digest) {
-            hex.append(String.format("%02x", b));
-        }
-        return hex.toString();
-    }
-
-    private byte[] sha256(String canonical) {
-        try {
-            return MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.getBytes(StandardCharsets.UTF_8));
-        } catch (java.security.NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 unavailable", ex);
-        }
+        return auditDigestService.hmacHex(canonical);
     }
 
     private String stringValue(Object value) {

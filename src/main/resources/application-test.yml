@@ -137,8 +137,17 @@ authkit:
       security-event-retention-days: 365
       deleted-account-retention-days: 0
       data-export-security-event-limit: 100
+      retention-batch-size: 500
       retention-job-enabled: false
       retention-job-cron: "0 30 3 * * *"
+    audit:
+      hash-pepper: test-only-authkit-audit-hash-pepper-32-bytes
+      async-enabled: false
+      writer-core-pool-size: 1
+      writer-max-pool-size: 1
+      writer-queue-capacity: 100
+      writer-shutdown-timeout-seconds: 1
+      persist-synchronously-on-overload: true
 
 # =============================================================================
 # Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)

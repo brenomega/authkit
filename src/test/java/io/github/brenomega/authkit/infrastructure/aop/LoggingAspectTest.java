@@ -59,7 +59,7 @@ class LoggingAspectTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("'email' is NOT sensitive — allowed in logs")
+    @DisplayName("'email' is not redacted by keyword because it is masked separately")
     void emailIsNotSensitive() {
         assertFalse(LoggingAspect.isSensitive("email"));
     }

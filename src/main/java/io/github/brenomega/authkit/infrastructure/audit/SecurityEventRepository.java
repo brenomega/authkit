@@ -1,21 +1,29 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.query.Param;
 
-@Repository
-public interface SecurityEventRepository extends JpaRepository<SecurityEvent, UUID> {
+@org.springframework.stereotype.Repository
+public interface SecurityEventRepository extends Repository<SecurityEvent, UUID> {
+
+    SecurityEvent save(SecurityEvent event);
 
     List<SecurityEvent> findTop100ByTargetUserIdOrderByOccurredAtDesc(UUID targetUserId);
 
-    List<SecurityEvent> findTop100ByActorUserIdOrderByOccurredAtDesc(UUID actorUserId);
-
     List<SecurityEvent> findByTargetUserIdOrderByOccurredAtDesc(UUID targetUserId, Pageable pageable);
 
-    long deleteByOccurredAtBefore(Instant cutoff);
+    @Query("select e.id from SecurityEvent e where e.occurredAt < :cutoff order by e.occurredAt asc")
+    List<UUID> findExpiredIds(@Param("cutoff") Instant cutoff, Pageable pageable);
+
+    @Modifying
+    @Query("delete from SecurityEvent e where e.id in :ids")
+    long purgeByIdIn(@Param("ids") Collection<UUID> ids);
 }

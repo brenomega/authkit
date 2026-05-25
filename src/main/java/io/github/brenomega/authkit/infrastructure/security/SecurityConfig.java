@@ -114,6 +114,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/internal/**").hasRole("WORKER")
                 .requestMatchers("/api/v1/users/me", "/api/v1/users/me/**").hasAnyRole("USER", "OWNER", "ADMIN")
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
                 .anyRequest().denyAll()
             )
 

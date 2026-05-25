@@ -90,7 +90,7 @@ public class PasswordRecoveryService {
 
         userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
                 user -> {
-                    securityEventService.recordForUser(
+                    securityEventService.recordForTargetUser(
                             SecurityEventType.PASSWORD_RESET_REQUESTED,
                             SecurityEventOutcome.INFO,
                             SecurityEventSeverity.MEDIUM,
@@ -135,69 +135,73 @@ public class PasswordRecoveryService {
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {
         String normalizedEmail = EmailNormalizer.normalize(email);
-        boolean acquired = argon2Limiter.tryAcquire();
 
+        if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
+            log.warn("Invalid or expired password recovery token.");
+            securityEventService.recordForEmail(
+                    SecurityEventType.PASSWORD_RESET_FAILED,
+                    SecurityEventOutcome.FAILURE,
+                    SecurityEventSeverity.HIGH,
+                    normalizedEmail,
+                    "invalid_or_expired_reset_token");
+            throw new InvalidTokenException();
+        }
+
+        User user = userRepository.findByEmail(normalizedEmail)
+                .orElseThrow(() -> {
+                    securityEventService.recordForEmail(
+                            SecurityEventType.PASSWORD_RESET_FAILED,
+                            SecurityEventOutcome.FAILURE,
+                            SecurityEventSeverity.HIGH,
+                            normalizedEmail,
+                            "reset_user_not_found");
+                    return new UserNotFoundException();
+                });
+
+        if (user.isDeleted()) {
+            securityEventService.recordForEmail(
+                    SecurityEventType.PASSWORD_RESET_FAILED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    normalizedEmail,
+                    "deleted_account");
+            throw new UserNotFoundException();
+        }
+
+        user.setPassword(encodeWithCapacity(newPassword));
+        userRepository.save(user);
+
+        // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
+        lockoutService.clearLockout(normalizedEmail);
+
+        // RF 2.1.12: Revoke all active sessions to force re-authentication
+        tokenStorage.revokeAllSessions(user.getId().toString());
+
+        EmailPayload confirmation = new EmailPayload(
+                normalizedEmail,
+                "Password Changed",
+                "Your password has been successfully changed."
+        );
+        emailOutboxService.enqueue(confirmation);
+
+        securityEventService.recordForTargetUser(
+                SecurityEventType.PASSWORD_RESET_COMPLETED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                user,
+                "password_reset_completed");
+
+        log.info("Password successfully reset for user: {}", user.getId());
+    }
+
+    private String encodeWithCapacity(String rawPassword) {
+        boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
 
         try {
-            if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
-                log.warn("Invalid or expired password recovery token.");
-                securityEventService.recordForEmail(
-                        SecurityEventType.PASSWORD_RESET_FAILED,
-                        SecurityEventOutcome.FAILURE,
-                        SecurityEventSeverity.HIGH,
-                        normalizedEmail,
-                        "invalid_or_expired_reset_token");
-                throw new InvalidTokenException();
-            }
-
-            User user = userRepository.findByEmail(normalizedEmail)
-                    .orElseThrow(() -> {
-                        securityEventService.recordForEmail(
-                                SecurityEventType.PASSWORD_RESET_FAILED,
-                                SecurityEventOutcome.FAILURE,
-                                SecurityEventSeverity.HIGH,
-                                normalizedEmail,
-                                "reset_user_not_found");
-                        return new UserNotFoundException();
-                    });
-
-            if (user.isDeleted()) {
-                securityEventService.recordForEmail(
-                        SecurityEventType.PASSWORD_RESET_FAILED,
-                        SecurityEventOutcome.DENIED,
-                        SecurityEventSeverity.HIGH,
-                        normalizedEmail,
-                        "deleted_account");
-                throw new UserNotFoundException();
-            }
-
-            user.setPassword(passwordEncoder.encode(newPassword));
-            userRepository.save(user);
-
-            // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
-            lockoutService.clearLockout(normalizedEmail);
-
-            // RF 2.1.12: Revoke all active sessions to force re-authentication
-            tokenStorage.revokeAllSessions(user.getId().toString());
-
-            EmailPayload confirmation = new EmailPayload(
-                    normalizedEmail,
-                    "Password Changed",
-                    "Your password has been successfully changed."
-            );
-            emailOutboxService.enqueue(confirmation);
-
-            securityEventService.recordForUser(
-                    SecurityEventType.PASSWORD_RESET_COMPLETED,
-                    SecurityEventOutcome.SUCCESS,
-                    SecurityEventSeverity.HIGH,
-                    user,
-                    "password_reset_completed");
-
-            log.info("Password successfully reset for user: {}", user.getId());
+            return passwordEncoder.encode(rawPassword);
         } finally {
             argon2Limiter.release();
         }

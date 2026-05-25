@@ -9,6 +9,7 @@ import java.util.List;
 public record UserDataExportResponse(
         ProfileData profile,
         ConsentData consent,
+        List<ConsentEventData> consentHistory,
         DeletionData deletion,
         List<SecurityEventData> securityEvents
 ) {
@@ -31,6 +32,16 @@ public record UserDataExportResponse(
             String privacyPolicyVersion,
             Instant consentAcceptedAt,
             String lawfulBasis
+    ) {
+    }
+
+    public record ConsentEventData(
+            String termsVersion,
+            String privacyPolicyVersion,
+            String lawfulBasis,
+            Instant acceptedAt,
+            Instant recordedAt,
+            String eventHash
     ) {
     }
 

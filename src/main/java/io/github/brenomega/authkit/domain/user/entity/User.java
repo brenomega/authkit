@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.domain.user.entity;
 
 import java.time.Instant;
 
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 
@@ -283,21 +284,6 @@ public class User {
      */
     @Override
     public String toString() {
-        return "User{id='" + id + "', email='" + maskEmail(email) + "', role=" + role + '}';
-    }
-
-    /**
-     * Masks an email address, keeping only the first character of the local
-     * part and the full domain.
-     *
-     * @param email the original email
-     * @return the masked email, e.g. {@code u***@example.com}
-     */
-    private static String maskEmail(String email) {
-        if (email == null || !email.contains("@")) {
-            return "[REDACTED]";
-        }
-        int atIndex = email.indexOf('@');
-        return email.charAt(0) + "***" + email.substring(atIndex);
+        return "User{id='" + id + "', email='" + EmailMasker.mask(email) + "', role=" + role + '}';
     }
 }

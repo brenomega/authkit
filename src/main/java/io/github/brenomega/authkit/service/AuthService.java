@@ -22,6 +22,7 @@ import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededExcep
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
+import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -135,14 +136,14 @@ public class AuthService {
         if (userOptional.isEmpty() || !passwordMatches) {
             if (userOptional.isPresent()) {
                 lockoutService.recordFailedAttempt(email);
-                securityEventService.recordForUser(
+                securityEventService.recordForTargetUser(
                         SecurityEventType.LOGIN_FAILURE,
                         SecurityEventOutcome.FAILURE,
                         SecurityEventSeverity.MEDIUM,
                         userOptional.get(),
                         "invalid_credentials");
                 if (lockoutService.isLocked(email)) {
-                    securityEventService.recordForUser(
+                    securityEventService.recordForTargetUser(
                             SecurityEventType.ACCOUNT_LOCKED,
                             SecurityEventOutcome.DENIED,
                             SecurityEventSeverity.HIGH,
@@ -162,7 +163,7 @@ public class AuthService {
 
         User user = userOptional.get();
         if (!user.isEmailConfirmed()) {
-            securityEventService.recordForUser(
+            securityEventService.recordForTargetUser(
                     SecurityEventType.LOGIN_FAILURE,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.MEDIUM,
@@ -183,7 +184,7 @@ public class AuthService {
                 authProperties.getToken().getRefreshTokenTtlDays()
         );
 
-        securityEventService.recordForUser(
+        securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGIN_SUCCESS,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.LOW,
@@ -232,7 +233,7 @@ public class AuthService {
 
         if (lockoutService.isLocked(user.getEmail())) {
             log.warn("Refresh rejected because lockout is active for normalized email.");
-            securityEventService.recordForUser(
+            securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_FAILED,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.HIGH,
@@ -241,7 +242,7 @@ public class AuthService {
             throw new InvalidRefreshTokenException();
         }
         if (!user.isEmailConfirmed() || user.isDeleted()) {
-            securityEventService.recordForUser(
+            securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_FAILED,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.HIGH,
@@ -265,7 +266,7 @@ public class AuthService {
                     authProperties.getToken().getRefreshTokenTtlDays()
             );
         } catch (TokenFamilyCompromisedException ex) {
-            securityEventService.recordForUser(
+            securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.CRITICAL,
@@ -275,7 +276,7 @@ public class AuthService {
         }
 
         if (!rotated) {
-            securityEventService.recordForUser(
+            securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_FAILED,
                     SecurityEventOutcome.FAILURE,
                     SecurityEventSeverity.HIGH,
@@ -284,7 +285,7 @@ public class AuthService {
             throw new InvalidRefreshTokenException();
         }
 
-        securityEventService.recordForUser(
+        securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.REFRESH_TOKEN_ROTATED,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.LOW,
@@ -299,18 +300,20 @@ public class AuthService {
      */
     @LogExecutionTime
     public void logoutAll(String userId) {
+        @SuppressWarnings("null")
+        User user = userRepository.findById(UUID.fromString(userId))
+                .orElseThrow(UserNotFoundException::new);
+        if (user.isDeleted()) {
+            throw new UserNotFoundException();
+        }
+
         tokenStorage.revokeAllSessions(userId);
-        UUID userUuid = UUID.fromString(userId);
-        securityEventService.record(
+        securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGOUT_ALL,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.MEDIUM,
-                userUuid,
-                userUuid,
-                null,
-                null,
-                "logout_all",
-                java.util.Map.of());
+                user,
+                "logout_all");
     }
 
     /**
@@ -320,6 +323,7 @@ public class AuthService {
     @LogExecutionTime
     public void logout(String rawRefreshToken) {
         RefreshTokenCodec.parse(rawRefreshToken)
+                .filter(token -> tokenStorage.validateToken(token.userId(), token.jti(), token.rawToken()))
                 .ifPresent(token -> {
                     tokenStorage.revokeSession(token.userId(), token.jti());
                     UUID userUuid = UUID.fromString(token.userId());

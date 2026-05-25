@@ -51,6 +51,9 @@ public class AuthProperties {
     @Valid
     private Compliance compliance = new Compliance();
 
+    @Valid
+    private Audit audit = new Audit();
+
     public Token getToken() {
         return token;
     }
@@ -129,6 +132,14 @@ public class AuthProperties {
 
     public void setCompliance(Compliance compliance) {
         this.compliance = compliance;
+    }
+
+    public Audit getAudit() {
+        return audit;
+    }
+
+    public void setAudit(Audit audit) {
+        this.audit = audit;
     }
 
     public static class Token {
@@ -473,11 +484,15 @@ public class AuthProperties {
         private long securityEventRetentionDays = 365;
 
         @Min(0)
-        private long deletedAccountRetentionDays = 0;
+        private long deletedAccountRetentionDays = 30;
 
         @Min(1)
         @Max(500)
         private int dataExportSecurityEventLimit = 100;
+
+        @Min(1)
+        @Max(5000)
+        private int retentionBatchSize = 500;
 
         private boolean retentionJobEnabled = true;
 
@@ -532,6 +547,14 @@ public class AuthProperties {
             this.dataExportSecurityEventLimit = dataExportSecurityEventLimit;
         }
 
+        public int getRetentionBatchSize() {
+            return retentionBatchSize;
+        }
+
+        public void setRetentionBatchSize(int retentionBatchSize) {
+            this.retentionBatchSize = retentionBatchSize;
+        }
+
         public boolean isRetentionJobEnabled() {
             return retentionJobEnabled;
         }
@@ -546,6 +569,95 @@ public class AuthProperties {
 
         public void setRetentionJobCron(String retentionJobCron) {
             this.retentionJobCron = retentionJobCron;
+        }
+    }
+
+    public static class Audit {
+
+        @NotBlank
+        @jakarta.validation.constraints.Size(min = 32)
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String hashPepper = "test-only-authkit-audit-hash-pepper-32-bytes";
+
+        private boolean asyncEnabled = true;
+
+        @Min(1)
+        @Max(16)
+        private int writerCorePoolSize = 2;
+
+        @Min(1)
+        @Max(32)
+        private int writerMaxPoolSize = 4;
+
+        @Min(100)
+        @Max(100000)
+        private int writerQueueCapacity = 5000;
+
+        @Min(1)
+        @Max(60)
+        private int writerShutdownTimeoutSeconds = 10;
+
+        private boolean persistSynchronouslyOnOverload = true;
+
+        public String getHashPepper() {
+            return hashPepper;
+        }
+
+        public void setHashPepper(String hashPepper) {
+            this.hashPepper = hashPepper;
+        }
+
+        public boolean isAsyncEnabled() {
+            return asyncEnabled;
+        }
+
+        public void setAsyncEnabled(boolean asyncEnabled) {
+            this.asyncEnabled = asyncEnabled;
+        }
+
+        public int getWriterCorePoolSize() {
+            return writerCorePoolSize;
+        }
+
+        public void setWriterCorePoolSize(int writerCorePoolSize) {
+            this.writerCorePoolSize = writerCorePoolSize;
+        }
+
+        public int getWriterMaxPoolSize() {
+            return writerMaxPoolSize;
+        }
+
+        public void setWriterMaxPoolSize(int writerMaxPoolSize) {
+            this.writerMaxPoolSize = writerMaxPoolSize;
+        }
+
+        public int getWriterQueueCapacity() {
+            return writerQueueCapacity;
+        }
+
+        public void setWriterQueueCapacity(int writerQueueCapacity) {
+            this.writerQueueCapacity = writerQueueCapacity;
+        }
+
+        public int getWriterShutdownTimeoutSeconds() {
+            return writerShutdownTimeoutSeconds;
+        }
+
+        public void setWriterShutdownTimeoutSeconds(int writerShutdownTimeoutSeconds) {
+            this.writerShutdownTimeoutSeconds = writerShutdownTimeoutSeconds;
+        }
+
+        public boolean isPersistSynchronouslyOnOverload() {
+            return persistSynchronouslyOnOverload;
+        }
+
+        public void setPersistSynchronouslyOnOverload(boolean persistSynchronouslyOnOverload) {
+            this.persistSynchronouslyOnOverload = persistSynchronouslyOnOverload;
+        }
+
+        @AssertTrue(message = "writer-max-pool-size must be greater than or equal to writer-core-pool-size")
+        public boolean isWriterPoolSizeValid() {
+            return writerMaxPoolSize >= writerCorePoolSize;
         }
     }
 }

@@ -70,7 +70,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException ex) {
-        log.warn("Malformed JSON request: {}", ex.getMessage());
+        log.warn("Malformed JSON request: {}", ex.getClass().getSimpleName());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("Malformed JSON request or unknown properties provided"));
@@ -85,7 +85,7 @@ public class GlobalExceptionHandler {
      * @return a response with the appropriate status and message
      */
     @SuppressWarnings("null")
-@ExceptionHandler(ApiBaseException.class)
+    @ExceptionHandler(ApiBaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiBaseException ex) {
         log.warn("Domain exception [{}]: {}", ex.getStatus(), ex.getMessage());
         return ResponseEntity

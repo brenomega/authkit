@@ -15,6 +15,7 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
@@ -36,17 +37,20 @@ public class RegistrationService {
     private final EmailOutboxService emailOutboxService;
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
+    private final ConsentEventService consentEventService;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
                                EmailOutboxService emailOutboxService,
                                AuthProperties authProperties,
-                               SecurityEventService securityEventService) {
+                               SecurityEventService securityEventService,
+                               ConsentEventService consentEventService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
+        this.consentEventService = consentEventService;
     }
 
     /**
@@ -88,6 +92,7 @@ public class RegistrationService {
         } catch (DataIntegrityViolationException e) {
             throw new UserAlreadyExistsException("Email already in use");
         }
+        consentEventService.recordCurrentConsent(user);
 
         String activationUrl = authProperties.getFrontend().getActivationUrl()
                 + "?token=" + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
@@ -121,7 +126,7 @@ public class RegistrationService {
         user.setEmailConfirmed(true);
         user.setEmailConfirmationToken(null);
         userRepository.save(user);
-        securityEventService.recordForUser(
+        securityEventService.recordForTargetUser(
                 SecurityEventType.EMAIL_VERIFIED,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.MEDIUM,

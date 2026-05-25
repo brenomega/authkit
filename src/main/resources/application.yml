@@ -124,10 +124,19 @@ authkit:
       privacy-policy-version: ${AUTH_PRIVACY_POLICY_VERSION}
       lawful-basis: ${AUTH_LAWFUL_BASIS:consent}
       security-event-retention-days: ${AUTH_SECURITY_EVENT_RETENTION_DAYS:365}
-      deleted-account-retention-days: ${AUTH_DELETED_ACCOUNT_RETENTION_DAYS:0}
+      deleted-account-retention-days: ${AUTH_DELETED_ACCOUNT_RETENTION_DAYS:30}
       data-export-security-event-limit: ${AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT:100}
+      retention-batch-size: ${AUTH_RETENTION_BATCH_SIZE:500}
       retention-job-enabled: ${AUTH_RETENTION_JOB_ENABLED:true}
       retention-job-cron: '${AUTH_RETENTION_JOB_CRON:0 30 3 * * *}'
+    audit:
+      hash-pepper: ${AUTH_AUDIT_HASH_PEPPER}
+      async-enabled: ${AUTH_AUDIT_ASYNC_ENABLED:true}
+      writer-core-pool-size: ${AUTH_AUDIT_WRITER_CORE_POOL_SIZE:2}
+      writer-max-pool-size: ${AUTH_AUDIT_WRITER_MAX_POOL_SIZE:4}
+      writer-queue-capacity: ${AUTH_AUDIT_WRITER_QUEUE_CAPACITY:5000}
+      writer-shutdown-timeout-seconds: ${AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS:10}
+      persist-synchronously-on-overload: ${AUTH_AUDIT_SYNC_ON_OVERLOAD:true}
 
 # =============================================================================
 # Server Configuration

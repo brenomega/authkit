@@ -44,7 +44,7 @@ import java.security.KeyPair;
     "spring.rabbitmq.port=0",
     "spring.rabbitmq.listener.simple.auto-startup=false",
     "spring.rabbitmq.listener.direct.auto-startup=false",
-    "app.security.worker-token=mock-token",
+    "app.security.worker-token=prod-firewall-worker-token-32-chars",
     "authkit.auth.jwt.issuer=https://auth.example.test",
     "authkit.auth.jwt.audience=https://api.example.test",
     "authkit.auth.jwt.key-id=authkit-test-key-1",
@@ -54,7 +54,9 @@ import java.security.KeyPair;
     "authkit.auth.compliance.privacy-policy-version=privacy-2026",
     "authkit.auth.compliance.lawful-basis=consent",
     "authkit.auth.compliance.retention-job-enabled=false",
-    "resend.api.key=test-resend-key"
+    "authkit.auth.audit.hash-pepper=production-firewall-test-audit-pepper-32-chars",
+    "authkit.auth.audit.async-enabled=false",
+    "resend.api.key=re_prod_firewall_secret"
 })
 public class ProductionFirewallTest {
 

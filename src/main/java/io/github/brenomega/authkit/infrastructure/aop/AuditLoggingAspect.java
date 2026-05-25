@@ -1,7 +1,10 @@
 package io.github.brenomega.authkit.infrastructure.aop;
 
 import java.time.Instant;
+import java.util.Map;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
@@ -16,6 +19,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
+import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -31,7 +35,7 @@ import jakarta.servlet.http.HttpServletRequest;
  *   <li>{@code userId} — from {@code SecurityContextHolder} JWT {@code sub} claim</li>
  *   <li>{@code action} — HTTP method and endpoint path</li>
  *   <li>{@code tenant_id} — from JWT {@code tenant_id} claim</li>
- *   <li>{@code client_ip} — resolved via {@link NetworkIPResolver} (DT 3.2.17)</li>
+     *   <li>{@code client_ip} — resolved and masked via {@link NetworkIPResolver} (DT 3.2.17)</li>
  *   <li>{@code timestamp} — ISO-8601 formatted instant</li>
  * </ul>
  *
@@ -48,9 +52,11 @@ public class AuditLoggingAspect {
     private static final Logger auditLog = LoggerFactory.getLogger("AUDIT");
 
     private final NetworkIpResolver networkIpResolver;
+    private final ObjectMapper objectMapper;
 
-    public AuditLoggingAspect(NetworkIpResolver networkIpResolver) {
+    public AuditLoggingAspect(NetworkIpResolver networkIpResolver, ObjectMapper objectMapper) {
         this.networkIpResolver = networkIpResolver;
+        this.objectMapper = objectMapper;
     }
 
     // -------------------------------------------------------------------------
@@ -120,22 +126,24 @@ public class AuditLoggingAspect {
         }
 
         // Extract HTTP request details
-        ServletRequestAttributes attrs =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attrs != null) {
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {
             HttpServletRequest request = attrs.getRequest();
-            clientIp = networkIpResolver.resolveClientIp(request);
+            clientIp = IpMasker.mask(networkIpResolver.resolveClientIp(request));
             httpMethod = request.getMethod();
             requestUri = request.getRequestURI();
         }
 
-        String timestamp = Instant.now().toString();
+        Map<String, String> event = Map.of(
+                "userId", userId,
+                "action", httpMethod + " " + requestUri,
+                "tenant_id", tenantId,
+                "client_ip", clientIp,
+                "timestamp", Instant.now().toString());
 
-        // Emit structured JSON audit log (DT 3.4.8)
-        // Appended to stdout for capture by external aggregators (CloudWatch)
-        auditLog.info(
-                "{\"userId\":\"{}\",\"action\":\"{} {}\",\"tenant_id\":\"{}\",\"client_ip\":\"{}\",\"timestamp\":\"{}\"}",
-                userId, httpMethod, requestUri, tenantId, clientIp, timestamp
-        );
+        try {
+            auditLog.info(objectMapper.writeValueAsString(event));
+        } catch (JsonProcessingException ex) {
+            auditLog.info("audit_event_serialization_failed");
+        }
     }
 }

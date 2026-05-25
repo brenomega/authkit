@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.infrastructure.email.ResendEmailClient;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 
@@ -42,7 +43,7 @@ public class RabbitMqEmailListener {
      */
     @RabbitListener(queues = RabbitMqConfig.QUEUE_EMAIL)
     public void processEmail(EmailPayload payload) {
-        log.debug("Received EmailPayload from queue for: {}", payload.to());
+        log.debug("Received EmailPayload from queue for: {}", EmailMasker.mask(payload.to()));
         resendClient.sendEmail(payload);
     }
 }

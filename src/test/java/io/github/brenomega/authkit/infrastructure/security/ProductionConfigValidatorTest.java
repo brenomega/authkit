@@ -17,6 +17,15 @@ class ProductionConfigValidatorTest {
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
+    @Test
+    @DisplayName("Production validation rejects HTTP frontend flow URLs")
+    void run_httpFrontendUrl_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.frontend.password-reset-url", "http://app.example.com/reset-password");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
     private MockEnvironment productionEnvironment() {
         return new MockEnvironment()
                 .withProperty("spring.datasource.username", "authkit")
@@ -33,6 +42,7 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.compliance.terms-version", "terms-2026")
                 .withProperty("authkit.auth.compliance.privacy-policy-version", "privacy-2026")
                 .withProperty("authkit.auth.compliance.lawful-basis", "consent")
+                .withProperty("authkit.auth.audit.hash-pepper", "production-audit-hash-pepper-at-least-32-chars")
                 .withProperty("authkit.auth.cookie.http-only", "true")
                 .withProperty("authkit.auth.cookie.secure", "true")
                 .withProperty("authkit.auth.csrf.enabled", "true")

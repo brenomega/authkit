@@ -26,6 +26,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -46,6 +47,7 @@ class RegistrationServiceTest {
     private RegistrationService service;
     private AuthProperties authProperties;
     private SecurityEventService securityEventService;
+    private ConsentEventService consentEventService;
 
     @BeforeEach
     void setUp() {
@@ -54,7 +56,14 @@ class RegistrationServiceTest {
         authProperties.getCompliance().setTermsVersion("terms-2026");
         authProperties.getCompliance().setPrivacyPolicyVersion("privacy-2026");
         securityEventService = org.mockito.Mockito.mock(SecurityEventService.class);
-        service = new RegistrationService(userRepository, passwordEncoder, emailOutboxService, authProperties, securityEventService);
+        consentEventService = org.mockito.Mockito.mock(ConsentEventService.class);
+        service = new RegistrationService(
+                userRepository,
+                passwordEncoder,
+                emailOutboxService,
+                authProperties,
+                securityEventService,
+                consentEventService);
     }
 
     @SuppressWarnings("null")
@@ -82,6 +91,7 @@ class RegistrationServiceTest {
                 payload.to().equals("new@example.com") &&
                 payload.htmlBody().contains("https://frontend.example.test/activate?token=")
         ));
+        verify(consentEventService).recordCurrentConsent(user);
     }
 
     @Test

@@ -13,6 +13,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
+import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
@@ -32,6 +35,9 @@ public class PasswordRecoveryIntegrationTest {
 
     @Autowired
     private EmailOutboxRepository emailOutboxRepository;
+
+    @Autowired
+    private SecurityEventRepository securityEventRepository;
 
     @Test
     @DisplayName("Stealth Strategy: Recovery initiation returns 200 OK regardless of email existence (DT 3.2.15)")
@@ -71,6 +77,7 @@ public class PasswordRecoveryIntegrationTest {
                         .contentType("application/json")
                         .content("{\"email\": \"" + email + "\"}"))
                 .andExpect(status().isOk());
+        assertSecurityEvent(user, SecurityEventType.PASSWORD_RESET_REQUESTED);
 
         // 2. Capture the generated token from the durable outbox event
         String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
@@ -85,6 +92,7 @@ public class PasswordRecoveryIntegrationTest {
                         .content("{\"token\": \"" + token + "\", \"newPassword\": \"" + newPass + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value("Password successfully reset."));
+        assertSecurityEvent(user, SecurityEventType.PASSWORD_RESET_COMPLETED);
 
         // 4. Verify login works with NEW password and fails with OLD
         mockMvc.perform(post("/api/v1/auth/login")
@@ -103,5 +111,13 @@ public class PasswordRecoveryIntegrationTest {
                         .contentType("application/json")
                         .content("{\"token\": \"" + token + "\", \"newPassword\": \"AnotherPass1!\"}"))
                 .andExpect(status().isBadRequest()); // Should fail as token is gone
+    }
+
+    private void assertSecurityEvent(User user, SecurityEventType eventType) {
+        org.junit.jupiter.api.Assertions.assertTrue(
+                securityEventRepository.findTop100ByTargetUserIdOrderByOccurredAtDesc(user.getId())
+                        .stream()
+                        .anyMatch(event -> event.getEventType() == eventType),
+                () -> "Expected security event " + eventType + " for user " + user.getId());
     }
 }

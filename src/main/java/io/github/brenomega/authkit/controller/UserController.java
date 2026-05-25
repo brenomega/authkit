@@ -6,6 +6,7 @@ import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
+import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AccountLifecycleService;
@@ -59,9 +60,11 @@ public class UserController {
     /**
      * Returns a privacy-safe data export for access requests.
      */
-    @GetMapping("/export")
-    public ApiResponse<UserDataExportResponse> exportMyData(@AuthenticationPrincipal Jwt jwt) {
-        UserDataExportResponse export = accountLifecycleService.exportUserData(jwt.getSubject());
+    @PostMapping("/export")
+    public ApiResponse<UserDataExportResponse> exportMyData(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody StepUpRequest request) {
+        UserDataExportResponse export = accountLifecycleService.exportUserData(jwt.getSubject(), request);
         return new ApiResponse<>(export, null, Instant.now());
     }
 
@@ -113,8 +116,10 @@ public class UserController {
      * Requests account deletion and immediately anonymizes direct PII.
      */
     @DeleteMapping
-    public ApiResponse<AccountDeletionResponse> deleteMyAccount(@AuthenticationPrincipal Jwt jwt) {
-        AccountDeletionResponse deletion = accountLifecycleService.requestDeletion(jwt.getSubject());
+    public ApiResponse<AccountDeletionResponse> deleteMyAccount(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody StepUpRequest request) {
+        AccountDeletionResponse deletion = accountLifecycleService.requestDeletion(jwt.getSubject(), request);
         return new ApiResponse<>(deletion, null, Instant.now());
     }
 }

@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
@@ -37,6 +38,6 @@ public class RabbitMqEmailPublisher implements QueuePublisher<EmailPayload> {
                 RabbitMqConfig.ROUTING_KEY_EMAIL,
                 payload
         );
-        log.debug("Published async email job to RabbitMQ for: {}", payload.to());
+        log.debug("Published async email job to RabbitMQ for: {}", EmailMasker.mask(payload.to()));
     }
 }

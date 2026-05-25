@@ -19,6 +19,8 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
@@ -38,6 +40,9 @@ public class AuthIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private SecurityEventRepository securityEventRepository;
 
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
@@ -74,6 +79,9 @@ public class AuthIntegrationTest {
                 .andExpect(cookie().exists("XSRF-TOKEN"))
                 .andExpect(cookie().httpOnly("XSRF-TOKEN", false))
                 .andExpect(cookie().secure("XSRF-TOKEN", true));
+
+        User user = userRepository.findByEmail("logintarget@example.com").orElseThrow();
+        assertSecurityEvent(user, SecurityEventType.LOGIN_SUCCESS);
     }
 
     @Test
@@ -124,6 +132,10 @@ public class AuthIntegrationTest {
                         .header("X-XSRF-TOKEN", originalCsrfCookie.getValue()))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errors[0]").value("Refresh token reuse detected. All sessions revoked for your security."));
+
+        User user = userRepository.findByEmail("refresh-flow@example.com").orElseThrow();
+        assertSecurityEvent(user, SecurityEventType.REFRESH_TOKEN_ROTATED);
+        assertSecurityEvent(user, SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED);
     }
 
     @Test
@@ -201,6 +213,9 @@ public class AuthIntegrationTest {
                         .cookie(refreshCookie, csrfCookie)
                         .header("X-XSRF-TOKEN", csrfCookie.getValue()))
                 .andExpect(status().isUnauthorized());
+
+        User user = userRepository.findByEmail("logout-flow@example.com").orElseThrow();
+        assertSecurityEvent(user, SecurityEventType.LOGOUT);
     }
 
     @Test
@@ -241,5 +256,13 @@ public class AuthIntegrationTest {
         User user = registrationService.registerUser(registerRequest);
         user.setEmailConfirmed(true);
         return userRepository.save(user);
+    }
+
+    private void assertSecurityEvent(User user, SecurityEventType eventType) {
+        org.junit.jupiter.api.Assertions.assertTrue(
+                securityEventRepository.findTop100ByTargetUserIdOrderByOccurredAtDesc(user.getId())
+                        .stream()
+                        .anyMatch(event -> event.getEventType() == eventType),
+                () -> "Expected security event " + eventType + " for user " + user.getId());
     }
 }

@@ -98,6 +98,10 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                 });
     }
 
+    public void evict(UUID userId) {
+        authorityCache.invalidate(userId);
+    }
+
     private void reject(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");

@@ -238,6 +238,7 @@ class AuthServiceTest {
         String userId = "00000000-0000-0000-0000-000000000000";
         String jti = "11111111-1111-1111-1111-111111111111";
         RefreshTokenCodec.IssuedRefreshToken token = RefreshTokenCodec.issue(userId, jti);
+        when(tokenStorage.validateToken(userId, jti, token.rawToken())).thenReturn(true);
 
         authService.logout(token.rawToken());
 

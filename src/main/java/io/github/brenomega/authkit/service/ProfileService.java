@@ -153,23 +153,34 @@ public class ProfileService {
 
         // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
+            securityEventService.recordForAuthenticatedUser(
+                    SecurityEventType.PASSWORD_CHANGED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "password_change_account_locked");
             throw new AccountLockedException();
         }
 
         user.requireEmailConfirmed();
 
-        // Security Check: Must verify current password before allowing change (RF 2.1.7)
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-            throw new InvalidCredentialsException();
-        }
-
-        // Hashing: Apply Argon2id with semaphore protection (DT 3.2.26)
         boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
 
         try {
+            // Bound both Argon2 verify and encode work to prevent authenticated hashing DoS.
+            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
+                securityEventService.recordForAuthenticatedUser(
+                        SecurityEventType.PASSWORD_CHANGED,
+                        SecurityEventOutcome.DENIED,
+                        SecurityEventSeverity.HIGH,
+                        user,
+                        "password_change_current_password_invalid");
+                throw new InvalidCredentialsException();
+            }
+
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {
@@ -178,7 +189,7 @@ public class ProfileService {
 
         // Session Revocation: Revoke all other active Refresh Tokens except current session (RF 2.1.12)
         tokenStorage.revokeOtherSessions(userId, currentJti);
-        securityEventService.recordForUser(
+        securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.PASSWORD_CHANGED,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.HIGH,
@@ -227,7 +238,7 @@ public class ProfileService {
         }
 
         tokenStorage.revokeSession(userId, jti);
-        securityEventService.recordForUser(
+        securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGOUT,
                 SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.MEDIUM,

@@ -54,3 +54,19 @@ spec:
           annotations:
             summary: AuthKit dependency failure
             description: Redis, RabbitMQ, or outbox-backed infrastructure reported failures.
+        - alert: AuthKitSecurityEventDrops
+          expr: increase(security_events_dropped_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: AuthKit security event drops detected
+            description: The bounded security-event writer dropped events. Investigate database capacity and abuse volume.
+        - alert: AuthKitSecurityEventWriterSaturation
+          expr: increase(security_events_overloaded_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit security event writer saturated
+            description: The bounded security-event writer queue saturated and used overload handling. Investigate database latency and abuse volume before drops occur.

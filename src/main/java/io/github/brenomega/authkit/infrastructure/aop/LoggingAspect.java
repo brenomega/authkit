@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
+
 /**
  * Cross-cutting aspect that centralizes application logging (DT 3.4.1, DT 3.4.8).
  *
@@ -142,6 +144,14 @@ public class LoggingAspect {
             String paramName = params[i].getName();
             if (isSensitive(paramName) || isSensitiveValue(args[i])) {
                 sb.append(paramName).append('=').append(MASKED);
+            } else if (isEmail(paramName) && args[i] instanceof CharSequence email) {
+                sb.append(paramName).append('=').append(EmailMasker.mask(email.toString()));
+            } else if (args[i] instanceof CharSequence text && text.toString().contains("@")) {
+                sb.append(paramName).append('=').append(EmailMasker.mask(text.toString()));
+            } else if (args[i] instanceof CharSequence) {
+                sb.append(paramName).append('=').append(MASKED);
+            } else if (isEmail(paramName)) {
+                sb.append(paramName).append('=').append(EmailMasker.mask(String.valueOf(args[i])));
             } else {
                 sb.append(paramName).append('=').append(args[i]);
             }
@@ -159,6 +169,10 @@ public class LoggingAspect {
         return SENSITIVE_PARAMS.contains(paramName.toLowerCase());
     }
 
+    private static boolean isEmail(String paramName) {
+        return paramName != null && paramName.toLowerCase().contains("email");
+    }
+
     private static boolean isSensitiveValue(Object value) {
         if (value == null) {
             return false;
@@ -169,6 +183,7 @@ public class LoggingAspect {
                 || simpleName.contains("registerrequest")
                 || simpleName.contains("passwordchangerequest")
                 || simpleName.contains("passwordresetrequest")
-                || simpleName.contains("passwordrecoveryrequest");
+                || simpleName.contains("passwordrecoveryrequest")
+                || simpleName.contains("stepuprequest");
     }
 }
