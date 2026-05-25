@@ -61,6 +61,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
                 "test-only-authkit-audit-hash-pepper-32-bytes",
                 "local-development-audit-hash-pepper-change-for-prod",
                 "CHANGE-ME-AUDIT-HASH-PEPPER-AT-LEAST-32-CHARS");
+        validateCredential("authkit.auth.mfa.secret-encryption-key",
+                "test-only-authkit-mfa-secret-key-32-bytes",
+                "local-development-mfa-secret-key-change-for-prod",
+                "CHANGE-ME-MFA-SECRET-ENCRYPTION-KEY-AT-LEAST-32-CHARS");
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
         validateBoolean("authkit.auth.csrf.enabled", true);

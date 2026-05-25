@@ -148,6 +148,11 @@ authkit:
       writer-queue-capacity: 100
       writer-shutdown-timeout-seconds: 1
       persist-synchronously-on-overload: true
+    mfa:
+      enabled: true
+      backup-code-count: 10
+      login-challenge-ttl-minutes: 5
+      secret-encryption-key: test-only-authkit-mfa-secret-key-32-bytes
 
 # =============================================================================
 # Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)

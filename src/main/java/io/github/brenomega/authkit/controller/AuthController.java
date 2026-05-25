@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
+import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
+import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordRecoveryRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordResetRequest;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
@@ -72,6 +74,23 @@ public class AuthController {
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthService.LoginResult result = authService.login(request);
         HttpHeaders headers = new HttpHeaders();
+        if (StringUtils.hasText(result.refreshToken())) {
+            addSessionCookies(headers, result.refreshToken());
+        }
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(ApiResponse.success(result.response()));
+    }
+
+    /**
+     * Completes login for accounts protected by MFA.
+     */
+    @PostMapping("/mfa/verify-login")
+    public ResponseEntity<ApiResponse<LoginResponse>> verifyMfaLogin(
+            @Valid @RequestBody MfaLoginVerificationRequest request) {
+        AuthService.LoginResult result = authService.verifyMfaLogin(request);
+        HttpHeaders headers = new HttpHeaders();
         addSessionCookies(headers, result.refreshToken());
 
         return ResponseEntity.ok()
@@ -115,8 +134,10 @@ public class AuthController {
      * Revokes all active refresh-token-backed sessions for the authenticated user (RF 2.1.10).
      */
     @PostMapping("/logout-all")
-    public ResponseEntity<ApiResponse<String>> logoutAll(@AuthenticationPrincipal Jwt jwt) {
-        authService.logoutAll(jwt.getSubject());
+    public ResponseEntity<ApiResponse<String>> logoutAll(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody(required = false) MfaOptionalVerificationRequest request) {
+        authService.logoutAll(jwt.getSubject(), request == null ? null : request.code());
         HttpHeaders headers = new HttpHeaders();
         addClearedSessionCookies(headers);
         return ResponseEntity.ok()

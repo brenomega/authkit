@@ -104,10 +104,11 @@ sequenceDiagram
 
 | Endpoint | Auth | Primary state | Key infrastructure |
 |---|---:|---|---|
-| `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token | Caffeine/Redis rate limits, Argon2 limiter, lockout Caffeine/Redis, audit DB |
+| `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token or MFA challenge | Caffeine/Redis rate limits, Argon2 limiter, lockout Caffeine/Redis, MFA Redis challenge, audit DB |
+| `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | Redis MFA challenge, Redis refresh token | One-time MFA challenge consume, TOTP/backup code verification, audit DB |
 | `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | CSRF double-submit cookie, Redis Lua rotation, audit DB |
 | `POST /api/v1/auth/logout` | Refresh cookie + CSRF | Redis refresh token session | CSRF double-submit cookie, Redis revocation, audit DB |
-| `POST /api/v1/auth/logout-all` | Bearer JWT | Redis all sessions | JWT validation, authority cache, Redis revocation |
+| `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | Redis all sessions | JWT validation, authority cache, MFA step-up, Redis revocation |
 | `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Argon2, consent event DB, outbox, RabbitMQ, Resend |
 | `POST /api/v1/auth/email-confirmation/confirm` | Public | PostgreSQL user token hash | Audit DB |
 | `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, outbox, RabbitMQ, Resend, audit DB |
@@ -116,9 +117,14 @@ sequenceDiagram
 | `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `POST /api/v1/users/me/export` | Bearer JWT + password step-up | PostgreSQL user, consent events, security events | Argon2 limiter, audit DB |
 | `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
-| `POST /api/v1/users/me/password` | Bearer JWT + current password | PostgreSQL password, Redis sessions | Argon2 limiter, lockout check, audit DB |
+| `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | Argon2 limiter, lockout check, MFA step-up, audit DB |
 | `GET /api/v1/users/me/sessions` | Bearer JWT | Redis refresh sessions | Authority Caffeine/DB cache |
-| `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT | Redis refresh session | Lockout check, audit DB |
+| `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | Authority Caffeine/DB cache, tenant check |
+| `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | Argon2 limiter, encrypted secret storage, audit DB |
+| `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | TOTP verification, hashed backup codes, session revocation, audit DB |
+| `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA step-up, backup-code cleanup, session revocation, audit DB |
+| `POST /api/v1/users/me/mfa/backup-codes` | Bearer JWT + current password + MFA | PostgreSQL hashed backup codes | Atomic backup-code replacement, audit DB |
+| `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT + MFA if enabled | Redis refresh session | Lockout check, MFA step-up, audit DB |
 | `DELETE /api/v1/users/me` | Bearer JWT + password step-up | PostgreSQL anonymized user, Redis sessions | Argon2 limiter, authority cache eviction, audit DB |
 | `GET /.well-known/jwks.json` | Public | RSA public key config | Downstream stateless JWT verification |
 
@@ -126,7 +132,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/login`
 
-Infrastructure role: edge and Kubernetes restrict entry; network filters rate-limit before hashing; `AccountLockoutService` uses Redis as the global lockout source when available and Caffeine as local fallback; Argon2 verification is bounded by `Argon2ConcurrencyLimiter`; refresh state is stored in Redis; access tokens are stateless JWTs; refresh and CSRF tokens are returned as cookies; security events and Prometheus counters are emitted.
+Infrastructure role: edge and Kubernetes restrict entry; network filters rate-limit before hashing; `AccountLockoutService` uses Redis as the global lockout source when available and Caffeine as local fallback; Argon2 verification is bounded by `Argon2ConcurrencyLimiter`; accounts with MFA enabled receive only a short-lived one-time MFA challenge in Redis, not a refresh cookie; accounts without MFA receive a Redis-backed refresh token and stateless JWT; security events and Prometheus counters are emitted.
 
 ```mermaid
 sequenceDiagram
@@ -139,6 +145,7 @@ sequenceDiagram
     participant LK as Redis/Caffeine lockout
     participant DB as PostgreSQL users
     participant ARG as Argon2 limiter + PasswordEncoder
+    participant MFA as MfaService
     participant TS as RedisTokenStorage
     participant JWT as JwtEncoder
     participant AUD as SecurityEventService
@@ -180,10 +187,66 @@ sequenceDiagram
                 AS-->>C: EmailNotConfirmedException
             else Password valid and active
                 AS->>LS: clearLockout(email)
+                AS->>MFA: isMfaEnabled(user)
+                alt MFA enabled
+                    AS->>TS: storeMfaChallenge(userId,challengeJti,hashedChallenge,shortTtl)
+                    AS->>AUD: MFA_CHALLENGE_ISSUED
+                    AC-->>C: 200 {mfaRequired:true,mfaToken} and no session cookies
+                else MFA not enabled
+                    AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
+                    TS->>TS: Store token hash and family id in Redis hash
+                    AS->>JWT: Sign RS256 JWT with iss,aud,sub,jti,tenant_id,amr=["pwd"],exp
+                    AS->>AUD: LOGIN_SUCCESS
+                    AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
+                end
+            end
+        end
+    end
+```
+
+## 1A. Complete MFA Login
+
+`POST /api/v1/auth/mfa/verify-login`
+
+Infrastructure role: this is a public route because the user does not yet have a bearer token, but it requires the one-time MFA challenge issued after successful password verification. Redis consumes the challenge atomically before code verification so challenge replay fails closed. TOTP secrets are decrypted only in service memory; backup codes are compared as keyed hashes and consumed atomically in PostgreSQL. Successful verification is the point where refresh cookies and access JWTs are issued.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant I as Shared ingress filters
+    participant AC as AuthController
+    participant AS as AuthService
+    participant TS as RedisTokenStorage
+    participant DB as PostgreSQL users/MFA
+    participant MFA as MfaService
+    participant JWT as JwtEncoder
+    participant AUD as SecurityEventService
+
+    C->>I: POST /api/v1/auth/mfa/verify-login {mfaToken,code}
+    I->>AC: Public endpoint after origin/rate/body checks
+    AC->>AS: verifyMfaLogin(request)
+    AS->>AS: Parse MFA challenge handles
+    alt Malformed challenge
+        AS->>AUD: MFA_CHALLENGE_FAILED malformed_mfa_challenge
+        AS-->>C: InvalidMfaCodeException
+    else Challenge shape valid
+        AS->>DB: findById(challenge.userId)
+        AS->>TS: consumeMfaChallenge(userId,jti,rawChallenge)
+        alt Challenge missing, expired, or replayed
+            AS->>AUD: MFA_CHALLENGE_FAILED invalid_or_expired
+            AS-->>C: InvalidMfaCodeException
+        else Challenge consumed
+            AS->>MFA: verifyMfaCode(user,code,login_mfa)
+            alt TOTP or backup code invalid
+                MFA-->>AS: invalid
+                AS->>AUD: MFA_CHALLENGE_FAILED login_mfa_invalid_code
+                AS-->>C: InvalidMfaCodeException
+            else MFA valid
+                MFA->>DB: Atomically mark TOTP time step or backup code used
                 AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
-                TS->>TS: Store token hash and family id in Redis hash
-                AS->>JWT: Sign RS256 JWT with iss,aud,sub,jti,tenant_id,exp
-                AS->>AUD: LOGIN_SUCCESS
+                AS->>JWT: Sign RS256 JWT with amr=["pwd","otp|backup_code"], mfa=true
+                AS->>AUD: MFA_CHALLENGE_VERIFIED + LOGIN_SUCCESS
                 AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
             end
         end
@@ -289,7 +352,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/logout-all`
 
-Infrastructure role: this route requires a valid bearer access token; `UserAuthoritiesFilter` refreshes the live role/enabled snapshot from Caffeine or PostgreSQL before the controller executes; Redis deletes the entire refresh session hash for the user.
+Infrastructure role: this route requires a valid bearer access token; `UserAuthoritiesFilter` refreshes the live role/enabled snapshot from Caffeine or PostgreSQL before the controller executes; if MFA is enabled for the account the request must include a valid MFA proof; Redis deletes the entire refresh session hash for the user.
 
 ```mermaid
 sequenceDiagram
@@ -301,10 +364,11 @@ sequenceDiagram
     participant DB as PostgreSQL users
     participant AC as AuthController
     participant AS as AuthService
+    participant MFA as MfaService
     participant TS as RedisTokenStorage
     participant AUD as SecurityEventService
 
-    C->>I: POST /api/v1/auth/logout-all + Bearer JWT
+    C->>I: POST /api/v1/auth/logout-all + Bearer JWT + optional MFA code
     I->>AF: JWT valid
     AF->>ACa: Lookup authorities by jwt.sub
     alt Cache miss
@@ -316,14 +380,20 @@ sequenceDiagram
         AF-->>C: 401 Unauthorized
     else Authorized
         AF->>AC: Continue
-        AC->>AS: logoutAll(jwt.sub)
+        AC->>AS: logoutAll(jwt.sub,mfaCode)
         AS->>DB: findById(userId)
         alt User deleted or missing
             AS-->>C: UserNotFoundException
         else User active
-            AS->>TS: revokeAllSessions(userId)
-            AS->>AUD: LOGOUT_ALL
-            AC-->>C: 200 and clear refresh + CSRF cookies
+            AS->>MFA: requireMfaIfEnabled(user,mfaCode,logout_all)
+            alt MFA enabled and proof missing/invalid
+                MFA->>AUD: MFA_CHALLENGE_FAILED
+                MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+            else MFA not enabled or proof valid
+                AS->>TS: revokeAllSessions(userId)
+                AS->>AUD: LOGOUT_ALL
+                AC-->>C: 200 and clear refresh + CSRF cookies
+            end
         end
     end
 ```
@@ -652,7 +722,7 @@ sequenceDiagram
 
 `POST /api/v1/users/me/password`
 
-Infrastructure role: this is a sensitive authenticated operation; it is blocked while the account is locked, requires current-password verification, bounds both Argon2 verification and encoding, revokes every Redis refresh session except the current access-token JTI, and emits high-severity security events.
+Infrastructure role: this is a sensitive authenticated operation; it is blocked while the account is locked, requires current-password verification, requires MFA proof when MFA is enabled for the account, bounds both Argon2 verification and encoding, revokes every Redis refresh session except the current access-token JTI, and emits high-severity security events.
 
 ```mermaid
 sequenceDiagram
@@ -664,10 +734,11 @@ sequenceDiagram
     participant DB as PostgreSQL users
     participant LS as AccountLockoutService
     participant ARG as Argon2 limiter + PasswordEncoder
+    participant MFA as MfaService
     participant TS as RedisTokenStorage
     participant AUD as SecurityEventService
 
-    C->>I: POST /api/v1/users/me/password {currentPassword,newPassword} + Bearer JWT
+    C->>I: POST /api/v1/users/me/password {currentPassword,newPassword,mfaCode?} + Bearer JWT
     I->>UC: JWT valid and authorities current
     UC->>PS: changePassword(jwt.sub, request, jwt.jti)
     PS->>DB: findById(jwt.sub)
@@ -684,12 +755,73 @@ sequenceDiagram
                 PS->>AUD: PASSWORD_CHANGED denied current_password_invalid
                 PS-->>C: InvalidCredentialsException
             else Current password valid
-                PS->>ARG: Encode new password
-                PS->>DB: save new password hash
-                PS->>TS: revokeOtherSessions(userId,currentJti)
-                PS->>AUD: PASSWORD_CHANGED success
-                UC-->>C: 200 password changed
+                PS->>MFA: requireMfaIfEnabled(user,mfaCode,password_change)
+                alt MFA enabled and proof missing/invalid
+                    MFA->>AUD: MFA_CHALLENGE_FAILED
+                    MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+                else MFA not enabled or proof valid
+                    PS->>ARG: Encode new password
+                    PS->>DB: save new password hash
+                    PS->>TS: revokeOtherSessions(userId,currentJti)
+                    PS->>AUD: PASSWORD_CHANGED success
+                    UC-->>C: 200 password changed
+                end
             end
+        end
+    end
+```
+
+## 13A. MFA Management
+
+`GET /api/v1/users/me/mfa`, `POST /api/v1/users/me/mfa/totp/enroll`, `POST /api/v1/users/me/mfa/totp/confirm`, `DELETE /api/v1/users/me/mfa/totp`, `POST /api/v1/users/me/mfa/backup-codes`
+
+Infrastructure role: MFA management is bearer-authenticated and scoped to the JWT subject. Enrollment requires current-password step-up and replaces stale pending credentials. TOTP secrets are encrypted with AES-GCM before PostgreSQL persistence. Confirmation verifies a live TOTP code, generates one-time backup codes, stores only keyed hashes, revokes refresh sessions, and audits the change. Disabling MFA and regenerating backup codes require both current-password and MFA proof.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant I as Shared authenticated ingress
+    participant UC as UserController
+    participant MFA as MfaService
+    participant ARG as Argon2 limiter + PasswordEncoder
+    participant DB as PostgreSQL users/MFA
+    participant TS as RedisTokenStorage
+    participant AUD as SecurityEventService
+
+    C->>I: MFA management request + Bearer JWT
+    I->>UC: JWT valid and authorities current
+    UC->>MFA: Endpoint-specific MFA operation(jwt.sub, request)
+    MFA->>DB: find active user and enforce tenant/email status
+    alt Status request
+        MFA->>DB: Count active TOTP and unused backup codes
+        MFA-->>C: MFA status
+    else Enroll TOTP
+        MFA->>ARG: Verify current password
+        MFA->>DB: Delete stale pending credentials
+        MFA->>DB: Save encrypted pending TOTP secret
+        MFA->>AUD: MFA_CHANGED totp_enrollment_started
+        MFA-->>C: one-time secret + otpauth URI
+    else Confirm TOTP
+        MFA->>ARG: Verify current password
+        MFA->>DB: Load pending credential and verify TOTP
+        MFA->>DB: Mark credential confirmed and store hashed backup codes
+        MFA->>TS: revokeAllSessions(userId)
+        MFA->>AUD: MFA_CHANGED totp_enabled
+        MFA-->>C: one-time raw backup codes
+    else Disable or regenerate backup codes
+        MFA->>ARG: Verify current password
+        MFA->>MFA: requireMfaIfEnabled(user,code,reason)
+        alt MFA proof invalid
+            MFA->>AUD: MFA_CHALLENGE_FAILED
+            MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+        else MFA proof valid
+            MFA->>DB: Disable TOTP or replace unused backup codes
+            opt Disable TOTP
+                MFA->>TS: revokeAllSessions(userId)
+            end
+            MFA->>AUD: MFA_CHANGED or MFA_BACKUP_CODES_REGENERATED
+            MFA-->>C: success or one-time raw backup codes
         end
     end
 ```
@@ -728,7 +860,7 @@ sequenceDiagram
 
 `DELETE /api/v1/users/me/sessions/{jti}`
 
-Infrastructure role: revocation is scoped to the authenticated user's Redis refresh-token hash, which prevents cross-user session deletion; lockout blocks session management; success is audited as logout/session revocation.
+Infrastructure role: revocation is scoped to the authenticated user's Redis refresh-token hash, which prevents cross-user session deletion; lockout blocks session management; MFA proof is required when enabled for the account; success is audited as logout/session revocation.
 
 ```mermaid
 sequenceDiagram
@@ -739,10 +871,11 @@ sequenceDiagram
     participant PS as ProfileService
     participant DB as PostgreSQL users
     participant LS as AccountLockoutService
+    participant MFA as MfaService
     participant TS as RedisTokenStorage
     participant AUD as SecurityEventService
 
-    C->>I: DELETE /api/v1/users/me/sessions/{jti} + Bearer JWT
+    C->>I: DELETE /api/v1/users/me/sessions/{jti} {code?} + Bearer JWT
     I->>UC: JWT valid and authorities current
     UC->>PS: revokeSession(jwt.sub, jti)
     PS->>DB: findById(jwt.sub)
@@ -753,9 +886,15 @@ sequenceDiagram
         alt Locked
             PS-->>C: AccountLockedException
         else Not locked
-            PS->>TS: revokeSession(userId,jti)
-            PS->>AUD: LOGOUT session_revoked
-            UC-->>C: 200 session revoked
+            PS->>MFA: requireMfaIfEnabled(user,code,session_revocation)
+            alt MFA enabled and proof missing/invalid
+                MFA->>AUD: MFA_CHALLENGE_FAILED
+                MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+            else MFA not enabled or proof valid
+                PS->>TS: revokeSession(userId,jti)
+                PS->>AUD: LOGOUT session_revoked
+                UC-->>C: 200 session revoked
+            end
         end
     end
 ```
@@ -897,7 +1036,7 @@ sequenceDiagram
 
 ## Production Readiness Note
 
-The current architecture is intentionally stateless for access-token verification: issued access tokens are self-contained RS256 JWTs, downstream services can verify them using JWKS, and AuthKit does not create server-side HTTP sessions. The stateful parts are deliberate security state: refresh-token families, recovery tokens, distributed rate-limit buckets, lockout buckets, authority snapshots, email outbox rows, and durable audit/consent records.
+The current architecture is intentionally stateless for access-token verification: issued access tokens are self-contained RS256 JWTs, downstream services can verify them using JWKS, and AuthKit does not create server-side HTTP sessions. The stateful parts are deliberate security state: refresh-token families, MFA login challenges, recovery tokens, distributed rate-limit buckets, lockout buckets, authority snapshots, encrypted TOTP credentials, hashed backup codes, email outbox rows, and durable audit/consent records.
 
 Production strengths visible in the current implementation:
 
@@ -905,16 +1044,18 @@ Production strengths visible in the current implementation:
 - Volumetric protection happens before JSON parsing and password hashing.
 - Password hashing work is concurrency-bounded to reduce hashing DoS risk.
 - Refresh tokens are HttpOnly cookies, server-side hashed in Redis, rotated atomically, and family reuse is audited as critical.
+- MFA login challenges are one-time Redis entries; TOTP secrets are encrypted at rest; backup codes are stored as keyed hashes and consumed atomically.
 - Authenticated routes rehydrate live authorities instead of trusting stale JWT roles indefinitely.
 - Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend.
 - Security and consent events are durable, privacy-safe, metric-backed, and alertable.
-- Account export/deletion require current-password step-up.
+- Account export/deletion require current-password step-up; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled.
 
 Operational caveats to keep in mind before production:
 
-- Redis is a hard dependency for refresh tokens and recovery tokens; rate limiting and lockout have local fallback, but token flows do not.
+- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges; rate limiting and lockout have local fallback, but token flows do not.
 - The Kubernetes service is intended to sit behind an ingress controller; real client IP handling depends on trusted ingress/proxy headers and the configured `network.proxy-depth`.
 - No frontend is included in this repository; browser storage, XSS controls, and redirect UX must be validated in the consuming application.
 - `/actuator/prometheus` is intentionally public in the app security rules; production exposure should be constrained by Kubernetes network policy, ingress rules, or monitoring-network controls.
 - NetworkPolicy cannot restrict Resend egress by FQDN; production clusters should use an egress gateway, DNS policy, or cloud firewall where available.
 - Downstream services must validate JWT issuer, audience, expiration, signature, and `kid`, and should not call AuthKit per request unless they need a live revocation/authorization decision beyond token TTL.
+- Passkeys/WebAuthn, OAuth2/OIDC provider or social-login relying-party capabilities, and the admin/policy plane remain future Phase 8 extensions; this branch implements the production-safe MFA baseline first.

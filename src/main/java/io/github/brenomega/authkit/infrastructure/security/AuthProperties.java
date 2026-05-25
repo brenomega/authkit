@@ -54,6 +54,9 @@ public class AuthProperties {
     @Valid
     private Audit audit = new Audit();
 
+    @Valid
+    private Mfa mfa = new Mfa();
+
     public Token getToken() {
         return token;
     }
@@ -140,6 +143,14 @@ public class AuthProperties {
 
     public void setAudit(Audit audit) {
         this.audit = audit;
+    }
+
+    public Mfa getMfa() {
+        return mfa;
+    }
+
+    public void setMfa(Mfa mfa) {
+        this.mfa = mfa;
     }
 
     public static class Token {
@@ -658,6 +669,56 @@ public class AuthProperties {
         @AssertTrue(message = "writer-max-pool-size must be greater than or equal to writer-core-pool-size")
         public boolean isWriterPoolSizeValid() {
             return writerMaxPoolSize >= writerCorePoolSize;
+        }
+    }
+
+    public static class Mfa {
+
+        private boolean enabled = true;
+
+        @Min(5)
+        @Max(15)
+        private int backupCodeCount = 10;
+
+        @Min(1)
+        @Max(30)
+        private long loginChallengeTtlMinutes = 5;
+
+        @NotBlank
+        @jakarta.validation.constraints.Size(min = 32)
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String secretEncryptionKey = "test-only-authkit-mfa-secret-key-32-bytes";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getBackupCodeCount() {
+            return backupCodeCount;
+        }
+
+        public void setBackupCodeCount(int backupCodeCount) {
+            this.backupCodeCount = backupCodeCount;
+        }
+
+        public long getLoginChallengeTtlMinutes() {
+            return loginChallengeTtlMinutes;
+        }
+
+        public void setLoginChallengeTtlMinutes(long loginChallengeTtlMinutes) {
+            this.loginChallengeTtlMinutes = loginChallengeTtlMinutes;
+        }
+
+        public String getSecretEncryptionKey() {
+            return secretEncryptionKey;
+        }
+
+        public void setSecretEncryptionKey(String secretEncryptionKey) {
+            this.secretEncryptionKey = secretEncryptionKey;
         }
     }
 }

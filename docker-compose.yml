@@ -144,6 +144,10 @@ services:
       AUTH_AUDIT_WRITER_QUEUE_CAPACITY: 5000
       AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS: 10
       AUTH_AUDIT_SYNC_ON_OVERLOAD: "true"
+      AUTH_MFA_ENABLED: "true"
+      AUTH_MFA_BACKUP_CODE_COUNT: 10
+      AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES: 5
+      AUTH_MFA_SECRET_ENCRYPTION_KEY: local-development-mfa-secret-key-change-for-prod
       WORKER_TOKEN: local-development-worker-token
       RESEND_API_KEY: re_local_development_token
     ports:

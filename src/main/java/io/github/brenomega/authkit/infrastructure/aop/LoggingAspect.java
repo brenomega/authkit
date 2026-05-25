@@ -44,7 +44,8 @@ public class LoggingAspect {
     private static final Set<String> SENSITIVE_PARAMS = Set.of(
             "password", "token", "secret", "accesstoken", "refreshtoken",
             "jwt", "authorization", "currentpassword", "newpassword",
-            "rawtoken", "rawrefreshtoken"
+            "rawtoken", "rawrefreshtoken", "mfatoken", "mfacode",
+            "code", "otp", "totp", "backupcode", "backupcodes"
     );
 
     /** Replacement value for masked parameters. */
@@ -184,6 +185,7 @@ public class LoggingAspect {
                 || simpleName.contains("passwordchangerequest")
                 || simpleName.contains("passwordresetrequest")
                 || simpleName.contains("passwordrecoveryrequest")
-                || simpleName.contains("stepuprequest");
+                || simpleName.contains("stepuprequest")
+                || simpleName.contains("mfa");
     }
 }

@@ -56,17 +56,20 @@ public class ProfileService {
     private final AccountLockoutService lockoutService;
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final SecurityEventService securityEventService;
+    private final MfaService mfaService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
                           Argon2ConcurrencyLimiter argon2Limiter,
-                          SecurityEventService securityEventService) {
+                          SecurityEventService securityEventService,
+                          MfaService mfaService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
         this.lockoutService = lockoutService;
         this.argon2Limiter = argon2Limiter;
         this.securityEventService = securityEventService;
+        this.mfaService = mfaService;
     }
 
     /**
@@ -181,6 +184,8 @@ public class ProfileService {
                 throw new InvalidCredentialsException();
             }
 
+            mfaService.requireMfaIfEnabled(user, request.mfaCode(), "password_change");
+
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {
@@ -224,7 +229,7 @@ public class ProfileService {
      * @param jti    the JTI of the session to revoke
      * @throws AccountLockedException if the account is locked
      */
-    public void revokeSession(String userId, String jti) {
+    public void revokeSession(String userId, String jti, String mfaCode) {
         @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
@@ -237,6 +242,7 @@ public class ProfileService {
             throw new AccountLockedException();
         }
 
+        mfaService.requireMfaIfEnabled(user, mfaCode, "session_revocation");
         tokenStorage.revokeSession(userId, jti);
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGOUT,
@@ -244,6 +250,10 @@ public class ProfileService {
                 SecurityEventSeverity.MEDIUM,
                 user,
                 "session_revoked");
+    }
+
+    public void revokeSession(String userId, String jti) {
+        revokeSession(userId, jti, null);
     }
 
     private void requireActive(User user) {

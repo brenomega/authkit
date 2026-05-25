@@ -137,6 +137,11 @@ authkit:
       writer-queue-capacity: ${AUTH_AUDIT_WRITER_QUEUE_CAPACITY:5000}
       writer-shutdown-timeout-seconds: ${AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS:10}
       persist-synchronously-on-overload: ${AUTH_AUDIT_SYNC_ON_OVERLOAD:true}
+    mfa:
+      enabled: ${AUTH_MFA_ENABLED:true}
+      backup-code-count: ${AUTH_MFA_BACKUP_CODE_COUNT:10}
+      login-challenge-ttl-minutes: ${AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES:5}
+      secret-encryption-key: ${AUTH_MFA_SECRET_ENCRYPTION_KEY}
 
 # =============================================================================
 # Server Configuration

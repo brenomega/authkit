@@ -226,6 +226,8 @@ public class SecurityEventService {
             case ACCOUNT_LOCKED -> meterRegistry.counter("security.account.locked").increment();
             case PASSWORD_RESET_FAILED -> meterRegistry.counter("security.password_reset.failed").increment();
             case REFRESH_TOKEN_REUSE_DETECTED -> meterRegistry.counter("security.refresh_token.reuse").increment();
+            case MFA_CHALLENGE_FAILED -> meterRegistry.counter("security.mfa.challenge.failed").increment();
+            case MFA_BACKUP_CODE_USED -> meterRegistry.counter("security.mfa.backup_code.used").increment();
             default -> {
             }
         }

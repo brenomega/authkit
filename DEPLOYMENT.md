@@ -48,6 +48,10 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_CSRF_COOKIE_PATH`: CSRF cookie path scope. Default: `/api/v1/auth`.
 * `AUTH_CSRF_TOKEN_BYTES`: Random bytes used before URL-safe Base64 encoding. Default: `32`.
 * `AUTH_REGISTRATION_STEALTH_CONFLICTS`: When `true`, public registration returns the same generic `202 Accepted` acknowledgement for both new and duplicate emails. Production must keep this `true`.
+* `AUTH_MFA_ENABLED`: Enables MFA runtime support. Default: `true`.
+* `AUTH_MFA_BACKUP_CODE_COUNT`: Number of one-time backup codes generated per regeneration. Default: `10`.
+* `AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES`: Short TTL for one-time password-login MFA challenges stored in Redis. Default: `5`.
+* `AUTH_MFA_SECRET_ENCRYPTION_KEY`: Secret material used to derive the AES-GCM key for encrypted TOTP secrets. Store only in a secret manager; minimum length is 32 characters.
 * `AUTH_EMAIL_OUTBOX_ENABLED`: Enables the durable email outbox dispatcher. Default: `true`.
 * `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
 * `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
@@ -111,6 +115,10 @@ AUTH_CSRF_HEADER_NAME=X-XSRF-TOKEN
 AUTH_CSRF_COOKIE_PATH=/api/v1/auth
 AUTH_CSRF_TOKEN_BYTES=32
 AUTH_REGISTRATION_STEALTH_CONFLICTS=true
+AUTH_MFA_ENABLED=true
+AUTH_MFA_BACKUP_CODE_COUNT=10
+AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES=5
+AUTH_MFA_SECRET_ENCRYPTION_KEY=replace-with-secret-random-mfa-encryption-key-at-least-32-chars
 AUTH_EMAIL_OUTBOX_ENABLED=true
 AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
 AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
@@ -155,11 +163,12 @@ volumeMounts:
 ## 3. Horizontal Scalability and State
 
 * **Statelessness:** Security tokens are stateless JWTs validated dynamically. There is no active session `HttpSession` replicating across instances.
-* **Distributed Caching:** Rate limiting and refresh-token state rely on centralized **Redis**. Per-request authority snapshots use a deliberately short local Caffeine cache; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` if revocation latency requirements are stricter.
+* **Distributed Caching:** Rate limiting, refresh-token state, and one-time MFA login challenges rely on centralized **Redis**. Per-request authority snapshots use a deliberately short local Caffeine cache; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` if revocation latency requirements are stricter.
 * **Database Concurrency:** All migrations run via Flyway at application startup. Concurrency limits should be monitored per instance, ensuring max pool limits do not overwhelm PostgreSQL.
 * **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and retries failed messages with backoff, so RabbitMQ latency does not hold user database transactions open.
 * **Durable Security Events:** Authentication and account lifecycle flows enqueue privacy-safe rows to `security_events` through a bounded writer. Events store masked identifiers and keyed HMAC identifiers, never raw passwords, tokens, or request bodies. If the writer queue saturates and `AUTH_AUDIT_SYNC_ON_OVERLOAD=true`, events fall back to synchronous persistence to preserve forensic coverage under load.
-* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, token reuse, event drops, rate-limit drops, and infrastructure failures. The sample `k8s/07-service-monitor.yaml` wires `/actuator/prometheus` for Prometheus Operator deployments.
+* **MFA Baseline:** TOTP enrollment requires current-password step-up, stores encrypted secrets, and returns raw setup material only during enrollment. Enabling or disabling TOTP revokes refresh sessions. Backup codes are generated once, stored only as keyed hashes, consumed atomically, and audited on use. Password change, logout-all, individual session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled for the account.
+* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `security_mfa_challenge_failed_total`, `security_mfa_backup_code_used_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, MFA failures, backup-code use, token reuse, event drops, rate-limit drops, and infrastructure failures. The sample `k8s/07-service-monitor.yaml` wires `/actuator/prometheus` for Prometheus Operator deployments.
 * **Data Governance:** Account export is available at `POST /api/v1/users/me/export` with the current password as step-up proof, consent snapshot at `GET /api/v1/users/me/consent`, and account deletion/anonymization at `DELETE /api/v1/users/me` with the current password as step-up proof. Registration records append-only consent history in `consent_events`; exports include both the current consent snapshot and historical consent events. Deletion immediately anonymizes direct PII, evicts the per-user authority cache, then revokes refresh sessions and emits lifecycle events after the database commit. Retention purges expired security events and deleted-account tombstones in bounded batches according to configured windows.
 * **Registration Enumeration:** Public deployments must keep `AUTH_REGISTRATION_STEALTH_CONFLICTS=true`, which makes `/api/v1/auth/register` return a generic acknowledgement without exposing whether an email is already registered. Development and trusted internal integrations may disable it if they require explicit conflict responses.
 * **Tenant Strategy:** AuthKit currently models one tenant identifier per user and emits only the canonical JWT claim `tenant_id`. Hibernate tenant filtering is enabled from authenticated service calls when a valid UUID tenant claim is present, and profile/session operations also perform object-level tenant checks. New tenant-owned tables must add equivalent service tests before production use.

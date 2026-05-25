@@ -123,4 +123,32 @@ class SecurityEventServiceTest {
                 "type", SecurityEventType.PASSWORD_RESET_REQUESTED.name(),
                 "severity", SecurityEventSeverity.MEDIUM.name()).count());
     }
+
+    @Test
+    @DisplayName("MFA security events increment alertable specific metrics")
+    void recordForEmail_mfaFailureRecordsSpecificMetric() {
+        SecurityEventWriter writer = mock(SecurityEventWriter.class);
+        NetworkIpResolver ipResolver = mock(NetworkIpResolver.class);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        AuthProperties authProperties = new AuthProperties();
+        authProperties.getAudit().setAsyncEnabled(false);
+        authProperties.getAudit().setHashPepper("unit-test-audit-hash-pepper-at-least-32-chars");
+        SecurityEventService service = new SecurityEventService(
+                writer,
+                mock(ThreadPoolTaskExecutor.class),
+                ipResolver,
+                meterRegistry,
+                new ObjectMapper(),
+                authProperties,
+                new AuditDigestService(authProperties));
+
+        service.recordForEmail(
+                SecurityEventType.MFA_CHALLENGE_FAILED,
+                SecurityEventOutcome.DENIED,
+                SecurityEventSeverity.HIGH,
+                "mfa@example.com",
+                "login_mfa_invalid_code");
+
+        assertEquals(1.0, meterRegistry.counter("security.mfa.challenge.failed").count());
+    }
 }

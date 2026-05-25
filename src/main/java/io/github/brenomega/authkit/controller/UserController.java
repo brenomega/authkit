@@ -3,6 +3,12 @@ package io.github.brenomega.authkit.controller;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
+import io.github.brenomega.authkit.domain.user.dto.MfaBackupCodesResponse;
+import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
+import io.github.brenomega.authkit.domain.user.dto.MfaStatusResponse;
+import io.github.brenomega.authkit.domain.user.dto.MfaTotpConfirmRequest;
+import io.github.brenomega.authkit.domain.user.dto.MfaTotpEnrollmentResponse;
+import io.github.brenomega.authkit.domain.user.dto.MfaVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
@@ -10,6 +16,7 @@ import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AccountLifecycleService;
+import io.github.brenomega.authkit.service.MfaService;
 import io.github.brenomega.authkit.service.ProfileService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,10 +40,14 @@ public class UserController {
 
     private final ProfileService profileService;
     private final AccountLifecycleService accountLifecycleService;
+    private final MfaService mfaService;
 
-    public UserController(ProfileService profileService, AccountLifecycleService accountLifecycleService) {
+    public UserController(ProfileService profileService,
+                          AccountLifecycleService accountLifecycleService,
+                          MfaService mfaService) {
         this.profileService = profileService;
         this.accountLifecycleService = accountLifecycleService;
+        this.mfaService = mfaService;
     }
 
     /**
@@ -101,14 +112,53 @@ public class UserController {
         return new ApiResponse<>(sessions, null, Instant.now());
     }
 
+    @GetMapping("/mfa")
+    public ApiResponse<MfaStatusResponse> getMfaStatus(@AuthenticationPrincipal Jwt jwt) {
+        MfaStatusResponse status = mfaService.getStatus(jwt.getSubject());
+        return new ApiResponse<>(status, null, Instant.now());
+    }
+
+    @PostMapping("/mfa/totp/enroll")
+    public ApiResponse<MfaTotpEnrollmentResponse> enrollTotp(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody StepUpRequest request) {
+        MfaTotpEnrollmentResponse response = mfaService.startTotpEnrollment(jwt.getSubject(), request);
+        return new ApiResponse<>(response, null, Instant.now());
+    }
+
+    @PostMapping("/mfa/totp/confirm")
+    public ApiResponse<MfaBackupCodesResponse> confirmTotp(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody MfaTotpConfirmRequest request) {
+        MfaBackupCodesResponse response = mfaService.confirmTotp(jwt.getSubject(), request);
+        return new ApiResponse<>(response, null, Instant.now());
+    }
+
+    @DeleteMapping("/mfa/totp")
+    public ApiResponse<String> disableTotp(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody MfaVerificationRequest request) {
+        mfaService.disableTotp(jwt.getSubject(), request);
+        return new ApiResponse<>("MFA disabled successfully.", null, Instant.now());
+    }
+
+    @PostMapping("/mfa/backup-codes")
+    public ApiResponse<MfaBackupCodesResponse> regenerateBackupCodes(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody MfaVerificationRequest request) {
+        MfaBackupCodesResponse response = mfaService.regenerateBackupCodes(jwt.getSubject(), request);
+        return new ApiResponse<>(response, null, Instant.now());
+    }
+
     /**
      * Revokes a specific session (RF 2.1.8).
      */
     @DeleteMapping("/sessions/{jti}")
     public ApiResponse<String> revokeSession(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable String jti) {
-        profileService.revokeSession(jwt.getSubject(), jti);
+            @PathVariable String jti,
+            @Valid @RequestBody(required = false) MfaOptionalVerificationRequest request) {
+        profileService.revokeSession(jwt.getSubject(), jti, request == null ? null : request.code());
         return new ApiResponse<>("Session revoked successfully.", null, Instant.now());
     }
 

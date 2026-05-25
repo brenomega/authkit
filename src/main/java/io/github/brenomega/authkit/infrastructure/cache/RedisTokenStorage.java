@@ -283,6 +283,37 @@ public class RedisTokenStorage implements TokenStorage {
         redisTemplate.delete(key);
     }
 
+    @SuppressWarnings("null")
+    @Override
+    public void storeMfaChallenge(String userId, String jti, String rawToken, long durationMinutes) {
+        String key = "mfa:challenge:" + userId + ":" + jti;
+        redisTemplate.opsForValue().set(key, hashToken(rawToken), Duration.ofMinutes(durationMinutes));
+    }
+
+    @SuppressWarnings("null")
+    @Override
+    public boolean consumeMfaChallenge(String userId, String jti, String rawToken) {
+        String key = "mfa:challenge:" + userId + ":" + jti;
+        String inputHash = hashToken(rawToken);
+        String luaScript = """
+                local stored = redis.call('GET', KEYS[1])
+                if not stored then
+                    return 0
+                end
+                if stored == ARGV[1] then
+                    redis.call('DEL', KEYS[1])
+                    return 1
+                end
+                return 0
+                """;
+
+        DefaultRedisScript<Long> script =
+                new DefaultRedisScript<>(luaScript, Long.class);
+
+        Long consumed = redisTemplate.execute(script, List.of(key), inputHash);
+        return consumed != null && consumed == 1L;
+    }
+
     private String hashToken(String rawToken) {
         return TokenHasher.sha256Hex(rawToken);
     }
