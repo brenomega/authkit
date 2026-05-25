@@ -75,7 +75,8 @@ class AccountLifecycleServiceTest {
                 userAuthoritiesFilter);
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Account deletion anonymizes PII, revokes sessions, and writes durable events")
     void requestDeletion_anonymizesPiiAndRecordsEvents() {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000111");
@@ -123,7 +124,8 @@ class AccountLifecycleServiceTest {
                 any());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Data export returns consent and profile data without credential material")
     void exportUserData_returnsGovernanceSnapshot() {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000112");
@@ -153,7 +155,8 @@ class AccountLifecycleServiceTest {
                 "user_data_export_requested");
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Data export requires a fresh password step-up")
     void exportUserData_invalidStepUp_deniesExport() {
         UUID userId = UUID.fromString("00000000-0000-0000-0000-000000000113");

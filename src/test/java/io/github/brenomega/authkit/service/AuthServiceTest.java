@@ -209,6 +209,7 @@ class AuthServiceTest {
         assertEquals(Boolean.TRUE, parameters.getValue().getClaims().getClaims().get("mfa"));
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("MFA login: Expired or replayed challenge is rejected before token issuance")
     void verifyMfaLogin_InvalidChallenge_ThrowsException() {
@@ -343,6 +344,7 @@ class AuthServiceTest {
         verify(tokenStorage, never()).revokeSession(anyString(), anyString());
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Logout all: MFA step-up is enforced when configured for the account")
     void logoutAll_RequiresMfaWhenEnabled() {

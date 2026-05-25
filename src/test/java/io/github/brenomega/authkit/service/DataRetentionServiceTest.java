@@ -24,6 +24,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 
 class DataRetentionServiceTest {
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Retention purges expired security events and deleted account tombstones")
     void purgeExpiredSecurityEvents_purgesEventsAndDeletedUsers() {

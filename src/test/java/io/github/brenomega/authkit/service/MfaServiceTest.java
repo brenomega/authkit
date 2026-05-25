@@ -32,7 +32,6 @@ import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 import io.github.brenomega.authkit.domain.mfa.util.Base32;
 import io.github.brenomega.authkit.domain.mfa.util.TotpGenerator;
 import io.github.brenomega.authkit.domain.user.dto.MfaTotpConfirmRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
@@ -68,7 +67,8 @@ class MfaServiceTest {
     private MfaService service;
     private User user;
 
-    @BeforeEach
+    @SuppressWarnings("null")
+@BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         totpRepository = mock(MfaTotpCredentialRepository.class);
@@ -99,7 +99,8 @@ class MfaServiceTest {
         when(passwordEncoder.matches("current-pass", "hashed-pass")).thenReturn(true);
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("TOTP enrollment replaces stale pending credentials and stores encrypted secret")
     void startTotpEnrollment_replacesPendingAndStoresEncryptedSecret() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000203");
@@ -122,7 +123,8 @@ class MfaServiceTest {
         assertEquals(response.secret(), mfaSecretCipher.decrypt(credentialCaptor.getValue().getEncryptedSecret()));
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("TOTP confirmation enables MFA, generates hashed backup codes, and revokes sessions")
     void confirmTotp_generatesBackupCodesAndRevokesSessions() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000204");
@@ -231,7 +233,8 @@ class MfaServiceTest {
                 "password_change_mfa_missing");
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("MFA enrollment rejects invalid password step-up before creating credentials")
     void startTotpEnrollment_invalidPasswordStepUpDoesNotCreateCredential() {
         when(passwordEncoder.matches("wrong-pass", "hashed-pass")).thenReturn(false);
@@ -242,7 +245,8 @@ class MfaServiceTest {
         verify(totpRepository, never()).save(any());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("TOTP confirmation rejects invalid codes")
     void confirmTotp_invalidCodeThrows() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000207");
