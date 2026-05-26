@@ -179,9 +179,6 @@ public class AuthService {
         }
         user.requireEmailConfirmed();
         
-        // Clear limits on legit sign in
-        lockoutService.clearLockout(email);
-
         if (mfaService.isMfaEnabled(user)) {
             IssuedMfaChallenge mfaChallenge = MfaChallengeCodec.issue(user.getId().toString());
             tokenStorage.storeMfaChallenge(
@@ -197,6 +194,9 @@ public class AuthService {
                     "login_mfa_challenge_issued");
             return new LoginResult(LoginResponse.mfaRequired(mfaChallenge.rawToken()), null);
         }
+
+        // Clear limits only after the full authentication ceremony has completed.
+        lockoutService.clearLockout(email);
 
         String jti = UUID.randomUUID().toString();
         IssuedRefreshToken refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
@@ -251,6 +251,16 @@ public class AuthService {
                     return new InvalidMfaCodeException();
                 });
 
+        if (lockoutService.isLocked(user.getEmail())) {
+            securityEventService.recordForTargetUser(
+                    SecurityEventType.MFA_CHALLENGE_FAILED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "mfa_challenge_account_locked");
+            throw new InvalidMfaCodeException();
+        }
+
         if (!tokenStorage.consumeMfaChallenge(challenge.userId(), challenge.jti(), challenge.rawToken())) {
             securityEventService.recordForTargetUser(
                     SecurityEventType.MFA_CHALLENGE_FAILED,
@@ -273,14 +283,25 @@ public class AuthService {
 
         var mfaResult = mfaService.verifyMfaCode(user, request.code(), "login_mfa");
         if (!mfaResult.valid()) {
+            lockoutService.recordFailedAttempt(user.getEmail());
             securityEventService.recordForTargetUser(
                     SecurityEventType.MFA_CHALLENGE_FAILED,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.HIGH,
                     user,
                     "login_mfa_invalid_code");
+            if (lockoutService.isLocked(user.getEmail())) {
+                securityEventService.recordForTargetUser(
+                        SecurityEventType.ACCOUNT_LOCKED,
+                        SecurityEventOutcome.DENIED,
+                        SecurityEventSeverity.HIGH,
+                        user,
+                        "mfa_failure_lockout_threshold_reached");
+            }
             throw new InvalidMfaCodeException();
         }
+
+        lockoutService.clearLockout(user.getEmail());
 
         String jti = UUID.randomUUID().toString();
         IssuedRefreshToken refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
@@ -355,7 +376,16 @@ public class AuthService {
                     "account_locked");
             throw new InvalidRefreshTokenException();
         }
-        if (!user.isEmailConfirmed() || user.isDeleted()) {
+        if (user.isDeleted()) {
+            securityEventService.recordForTargetUser(
+                    SecurityEventType.REFRESH_TOKEN_FAILED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "inactive_account");
+            throw new InvalidRefreshTokenException();
+        }
+        if (!user.isEmailConfirmed()) {
             securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_FAILED,
                     SecurityEventOutcome.DENIED,
@@ -464,6 +494,32 @@ public class AuthService {
                             "logout_current_session",
                             java.util.Map.of());
                 });
+    }
+
+    public LoginResult issueLoginForVerifiedUser(User user, java.util.List<String> amr, String reason) {
+        if (user.isDeleted()) {
+            throw new InvalidCredentialsException();
+        }
+        user.requireEmailConfirmed();
+        lockoutService.clearLockout(user.getEmail());
+
+        String jti = UUID.randomUUID().toString();
+        IssuedRefreshToken refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
+        tokenStorage.storeRefreshToken(
+                user.getId().toString(),
+                jti,
+                refreshToken.rawToken(),
+                authProperties.getToken().getRefreshTokenTtlDays()
+        );
+
+        securityEventService.recordForAuthenticatedUser(
+                SecurityEventType.LOGIN_SUCCESS,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.LOW,
+                user,
+                reason);
+
+        return issueTokenPair(user, refreshToken, amr);
     }
 
     private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken, java.util.List<String> amr) {

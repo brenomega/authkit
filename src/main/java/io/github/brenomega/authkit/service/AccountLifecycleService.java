@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.annotation.Transactional;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
@@ -35,6 +36,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
+import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -47,6 +49,7 @@ public class AccountLifecycleService {
     private final UserRepository userRepository;
     private final SecurityEventRepository securityEventRepository;
     private final ConsentEventRepository consentEventRepository;
+    private final OAuthConsentRepository oauthConsentRepository;
     private final SecurityEventService securityEventService;
     private final TokenStorage tokenStorage;
     private final PasswordEncoder passwordEncoder;
@@ -54,20 +57,24 @@ public class AccountLifecycleService {
     private final MeterRegistry meterRegistry;
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
+    private final MfaService mfaService;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
                                    ConsentEventRepository consentEventRepository,
+                                   OAuthConsentRepository oauthConsentRepository,
                                    SecurityEventService securityEventService,
                                    TokenStorage tokenStorage,
                                    PasswordEncoder passwordEncoder,
                                    AuthProperties authProperties,
                                    MeterRegistry meterRegistry,
                                    Argon2ConcurrencyLimiter argon2Limiter,
-                                   UserAuthoritiesFilter userAuthoritiesFilter) {
+                                   UserAuthoritiesFilter userAuthoritiesFilter,
+                                   MfaService mfaService) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
+        this.oauthConsentRepository = oauthConsentRepository;
         this.securityEventService = securityEventService;
         this.tokenStorage = tokenStorage;
         this.passwordEncoder = passwordEncoder;
@@ -75,6 +82,7 @@ public class AccountLifecycleService {
         this.meterRegistry = meterRegistry;
         this.argon2Limiter = argon2Limiter;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
+        this.mfaService = mfaService;
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +105,7 @@ public class AccountLifecycleService {
                 SecurityEventType.DATA_EXPORT_REQUESTED,
                 SecurityEventSeverity.HIGH,
                 "data_export_step_up_failed");
+        mfaService.requireMfaIfEnabled(user, stepUpRequest.mfaCode(), "data_export");
 
         var page = PageRequest.of(0, authProperties.getCompliance().getDataExportSecurityEventLimit());
         var securityEvents = securityEventRepository
@@ -108,6 +117,11 @@ public class AccountLifecycleService {
                 .findByUserIdOrderByAcceptedAtDesc(user.getId())
                 .stream()
                 .map(this::toExportConsentEvent)
+                .toList();
+        var oauthConsents = oauthConsentRepository
+                .findByUserIdOrderByGrantedAtDesc(user.getId())
+                .stream()
+                .map(this::toExportOAuthConsent)
                 .toList();
 
         securityEventService.recordForAuthenticatedUser(
@@ -134,6 +148,7 @@ public class AccountLifecycleService {
                         user.getConsentAcceptedAt(),
                         user.getLawfulBasis()),
                 consentEvents,
+                oauthConsents,
                 new UserDataExportResponse.DeletionData(
                         user.getDeletionRequestedAt(),
                         user.getDeletedAt(),
@@ -149,6 +164,7 @@ public class AccountLifecycleService {
                 SecurityEventType.ACCOUNT_DELETION_REQUESTED,
                 SecurityEventSeverity.HIGH,
                 "account_deletion_step_up_failed");
+        mfaService.requireMfaIfEnabled(user, stepUpRequest.mfaCode(), "account_deletion");
 
         Instant now = Instant.now();
         String originalEmail = user.getEmail();
@@ -243,6 +259,14 @@ public class AccountLifecycleService {
                 event.getAcceptedAt(),
                 event.getRecordedAt(),
                 event.getEventHash());
+    }
+
+    private UserDataExportResponse.OAuthConsentData toExportOAuthConsent(OAuthConsent consent) {
+        return new UserDataExportResponse.OAuthConsentData(
+                consent.getClientId(),
+                List.copyOf(consent.getScopes()),
+                consent.getGrantedAt(),
+                consent.getRevokedAt());
     }
 
     private void verifyStepUp(User user,

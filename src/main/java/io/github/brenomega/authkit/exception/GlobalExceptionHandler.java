@@ -118,6 +118,15 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("Internal Server Error"));
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error("Forbidden"));
+    }
+
     /**
      * Catch-all handler for unexpected exceptions (HTTP 500).
      *

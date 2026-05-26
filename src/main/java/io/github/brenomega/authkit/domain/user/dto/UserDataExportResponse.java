@@ -10,6 +10,7 @@ public record UserDataExportResponse(
         ProfileData profile,
         ConsentData consent,
         List<ConsentEventData> consentHistory,
+        List<OAuthConsentData> oauthConsents,
         DeletionData deletion,
         List<SecurityEventData> securityEvents
 ) {
@@ -42,6 +43,14 @@ public record UserDataExportResponse(
             Instant acceptedAt,
             Instant recordedAt,
             String eventHash
+    ) {
+    }
+
+    public record OAuthConsentData(
+            String clientId,
+            List<String> scopes,
+            Instant grantedAt,
+            Instant revokedAt
     ) {
     }
 

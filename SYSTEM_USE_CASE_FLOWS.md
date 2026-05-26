@@ -6,8 +6,10 @@ Source surface reviewed:
 
 - `AuthController`: `/api/v1/auth/**`
 - `UserController`: `/api/v1/users/me/**`
+- `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/.well-known/openid-configuration`
+- `AdminController`: `/api/v1/admin/**`
 - `JwksController`: `/.well-known/jwks.json`
-- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, Redis token storage, Caffeine authority/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue, Resend email provider, durable security/consent audit events, Prometheus metrics.
+- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, Redis token storage, Caffeine authority/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
 
 ## Shared Infrastructure Path
 
@@ -106,6 +108,8 @@ sequenceDiagram
 |---|---:|---|---|
 | `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token or MFA challenge | Caffeine/Redis rate limits, Argon2 limiter, lockout Caffeine/Redis, MFA Redis challenge, audit DB |
 | `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | Redis MFA challenge, Redis refresh token | One-time MFA challenge consume, TOTP/backup code verification, audit DB |
+| `POST /api/v1/auth/passkeys/options` | Public | PostgreSQL passkey challenge | WebAuthn assertion options, DB challenge state, audit DB |
+| `POST /api/v1/auth/passkeys/verify` | Public + passkey assertion | PostgreSQL passkey credential/challenge, Redis refresh token | Yubico WebAuthn assertion verification, signature counter update, JWT/cookies |
 | `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | CSRF double-submit cookie, Redis Lua rotation, audit DB |
 | `POST /api/v1/auth/logout` | Refresh cookie + CSRF | Redis refresh token session | CSRF double-submit cookie, Redis revocation, audit DB |
 | `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | Redis all sessions | JWT validation, authority cache, MFA step-up, Redis revocation |
@@ -115,7 +119,7 @@ sequenceDiagram
 | `POST /api/v1/auth/password-recovery/reset` | Public | Redis recovery token, PostgreSQL password | Argon2 limiter, Redis session revoke, outbox, audit DB |
 | `GET /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
-| `POST /api/v1/users/me/export` | Bearer JWT + password step-up | PostgreSQL user, consent events, security events | Argon2 limiter, audit DB |
+| `POST /api/v1/users/me/export` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL user, consent events, security events | Argon2 limiter, MFA step-up, audit DB |
 | `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | Argon2 limiter, lockout check, MFA step-up, audit DB |
 | `GET /api/v1/users/me/sessions` | Bearer JWT | Redis refresh sessions | Authority Caffeine/DB cache |
@@ -124,8 +128,19 @@ sequenceDiagram
 | `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | TOTP verification, hashed backup codes, session revocation, audit DB |
 | `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA step-up, backup-code cleanup, session revocation, audit DB |
 | `POST /api/v1/users/me/mfa/backup-codes` | Bearer JWT + current password + MFA | PostgreSQL hashed backup codes | Atomic backup-code replacement, audit DB |
+| `GET /api/v1/users/me/passkeys` | Bearer JWT | PostgreSQL passkey credentials | Authority Caffeine/DB cache, tenant check |
+| `POST /api/v1/users/me/passkeys/options` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey challenge | Argon2 limiter, MFA step-up, WebAuthn registration options, DB challenge state, audit DB |
+| `POST /api/v1/users/me/passkeys` | Bearer JWT + WebAuthn challenge | PostgreSQL passkey credential | Yubico registration verification, public key storage, audit DB |
+| `DELETE /api/v1/users/me/passkeys/{credentialId}` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey credential | Argon2 limiter, MFA step-up, credential disablement, audit DB |
 | `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT + MFA if enabled | Redis refresh session | Lockout check, MFA step-up, audit DB |
-| `DELETE /api/v1/users/me` | Bearer JWT + password step-up | PostgreSQL anonymized user, Redis sessions | Argon2 limiter, authority cache eviction, audit DB |
+| `DELETE /api/v1/users/me` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL anonymized user, Redis sessions | Argon2 limiter, MFA step-up, authority cache eviction, audit DB |
+| `POST /api/v1/oauth2/authorize` | Bearer JWT + explicit/reused client consent | PostgreSQL OAuth consent and authorization code | Client registry, PKCE S256, consent persistence, audit DB |
+| `POST /oauth2/token` | Public + client/PKCE proof | PostgreSQL OAuth authorization code | One-time code consume, RS256 access/ID token signing, audit DB |
+| `GET /.well-known/openid-configuration` | Public | AuthProperties | OIDC discovery metadata |
+| `GET /api/v1/admin/users` | ADMIN bearer JWT | PostgreSQL users | Server-side admin enforcement, authority cache |
+| `PATCH /api/v1/admin/users/{userId}/role` | ADMIN bearer JWT + MFA if enabled | PostgreSQL user role | MFA step-up, last-admin guard, audit DB |
+| `GET /api/v1/admin/tenants` | ADMIN bearer JWT | PostgreSQL users | Tenant inventory |
+| `GET/POST/PATCH/DELETE /api/v1/admin/oauth-clients/**` | ADMIN bearer JWT + MFA for writes | PostgreSQL OAuth clients | Client secret one-time return, hashed secret storage, audit DB |
 | `GET /.well-known/jwks.json` | Public | RSA public key config | Downstream stateless JWT verification |
 
 ## 1. Login
@@ -186,13 +201,13 @@ sequenceDiagram
                 AS->>AUD: LOGIN_FAILURE email_not_confirmed
                 AS-->>C: EmailNotConfirmedException
             else Password valid and active
-                AS->>LS: clearLockout(email)
                 AS->>MFA: isMfaEnabled(user)
                 alt MFA enabled
                     AS->>TS: storeMfaChallenge(userId,challengeJti,hashedChallenge,shortTtl)
                     AS->>AUD: MFA_CHALLENGE_ISSUED
                     AC-->>C: 200 {mfaRequired:true,mfaToken} and no session cookies
                 else MFA not enabled
+                    AS->>LS: clearLockout(email)
                     AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
                     TS->>TS: Store token hash and family id in Redis hash
                     AS->>JWT: Sign RS256 JWT with iss,aud,sub,jti,tenant_id,amr=["pwd"],exp
@@ -208,7 +223,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/mfa/verify-login`
 
-Infrastructure role: this is a public route because the user does not yet have a bearer token, but it requires the one-time MFA challenge issued after successful password verification. Redis consumes the challenge atomically before code verification so challenge replay fails closed. TOTP secrets are decrypted only in service memory; backup codes are compared as keyed hashes and consumed atomically in PostgreSQL. Successful verification is the point where refresh cookies and access JWTs are issued.
+Infrastructure role: this is a public route because the user does not yet have a bearer token, but it requires the one-time MFA challenge issued after successful password verification. Redis consumes the challenge atomically before code verification so challenge replay fails closed. TOTP secrets are decrypted only in service memory; backup codes are compared as keyed hashes and consumed atomically in PostgreSQL. Invalid MFA codes feed the same account lockout pressure as bad passwords; successful verification is the point where lockout is cleared and refresh cookies/access JWTs are issued.
 
 ```mermaid
 sequenceDiagram
@@ -219,6 +234,7 @@ sequenceDiagram
     participant AS as AuthService
     participant TS as RedisTokenStorage
     participant DB as PostgreSQL users/MFA
+    participant LS as AccountLockoutService
     participant MFA as MfaService
     participant JWT as JwtEncoder
     participant AUD as SecurityEventService
@@ -232,22 +248,33 @@ sequenceDiagram
         AS-->>C: InvalidMfaCodeException
     else Challenge shape valid
         AS->>DB: findById(challenge.userId)
-        AS->>TS: consumeMfaChallenge(userId,jti,rawChallenge)
-        alt Challenge missing, expired, or replayed
-            AS->>AUD: MFA_CHALLENGE_FAILED invalid_or_expired
+        AS->>LS: isLocked(email)
+        alt Account locked
+            AS->>AUD: MFA_CHALLENGE_FAILED account_locked
             AS-->>C: InvalidMfaCodeException
-        else Challenge consumed
-            AS->>MFA: verifyMfaCode(user,code,login_mfa)
-            alt TOTP or backup code invalid
-                MFA-->>AS: invalid
-                AS->>AUD: MFA_CHALLENGE_FAILED login_mfa_invalid_code
+        else Not locked
+            AS->>TS: consumeMfaChallenge(userId,jti,rawChallenge)
+            alt Challenge missing, expired, or replayed
+                AS->>AUD: MFA_CHALLENGE_FAILED invalid_or_expired
                 AS-->>C: InvalidMfaCodeException
-            else MFA valid
-                MFA->>DB: Atomically mark TOTP time step or backup code used
-                AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
-                AS->>JWT: Sign RS256 JWT with amr=["pwd","otp|backup_code"], mfa=true
-                AS->>AUD: MFA_CHALLENGE_VERIFIED + LOGIN_SUCCESS
-                AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
+            else Challenge consumed
+                AS->>MFA: verifyMfaCode(user,code,login_mfa)
+                alt TOTP or backup code invalid
+                    MFA-->>AS: invalid
+                    AS->>LS: recordFailedAttempt(email)
+                    AS->>AUD: MFA_CHALLENGE_FAILED login_mfa_invalid_code
+                    opt Threshold now reached
+                        AS->>AUD: ACCOUNT_LOCKED
+                    end
+                    AS-->>C: InvalidMfaCodeException
+                else MFA valid
+                    MFA->>DB: Atomically mark TOTP time step or backup code used
+                    AS->>LS: clearLockout(email)
+                    AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
+                    AS->>JWT: Sign RS256 JWT with amr=["pwd","otp|backup_code"], mfa=true
+                    AS->>AUD: MFA_CHALLENGE_VERIFIED + LOGIN_SUCCESS
+                    AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
+                end
             end
         end
     end
@@ -643,7 +670,7 @@ sequenceDiagram
 
 `POST /api/v1/users/me/export`
 
-Infrastructure role: this is a sensitive authenticated operation with current-password step-up; Argon2 verification is bounded; response aggregates user profile, current consent, consent history, deletion metadata, and a bounded set of privacy-safe security events; export itself is audited.
+Infrastructure role: this is a sensitive authenticated operation with current-password step-up and MFA proof when MFA is enabled; Argon2 verification is bounded; response aggregates user profile, current consent, consent history, deletion metadata, and a bounded set of privacy-safe security events; export itself is audited.
 
 ```mermaid
 sequenceDiagram
@@ -654,11 +681,12 @@ sequenceDiagram
     participant ALS as AccountLifecycleService
     participant DB as PostgreSQL users
     participant ARG as Argon2 limiter + PasswordEncoder
+    participant MFA as MfaService
     participant CE as consent_events
     participant SE as security_events
     participant AUD as SecurityEventService
 
-    C->>I: POST /api/v1/users/me/export {currentPassword} + Bearer JWT
+    C->>I: POST /api/v1/users/me/export {currentPassword,mfaCode?} + Bearer JWT
     I->>UC: JWT valid and authorities current
     UC->>ALS: exportUserData(jwt.sub, stepUpRequest)
     ALS->>DB: findById(jwt.sub)
@@ -675,9 +703,14 @@ sequenceDiagram
                 ALS->>AUD: DATA_EXPORT_REQUESTED denied
                 ALS-->>C: InvalidCredentialsException
             else Valid password
-                ALS->>SE: Load recent target-user security events with configured limit
-                ALS->>CE: Load consent history
-                ALS->>AUD: DATA_EXPORT_REQUESTED success
+                ALS->>MFA: requireMfaIfEnabled(user,mfaCode,data_export)
+                alt MFA enabled and proof missing/invalid
+                    MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+                else No MFA or valid MFA proof
+                    ALS->>SE: Load recent target-user security events with configured limit
+                    ALS->>CE: Load consent history
+                    ALS->>AUD: DATA_EXPORT_REQUESTED success
+                end
                 ALS-->>UC: UserDataExportResponse
                 UC-->>C: 200 export payload
             end
@@ -903,7 +936,7 @@ sequenceDiagram
 
 `DELETE /api/v1/users/me`
 
-Infrastructure role: deletion requires bearer auth and password step-up; user PII is anonymized immediately in PostgreSQL; authority cache is evicted and Redis sessions are revoked only after commit; deletion and anonymization are durable security events; retention jobs later purge deleted-account tombstones according to configuration.
+Infrastructure role: deletion requires bearer auth, password step-up, and MFA proof when MFA is enabled; user PII is anonymized immediately in PostgreSQL; authority cache is evicted and Redis sessions are revoked only after commit; deletion and anonymization are durable security events; retention jobs later purge deleted-account tombstones according to configuration.
 
 ```mermaid
 sequenceDiagram
@@ -914,12 +947,13 @@ sequenceDiagram
     participant ALS as AccountLifecycleService
     participant DB as PostgreSQL users
     participant ARG as Argon2 limiter + PasswordEncoder
+    participant MFA as MfaService
     participant ACa as Authority Caffeine
     participant TS as RedisTokenStorage
     participant AUD as SecurityEventService
     participant MET as MeterRegistry
 
-    C->>I: DELETE /api/v1/users/me {currentPassword} + Bearer JWT
+    C->>I: DELETE /api/v1/users/me {currentPassword,mfaCode?} + Bearer JWT
     I->>UC: JWT valid and authorities current
     UC->>ALS: requestDeletion(jwt.sub, stepUpRequest)
     ALS->>DB: findById(jwt.sub)
@@ -931,22 +965,245 @@ sequenceDiagram
             ALS->>AUD: ACCOUNT_DELETION_REQUESTED denied
             ALS-->>C: InvalidCredentialsException
         else Valid password
-            ALS->>ARG: Encode random replacement password
-            ALS->>DB: mark deletion requested, deleted, anonymized; replace direct PII
-            ALS-->>UC: AccountDeletionResponse
-            UC-->>C: 200 deleted
-            ALS->>ACa: afterCommit evict user authorities
-            ALS->>TS: afterCommit revokeAllSessions(userId)
-            alt Redis revocation fails
-                ALS->>MET: security.infrastructure.failure component=token_storage
+            ALS->>MFA: requireMfaIfEnabled(user,mfaCode,account_deletion)
+            alt MFA enabled and proof missing/invalid
+                MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+            else No MFA or valid MFA proof
+                ALS->>ARG: Encode random replacement password
+                ALS->>DB: mark deletion requested, deleted, anonymized; replace direct PII
+                ALS-->>UC: AccountDeletionResponse
+                UC-->>C: 200 deleted
+                ALS->>ACa: afterCommit evict user authorities
+                ALS->>TS: afterCommit revokeAllSessions(userId)
+                alt Redis revocation fails
+                    ALS->>MET: security.infrastructure.failure component=token_storage
+                end
+                ALS->>AUD: ACCOUNT_DELETION_REQUESTED success
+                ALS->>AUD: ACCOUNT_ANONYMIZED success
             end
-            ALS->>AUD: ACCOUNT_DELETION_REQUESTED success
-            ALS->>AUD: ACCOUNT_ANONYMIZED success
         end
     end
 ```
 
-## 17. Get JWKS
+## 17. Passkey Registration And Management
+
+`GET /api/v1/users/me/passkeys`, `POST /api/v1/users/me/passkeys/options`, `POST /api/v1/users/me/passkeys`, `DELETE /api/v1/users/me/passkeys/{credentialId}`
+
+Infrastructure role: registration is authenticated and bound to the current user tenant. AuthKit delegates WebAuthn ceremony validation to Yubico `webauthn-server-core`, requires authenticator user verification, stores only public credential material in PostgreSQL, persists short-lived challenge state in `passkey_challenges` for horizontal safety, and requires current-password step-up plus MFA proof for registration/disablement when MFA is already enabled.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Browser / Platform Authenticator
+    participant I as Shared authenticated ingress
+    participant UC as UserController
+    participant PS as PasskeyService
+    participant RP as Yubico RelyingParty
+    participant DB as PostgreSQL passkey tables
+    participant MFA as MfaService
+    participant AUD as SecurityEventService
+
+    C->>I: POST /api/v1/users/me/passkeys/options + Bearer JWT {currentPassword,mfaCode?}
+    I->>UC: JWT valid and authorities current
+    UC->>PS: startRegistration(jwt.sub, request)
+    PS->>PS: Verify current password through Argon2 limiter
+    PS->>MFA: requireMfaIfEnabled(user,mfaCode,passkey_registration)
+    alt MFA proof missing/invalid when enabled
+        MFA-->>C: MfaRequiredException or InvalidMfaCodeException
+    else Step-up accepted
+        PS->>RP: startRegistration(user identity, residentKey preferred, userVerification required)
+        RP-->>PS: PublicKeyCredentialCreationOptions
+        PS->>DB: Insert short-lived REGISTRATION challenge
+        PS->>AUD: PASSKEY_REGISTRATION_STARTED
+        PS-->>C: challengeId + browser creation options JSON
+    end
+
+    C->>C: navigator.credentials.create(options)
+    C->>I: POST /api/v1/users/me/passkeys {challengeId,label,credentialJson}
+    I->>UC: JWT valid
+    UC->>PS: finishRegistration(jwt.sub, request)
+    PS->>DB: Load unconsumed non-expired registration challenge
+    PS->>RP: finishRegistration(options, credentialJson)
+    alt WebAuthn attestation/client data invalid
+        RP-->>PS: RegistrationFailedException
+        PS->>AUD: PASSKEY_FAILED
+        PS-->>C: 400 Invalid or expired passkey ceremony
+    else Valid registration
+        PS->>DB: Atomically consume challenge
+        PS->>DB: Store credentialId, publicKeyCose, transports, signatureCount
+        PS->>AUD: PASSKEY_REGISTERED
+        PS-->>C: PasskeyCredentialResponse
+    end
+
+    C->>I: DELETE /api/v1/users/me/passkeys/{id} {currentPassword,mfaCode?}
+    I->>UC: JWT valid
+    UC->>PS: disable(jwt.sub,id,request)
+    PS->>PS: Verify current password through Argon2 limiter
+    PS->>MFA: requireMfaIfEnabled(user,mfaCode,passkey_disable)
+    PS->>DB: Set disabled_at
+    PS->>AUD: PASSKEY_DISABLED
+    PS-->>C: 200 disabled
+```
+
+## 18. Passkey Login
+
+`POST /api/v1/auth/passkeys/options`, `POST /api/v1/auth/passkeys/verify`
+
+Infrastructure role: passkey login is public until assertion verification succeeds. Optional email narrows the allow-list without enumeration guarantees; discoverable credentials are supported when email is omitted. Successful assertions update the signature counter, issue normal HttpOnly refresh and CSRF cookies, and produce a stateless RS256 JWT with `amr=["webauthn"]`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Browser / Platform Authenticator
+    participant I as Shared ingress filters
+    participant AC as AuthController
+    participant PS as PasskeyService
+    participant RP as Yubico RelyingParty
+    participant DB as PostgreSQL passkey/user/challenge tables
+    participant AS as AuthService
+    participant TS as RedisTokenStorage
+    participant JWT as JwtEncoder
+    participant AUD as SecurityEventService
+
+    C->>I: POST /api/v1/auth/passkeys/options {email?}
+    I->>AC: Public endpoint after origin/rate/body checks
+    AC->>PS: startAssertion(request)
+    PS->>DB: Optional user lookup and credential allow-list
+    PS->>RP: startAssertion(userVerification required)
+    PS->>DB: Insert ASSERTION challenge
+    PS->>AUD: PASSKEY_AUTHENTICATION_STARTED
+    PS-->>C: challengeId + browser request options JSON
+    C->>C: navigator.credentials.get(options)
+    C->>I: POST /api/v1/auth/passkeys/verify {challengeId,credentialJson}
+    AC->>PS: finishAssertion(request)
+    PS->>DB: Load unconsumed non-expired assertion challenge
+    PS->>RP: finishAssertion(challenge, assertionJson)
+    alt Signature/origin/challenge invalid
+        RP-->>PS: AssertionFailedException
+        PS->>AUD: PASSKEY_FAILED
+        PS-->>C: 400 Invalid passkey ceremony
+    else Assertion valid
+        PS->>DB: Atomically consume challenge
+        PS->>DB: Update signatureCount, backup flags, lastUsedAt
+        PS->>AUD: PASSKEY_AUTHENTICATED
+        PS->>AS: issueLoginForVerifiedUser(user, ["webauthn"])
+        AS->>TS: Store refresh token hash/family in Redis
+        AS->>JWT: Sign RS256 JWT with tenant_id and amr=["webauthn"]
+        AS->>AUD: LOGIN_SUCCESS
+        AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
+    end
+```
+
+## 19. OAuth2/OIDC Provider Flow
+
+`POST /api/v1/oauth2/authorize`, `POST /oauth2/token`, `GET /.well-known/openid-configuration`
+
+Infrastructure role: AuthKit acts as an API-oriented OAuth2/OIDC provider for authorization-code + PKCE. The authorization endpoint requires an already-authenticated AuthKit user token plus explicit user consent unless an active consent already covers the requested client scopes; client applications are managed through the admin policy plane. OAuth consents are durable PostgreSQL rows included in account export. Authorization codes are high-entropy one-time values stored as SHA-256 hashes in PostgreSQL and consumed atomically before RS256 access/ID token issuance.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Client Application
+    participant I as Shared ingress filters
+    participant OC as OAuthController
+    participant OPS as OAuthProviderService
+    participant CR as OAuthClientRepository
+    participant CONS as PostgreSQL oauth_consents
+    participant DB as PostgreSQL authorization_codes
+    participant UDB as PostgreSQL users
+    participant JWT as JwtEncoder/JWKS
+    participant AUD as SecurityEventService
+
+    App->>I: GET /.well-known/openid-configuration
+    I->>OC: Public discovery
+    OC-->>App: issuer, authorization_endpoint, token_endpoint, jwks_uri, PKCE S256
+
+    App->>I: POST /api/v1/oauth2/authorize + Bearer JWT {clientId,redirectUri,scope,codeChallenge,S256,nonce,state,consentAccepted}
+    I->>OC: JWT valid and authorities current
+    OC->>OPS: authorize(jwt, request)
+    OPS->>CR: Load enabled client
+    OPS->>OPS: Exact redirect URI match and scope subset check
+    OPS->>UDB: Load active confirmed user
+    OPS->>CONS: Load active consent for user+client
+    alt Consent missing or scopes expanded
+        OPS->>OPS: Require consentAccepted=true
+        OPS->>CONS: Insert/update durable OAuth consent
+        OPS->>AUD: OAUTH_CONSENT_GRANTED
+    else Existing consent covers requested scopes
+        OPS->>CONS: Reuse active consent
+    end
+    OPS->>DB: Store hashed authorization code with PKCE challenge, scopes, amr, nonce, expiry
+    OPS->>AUD: OAUTH_AUTHORIZATION_CODE_ISSUED
+    OPS-->>App: redirectUri?code=...&state=...
+
+    App->>I: POST /oauth2/token form grant_type=authorization_code, code, redirect_uri, client_id, code_verifier
+    I->>OC: Public token endpoint after origin/rate/body checks
+    OC->>OPS: token(...)
+    OPS->>CR: Validate public/confidential client
+    OPS->>DB: Load unconsumed non-expired code hash
+    OPS->>OPS: Verify PKCE S256 code_verifier
+    OPS->>DB: Atomically mark code consumed
+    OPS->>UDB: Load active confirmed user
+    OPS->>JWT: Sign access token for client audience
+    opt openid scope requested
+        OPS->>JWT: Sign ID token with nonce,email,email_verified,tenant_id,amr
+    end
+    OPS->>AUD: OAUTH_TOKEN_ISSUED
+    OPS-->>App: access_token, id_token?, token_type=Bearer, expires_in, scope
+```
+
+## 20. Admin And Policy Plane
+
+`/api/v1/admin/**`
+
+Infrastructure role: admin routes require a live bearer JWT with `ROLE_ADMIN`; `UserAuthoritiesFilter` refreshes the role snapshot from Caffeine/PostgreSQL before controller execution. Write operations call `MfaService.requireMfaIfEnabled` for step-up when the admin has MFA enabled, preserve a last-admin guard, hash OAuth client secrets at rest, and emit high-severity durable audit events.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Admin Client
+    participant I as Shared authenticated ingress
+    participant AF as UserAuthoritiesFilter
+    participant AC as AdminController
+    participant AS as AdminService
+    participant MFA as MfaService
+    participant UDB as PostgreSQL users
+    participant CDB as PostgreSQL oauth_clients
+    participant AUD as SecurityEventService
+
+    A->>I: GET /api/v1/admin/users or /tenants or /oauth-clients + Bearer JWT
+    I->>AF: Validate JWT and refresh authorities
+    AF->>AC: ROLE_ADMIN confirmed
+    AC->>AS: list operation
+    AS->>UDB: Read users/tenants or clients
+    AS-->>A: Privacy-bounded admin response
+
+    A->>I: PATCH /api/v1/admin/users/{id}/role {role,mfaCode?}
+    AF->>AC: ROLE_ADMIN confirmed
+    AC->>AS: updateRole(jwt,id,request)
+    AS->>UDB: Load admin and target user
+    AS->>MFA: requireMfaIfEnabled(admin,mfaCode,admin_role_change)
+    AS->>AS: Enforce last-active-admin guard
+    AS->>UDB: Persist role
+    AS->>AUD: ADMIN_ACTION target=changed user
+    AS-->>A: Updated AdminUserResponse
+
+    A->>I: POST/PATCH/DELETE /api/v1/admin/oauth-clients
+    AF->>AC: ROLE_ADMIN confirmed
+    AC->>AS: client management command
+    AS->>MFA: requireMfaIfEnabled(admin,mfaCode,admin_oauth_client_*)
+    AS->>AS: Validate HTTPS redirect URIs, scopes, PKCE policy
+    alt Create confidential client
+        AS->>CDB: Store client secret SHA-256 hash only
+        AS-->>A: Raw client secret returned once
+    else Update or disable client
+        AS->>CDB: Persist metadata or disabled_at
+        AS-->>A: Updated client metadata, no secret
+    end
+    AS->>AUD: OAUTH_CLIENT_CREATED/OAUTH_CLIENT_UPDATED
+```
+
+## 21. Get JWKS
 
 `GET /.well-known/jwks.json`
 
@@ -966,7 +1223,7 @@ sequenceDiagram
     JC-->>C: JWK Set with RSA public key, kid, use=sig, alg=RS256
 ```
 
-## 18. Background Email Delivery Flow
+## 22. Background Email Delivery Flow
 
 This flow is not a direct controller endpoint, but it is part of registration, password recovery, and password reset completion.
 
@@ -1001,11 +1258,11 @@ sequenceDiagram
     end
 ```
 
-## 19. Background Retention Flow
+## 23. Background Retention Flow
 
 This flow is not a direct controller endpoint, but it supports production privacy and audit retention requirements.
 
-Infrastructure role: `DataRetentionService` runs from the configured cron when enabled; it purges expired security events and deleted-account tombstones in bounded batches with new transactions per batch to avoid long-running delete transactions.
+Infrastructure role: `DataRetentionService` runs from the configured cron when enabled; it purges expired security events, deleted-account tombstones, expired passkey challenges, and expired OAuth authorization codes in bounded transactions to avoid long-running delete transactions.
 
 ```mermaid
 sequenceDiagram
@@ -1014,6 +1271,8 @@ sequenceDiagram
     participant DRS as DataRetentionService
     participant SE as security_events
     participant DB as users
+    participant PK as passkey_challenges
+    participant OA as oauth_authorization_codes
 
     SCH->>DRS: purgeExpiredSecurityEvents() on cron
     loop Bounded security-event batches
@@ -1032,6 +1291,8 @@ sequenceDiagram
             DRS->>DB: purgeDeletedByIdIn(ids) in REQUIRES_NEW transaction
         end
     end
+    DRS->>PK: deleteExpired(now)
+    DRS->>OA: deleteExpired(now)
 ```
 
 ## Production Readiness Note
@@ -1045,10 +1306,14 @@ Production strengths visible in the current implementation:
 - Password hashing work is concurrency-bounded to reduce hashing DoS risk.
 - Refresh tokens are HttpOnly cookies, server-side hashed in Redis, rotated atomically, and family reuse is audited as critical.
 - MFA login challenges are one-time Redis entries; TOTP secrets are encrypted at rest; backup codes are stored as keyed hashes and consumed atomically.
+- Passkey/WebAuthn ceremonies are verified by Yubico `webauthn-server-core`; authenticator user verification is required, only public credential material is persisted, registration/disablement require password step-up plus MFA when enabled, short-lived challenges are one-time database rows, and passkey login emits `amr=["webauthn"]`.
+- OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, exact redirect URI validation, JWKS-backed RS256 token signing, and admin-managed client registration.
+- The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, MFA step-up for sensitive writes when enabled, one-time OAuth client secret return, and high-severity durable audit events.
 - Authenticated routes rehydrate live authorities instead of trusting stale JWT roles indefinitely.
 - Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend.
 - Security and consent events are durable, privacy-safe, metric-backed, and alertable.
-- Account export/deletion require current-password step-up; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled.
+- Account export/deletion require current-password step-up and MFA proof when MFA is enabled; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration also require MFA proof when MFA is enabled.
+- MFA failures are split into generic challenge, login, and step-up metrics so account-takeover attempts can be distinguished from sensitive-operation abuse without exposing user identifiers as metric labels.
 
 Operational caveats to keep in mind before production:
 
@@ -1058,4 +1323,5 @@ Operational caveats to keep in mind before production:
 - `/actuator/prometheus` is intentionally public in the app security rules; production exposure should be constrained by Kubernetes network policy, ingress rules, or monitoring-network controls.
 - NetworkPolicy cannot restrict Resend egress by FQDN; production clusters should use an egress gateway, DNS policy, or cloud firewall where available.
 - Downstream services must validate JWT issuer, audience, expiration, signature, and `kid`, and should not call AuthKit per request unless they need a live revocation/authorization decision beyond token TTL.
-- Passkeys/WebAuthn, OAuth2/OIDC provider or social-login relying-party capabilities, and the admin/policy plane remain future Phase 8 extensions; this branch implements the production-safe MFA baseline first.
+- OAuth2/OIDC support currently implements the provider role; social-login relying-party federation is intentionally not part of this service role and should be added as a separate integration if needed.
+- Admin tenant management reflects AuthKit's current one-tenant-per-user model. Broader organization/team tenancy should introduce first-class tenant membership tables before using AuthKit as a multi-user SaaS tenant authority.

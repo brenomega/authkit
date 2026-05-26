@@ -14,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.enums.Role;
 
 /**
  * Spring Data JPA repository for the {@link User} entity (DT 3.1.4).
@@ -47,4 +48,6 @@ public interface UserRepository extends JpaRepository<User, java.util.UUID> {
     @Modifying
     @Query("delete from User u where u.id in :ids")
     long purgeDeletedByIdIn(@Param("ids") Collection<UUID> ids);
+
+    long countByRoleAndDeletedAtIsNull(Role role);
 }

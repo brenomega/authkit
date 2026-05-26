@@ -148,6 +148,16 @@ services:
       AUTH_MFA_BACKUP_CODE_COUNT: 10
       AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES: 5
       AUTH_MFA_SECRET_ENCRYPTION_KEY: local-development-mfa-secret-key-change-for-prod
+      AUTH_PASSKEY_ENABLED: "true"
+      AUTH_PASSKEY_RP_ID: localhost
+      AUTH_PASSKEY_RP_NAME: AuthKit Local
+      AUTH_PASSKEY_ORIGINS: http://localhost:8080,http://localhost:3000
+      AUTH_PASSKEY_CHALLENGE_TTL_MINUTES: 5
+      AUTH_PASSKEY_ALLOW_ORIGIN_PORT: "true"
+      AUTH_PASSKEY_ALLOW_ORIGIN_SUBDOMAIN: "false"
+      AUTH_OAUTH_PROVIDER_ENABLED: "true"
+      AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES: 5
+      AUTH_OAUTH_ID_TOKEN_TTL_SECONDS: 900
       WORKER_TOKEN: local-development-worker-token
       RESEND_API_KEY: re_local_development_token
     ports:

@@ -171,7 +171,7 @@ public class SecurityEventService {
 
         meterRegistry.counter("security.events", "type", type.name(), "outcome", outcome.name(), "severity", severity.name())
                 .increment();
-        recordSpecificMetric(type);
+        recordSpecificMetric(type, storedReason);
         persist(event);
         alertIfNeeded(type, outcome, severity, eventHash);
     }
@@ -220,17 +220,31 @@ public class SecurityEventService {
         }
     }
 
-    private void recordSpecificMetric(SecurityEventType type) {
+    private void recordSpecificMetric(SecurityEventType type, String reason) {
         switch (type) {
             case LOGIN_FAILURE -> meterRegistry.counter("security.login.failed").increment();
             case ACCOUNT_LOCKED -> meterRegistry.counter("security.account.locked").increment();
             case PASSWORD_RESET_FAILED -> meterRegistry.counter("security.password_reset.failed").increment();
             case REFRESH_TOKEN_REUSE_DETECTED -> meterRegistry.counter("security.refresh_token.reuse").increment();
-            case MFA_CHALLENGE_FAILED -> meterRegistry.counter("security.mfa.challenge.failed").increment();
+            case MFA_CHALLENGE_ISSUED -> meterRegistry.counter("security.mfa.challenge.issued").increment();
+            case MFA_CHALLENGE_VERIFIED -> meterRegistry.counter("security.mfa.login.verified").increment();
+            case MFA_CHALLENGE_FAILED -> recordMfaFailureMetric(reason);
             case MFA_BACKUP_CODE_USED -> meterRegistry.counter("security.mfa.backup_code.used").increment();
+            case MFA_BACKUP_CODES_REGENERATED -> meterRegistry.counter("security.mfa.backup_codes.regenerated").increment();
+            case MFA_CHANGED -> meterRegistry.counter("security.mfa.changed").increment();
             default -> {
             }
         }
+    }
+
+    private void recordMfaFailureMetric(String reason) {
+        meterRegistry.counter("security.mfa.challenge.failed").increment();
+        String normalizedReason = reason == null ? "" : reason.toLowerCase(java.util.Locale.ROOT);
+        if (normalizedReason.startsWith("login_mfa") || normalizedReason.contains("mfa_challenge")) {
+            meterRegistry.counter("security.mfa.login.failed").increment();
+            return;
+        }
+        meterRegistry.counter("security.mfa.step_up.failed").increment();
     }
 
     private void alertIfNeeded(SecurityEventType type,

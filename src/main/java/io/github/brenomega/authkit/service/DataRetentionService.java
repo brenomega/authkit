@@ -18,6 +18,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
+import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 /**
@@ -31,17 +33,23 @@ public class DataRetentionService {
 
     private final SecurityEventRepository securityEventRepository;
     private final UserRepository userRepository;
+    private final PasskeyChallengeRepository passkeyChallengeRepository;
+    private final OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository;
     private final AuthProperties authProperties;
     private final MeterRegistry meterRegistry;
     private final TransactionTemplate transactionTemplate;
 
     public DataRetentionService(SecurityEventRepository securityEventRepository,
                                 UserRepository userRepository,
+                                PasskeyChallengeRepository passkeyChallengeRepository,
+                                OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository,
                                 AuthProperties authProperties,
                                 MeterRegistry meterRegistry,
                                 TransactionTemplate transactionTemplate) {
         this.securityEventRepository = securityEventRepository;
         this.userRepository = userRepository;
+        this.passkeyChallengeRepository = passkeyChallengeRepository;
+        this.oauthAuthorizationCodeRepository = oauthAuthorizationCodeRepository;
         this.authProperties = authProperties;
         this.meterRegistry = meterRegistry;
         this.transactionTemplate = transactionTemplate;
@@ -66,6 +74,18 @@ public class DataRetentionService {
         if (deletedAccounts > 0) {
             meterRegistry.counter("security.retention.deleted", "dataset", "deleted_users").increment(deletedAccounts);
             log.info("Purged {} anonymized deleted accounts older than configured retention cutoff.", deletedAccounts);
+        }
+
+        int deletedPasskeyChallenges = transactionTemplate.execute(status -> passkeyChallengeRepository.deleteExpired(now));
+        if (deletedPasskeyChallenges > 0) {
+            meterRegistry.counter("security.retention.deleted", "dataset", "passkey_challenges")
+                    .increment(deletedPasskeyChallenges);
+        }
+
+        int deletedAuthorizationCodes = transactionTemplate.execute(status -> oauthAuthorizationCodeRepository.deleteExpired(now));
+        if (deletedAuthorizationCodes > 0) {
+            meterRegistry.counter("security.retention.deleted", "dataset", "oauth_authorization_codes")
+                    .increment(deletedAuthorizationCodes);
         }
     }
 

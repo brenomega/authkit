@@ -22,6 +22,9 @@ import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
 import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionFinishRequest;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsRequest;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.PasswordRecoveryRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordResetRequest;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
@@ -34,6 +37,7 @@ import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AuthService;
+import io.github.brenomega.authkit.service.PasskeyService;
 import io.github.brenomega.authkit.service.PasswordRecoveryService;
 import io.github.brenomega.authkit.service.RegistrationService;
 import jakarta.servlet.http.Cookie;
@@ -54,16 +58,19 @@ public class AuthController {
     private final RegistrationService registrationService;
     private final AuthService authService;
     private final PasswordRecoveryService recoveryService;
+    private final PasskeyService passkeyService;
     private final AuthProperties authProperties;
 
     public AuthController(
             RegistrationService registrationService,
             AuthService authService,
             PasswordRecoveryService recoveryService,
+            PasskeyService passkeyService,
             AuthProperties authProperties) {
         this.registrationService = registrationService;
         this.authService = authService;
         this.recoveryService = recoveryService;
+        this.passkeyService = passkeyService;
         this.authProperties = authProperties;
     }
 
@@ -90,6 +97,24 @@ public class AuthController {
     public ResponseEntity<ApiResponse<LoginResponse>> verifyMfaLogin(
             @Valid @RequestBody MfaLoginVerificationRequest request) {
         AuthService.LoginResult result = authService.verifyMfaLogin(request);
+        HttpHeaders headers = new HttpHeaders();
+        addSessionCookies(headers, result.refreshToken());
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(ApiResponse.success(result.response()));
+    }
+
+    @PostMapping("/passkeys/options")
+    public ResponseEntity<ApiResponse<PasskeyAssertionOptionsResponse>> passkeyOptions(
+            @Valid @RequestBody(required = false) PasskeyAssertionOptionsRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(passkeyService.startAssertion(request)));
+    }
+
+    @PostMapping("/passkeys/verify")
+    public ResponseEntity<ApiResponse<LoginResponse>> verifyPasskey(
+            @Valid @RequestBody PasskeyAssertionFinishRequest request) {
+        AuthService.LoginResult result = passkeyService.finishAssertion(request);
         HttpHeaders headers = new HttpHeaders();
         addSessionCookies(headers, result.refreshToken());
 

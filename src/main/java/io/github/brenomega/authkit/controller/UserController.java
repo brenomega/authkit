@@ -9,6 +9,9 @@ import io.github.brenomega.authkit.domain.user.dto.MfaStatusResponse;
 import io.github.brenomega.authkit.domain.user.dto.MfaTotpConfirmRequest;
 import io.github.brenomega.authkit.domain.user.dto.MfaTotpEnrollmentResponse;
 import io.github.brenomega.authkit.domain.user.dto.MfaVerificationRequest;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyCredentialResponse;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationFinishRequest;
+import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
@@ -17,6 +20,7 @@ import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AccountLifecycleService;
 import io.github.brenomega.authkit.service.MfaService;
+import io.github.brenomega.authkit.service.PasskeyService;
 import io.github.brenomega.authkit.service.ProfileService;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Controller for User Profile and Session Management (RF 2.1.6 - 2.1.8).
@@ -41,13 +46,16 @@ public class UserController {
     private final ProfileService profileService;
     private final AccountLifecycleService accountLifecycleService;
     private final MfaService mfaService;
+    private final PasskeyService passkeyService;
 
     public UserController(ProfileService profileService,
                           AccountLifecycleService accountLifecycleService,
-                          MfaService mfaService) {
+                          MfaService mfaService,
+                          PasskeyService passkeyService) {
         this.profileService = profileService;
         this.accountLifecycleService = accountLifecycleService;
         this.mfaService = mfaService;
+        this.passkeyService = passkeyService;
     }
 
     /**
@@ -148,6 +156,36 @@ public class UserController {
             @Valid @RequestBody MfaVerificationRequest request) {
         MfaBackupCodesResponse response = mfaService.regenerateBackupCodes(jwt.getSubject(), request);
         return new ApiResponse<>(response, null, Instant.now());
+    }
+
+    @GetMapping("/passkeys")
+    public ApiResponse<List<PasskeyCredentialResponse>> listPasskeys(@AuthenticationPrincipal Jwt jwt) {
+        return new ApiResponse<>(passkeyService.list(jwt.getSubject()), null, Instant.now());
+    }
+
+    @PostMapping("/passkeys/options")
+    public ApiResponse<PasskeyRegistrationOptionsResponse> startPasskeyRegistration(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody(required = false) StepUpRequest request) {
+        PasskeyRegistrationOptionsResponse response = passkeyService.startRegistration(jwt.getSubject(), request);
+        return new ApiResponse<>(response, null, Instant.now());
+    }
+
+    @PostMapping("/passkeys")
+    public ApiResponse<PasskeyCredentialResponse> finishPasskeyRegistration(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody PasskeyRegistrationFinishRequest request) {
+        PasskeyCredentialResponse response = passkeyService.finishRegistration(jwt.getSubject(), request);
+        return new ApiResponse<>(response, null, Instant.now());
+    }
+
+    @DeleteMapping("/passkeys/{credentialId}")
+    public ApiResponse<String> disablePasskey(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID credentialId,
+            @Valid @RequestBody(required = false) StepUpRequest request) {
+        passkeyService.disable(jwt.getSubject(), credentialId, request);
+        return new ApiResponse<>("Passkey disabled successfully.", null, Instant.now());
     }
 
     /**

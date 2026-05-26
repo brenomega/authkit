@@ -20,6 +20,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
+import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 class DataRetentionServiceTest {
@@ -30,6 +32,8 @@ class DataRetentionServiceTest {
     void purgeExpiredSecurityEvents_purgesEventsAndDeletedUsers() {
         SecurityEventRepository securityEventRepository = mock(SecurityEventRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
+        PasskeyChallengeRepository passkeyChallengeRepository = mock(PasskeyChallengeRepository.class);
+        OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository = mock(OAuthAuthorizationCodeRepository.class);
         AuthProperties authProperties = new AuthProperties();
         authProperties.getCompliance().setSecurityEventRetentionDays(30);
         authProperties.getCompliance().setDeletedAccountRetentionDays(7);
@@ -50,7 +54,17 @@ class DataRetentionServiceTest {
                 .thenReturn(List.of(deletedUser));
         when(userRepository.purgeDeletedByIdIn(List.of(deletedUser))).thenReturn(2L);
 
-        new DataRetentionService(securityEventRepository, userRepository, authProperties, meterRegistry, transactionTemplate)
+        when(passkeyChallengeRepository.deleteExpired(any())).thenReturn(3);
+        when(oauthAuthorizationCodeRepository.deleteExpired(any())).thenReturn(4);
+
+        new DataRetentionService(
+                securityEventRepository,
+                userRepository,
+                passkeyChallengeRepository,
+                oauthAuthorizationCodeRepository,
+                authProperties,
+                meterRegistry,
+                transactionTemplate)
                 .purgeExpiredSecurityEvents();
 
         ArgumentCaptor<Instant> eventCutoff = ArgumentCaptor.forClass(Instant.class);
@@ -59,9 +73,13 @@ class DataRetentionServiceTest {
         verify(userRepository).findDeletedIdsBefore(accountCutoff.capture(), any(Pageable.class));
         verify(securityEventRepository).purgeByIdIn(List.of(eventOne, eventTwo));
         verify(userRepository).purgeDeletedByIdIn(List.of(deletedUser));
+        verify(passkeyChallengeRepository).deleteExpired(any());
+        verify(oauthAuthorizationCodeRepository).deleteExpired(any());
 
         org.junit.jupiter.api.Assertions.assertTrue(eventCutoff.getValue().isBefore(accountCutoff.getValue()));
         assertEquals(5.0, meterRegistry.counter("security.retention.deleted", "dataset", "security_events").count());
         assertEquals(2.0, meterRegistry.counter("security.retention.deleted", "dataset", "deleted_users").count());
+        assertEquals(3.0, meterRegistry.counter("security.retention.deleted", "dataset", "passkey_challenges").count());
+        assertEquals(4.0, meterRegistry.counter("security.retention.deleted", "dataset", "oauth_authorization_codes").count());
     }
 }

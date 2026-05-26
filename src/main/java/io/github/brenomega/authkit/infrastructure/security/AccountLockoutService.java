@@ -177,7 +177,7 @@ public class AccountLockoutService {
             }
         }
 
-        log.info("Lockout cleared for account after password reset.");
+        log.info("Lockout cleared for account after a successful trusted recovery or authentication ceremony.");
     }
 
     private Bucket createNewLayer1Bucket() {

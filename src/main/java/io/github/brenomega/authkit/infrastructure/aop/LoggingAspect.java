@@ -167,7 +167,16 @@ public class LoggingAspect {
      * @return {@code true} if the value should be masked
      */
     static boolean isSensitive(String paramName) {
-        return SENSITIVE_PARAMS.contains(paramName.toLowerCase());
+        String normalized = paramName.toLowerCase();
+        return SENSITIVE_PARAMS.contains(normalized)
+                || normalized.contains("password")
+                || normalized.contains("secret")
+                || normalized.contains("token")
+                || normalized.contains("authorization")
+                || normalized.contains("credential")
+                || normalized.contains("assertion")
+                || normalized.contains("attestation")
+                || normalized.contains("mfacode");
     }
 
     private static boolean isEmail(String paramName) {
@@ -186,6 +195,8 @@ public class LoggingAspect {
                 || simpleName.contains("passwordresetrequest")
                 || simpleName.contains("passwordrecoveryrequest")
                 || simpleName.contains("stepuprequest")
+                || simpleName.contains("passkey")
+                || simpleName.contains("oauth")
                 || simpleName.contains("mfa");
     }
 }

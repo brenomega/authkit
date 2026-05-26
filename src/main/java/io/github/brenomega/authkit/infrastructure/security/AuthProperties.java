@@ -57,6 +57,12 @@ public class AuthProperties {
     @Valid
     private Mfa mfa = new Mfa();
 
+    @Valid
+    private Passkey passkey = new Passkey();
+
+    @Valid
+    private OAuth oauth = new OAuth();
+
     public Token getToken() {
         return token;
     }
@@ -151,6 +157,22 @@ public class AuthProperties {
 
     public void setMfa(Mfa mfa) {
         this.mfa = mfa;
+    }
+
+    public Passkey getPasskey() {
+        return passkey;
+    }
+
+    public void setPasskey(Passkey passkey) {
+        this.passkey = passkey;
+    }
+
+    public OAuth getOauth() {
+        return oauth;
+    }
+
+    public void setOauth(OAuth oauth) {
+        this.oauth = oauth;
     }
 
     public static class Token {
@@ -719,6 +741,124 @@ public class AuthProperties {
 
         public void setSecretEncryptionKey(String secretEncryptionKey) {
             this.secretEncryptionKey = secretEncryptionKey;
+        }
+    }
+
+    public static class Passkey {
+
+        private boolean enabled = true;
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String rpId = "localhost";
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String rpName = "AuthKit";
+
+        @NotBlank
+        @Pattern(regexp = "^(?!\\$\\{).+")
+        private String origins = "http://localhost:8080";
+
+        @Min(1)
+        @Max(15)
+        private long challengeTtlMinutes = 5;
+
+        private boolean allowOriginPort = true;
+
+        private boolean allowOriginSubdomain = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getRpId() {
+            return rpId;
+        }
+
+        public void setRpId(String rpId) {
+            this.rpId = rpId;
+        }
+
+        public String getRpName() {
+            return rpName;
+        }
+
+        public void setRpName(String rpName) {
+            this.rpName = rpName;
+        }
+
+        public String getOrigins() {
+            return origins;
+        }
+
+        public void setOrigins(String origins) {
+            this.origins = origins;
+        }
+
+        public long getChallengeTtlMinutes() {
+            return challengeTtlMinutes;
+        }
+
+        public void setChallengeTtlMinutes(long challengeTtlMinutes) {
+            this.challengeTtlMinutes = challengeTtlMinutes;
+        }
+
+        public boolean isAllowOriginPort() {
+            return allowOriginPort;
+        }
+
+        public void setAllowOriginPort(boolean allowOriginPort) {
+            this.allowOriginPort = allowOriginPort;
+        }
+
+        public boolean isAllowOriginSubdomain() {
+            return allowOriginSubdomain;
+        }
+
+        public void setAllowOriginSubdomain(boolean allowOriginSubdomain) {
+            this.allowOriginSubdomain = allowOriginSubdomain;
+        }
+    }
+
+    public static class OAuth {
+
+        private boolean providerEnabled = true;
+
+        @Min(1)
+        @Max(15)
+        private long authorizationCodeTtlMinutes = 5;
+
+        @Min(60)
+        @Max(3600)
+        private long idTokenTtlSeconds = 900;
+
+        public boolean isProviderEnabled() {
+            return providerEnabled;
+        }
+
+        public void setProviderEnabled(boolean providerEnabled) {
+            this.providerEnabled = providerEnabled;
+        }
+
+        public long getAuthorizationCodeTtlMinutes() {
+            return authorizationCodeTtlMinutes;
+        }
+
+        public void setAuthorizationCodeTtlMinutes(long authorizationCodeTtlMinutes) {
+            this.authorizationCodeTtlMinutes = authorizationCodeTtlMinutes;
+        }
+
+        public long getIdTokenTtlSeconds() {
+            return idTokenTtlSeconds;
+        }
+
+        public void setIdTokenTtlSeconds(long idTokenTtlSeconds) {
+            this.idTokenTtlSeconds = idTokenTtlSeconds;
         }
     }
 }

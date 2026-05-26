@@ -30,6 +30,9 @@
 		<java.version>21</java.version>
 		<postgresql.version>42.7.11</postgresql.version>
 		<spring-security.version>6.5.10</spring-security.version>
+		<!-- Override versions to fix CVEs -->
+		<netty.version>4.1.134.Final</netty.version>
+		<tomcat.version>10.1.55</tomcat.version>
 	</properties>
 	<dependencies>
 		<!-- Web Layer (DT 3.1.13) -->
@@ -60,6 +63,13 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+
+		<!-- WebAuthn / passkey server ceremonies. Keep this library current through CI scanning. -->
+		<dependency>
+			<groupId>com.yubico</groupId>
+			<artifactId>webauthn-server-core</artifactId>
+			<version>2.9.0</version>
 		</dependency>
 
 		<!-- Data JPA — Hibernate + Spring Data (DT 3.1.20) -->
@@ -204,22 +214,36 @@
 					<outputName>bom</outputName>
 				</configuration>
 			</plugin>
-			<plugin>
-				<groupId>org.owasp</groupId>
-				<artifactId>dependency-check-maven</artifactId>
-				<version>12.1.0</version>
-				<executions>
-					<execution>
-						<goals>
-							<goal>check</goal>
-						</goals>
-					</execution>
-				</executions>
-				<configuration>
-					<failBuildOnCVSS>9</failBuildOnCVSS>
-				</configuration>
-			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<profile>
+			<id>dependency-check</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.owasp</groupId>
+						<artifactId>dependency-check-maven</artifactId>
+						<version>12.2.2</version>
+						<executions>
+							<execution>
+								<goals>
+									<goal>check</goal>
+								</goals>
+							</execution>
+						</executions>
+						<configuration>
+							<failBuildOnCVSS>9</failBuildOnCVSS>
+							<!-- Read the NVD key from the environment so Maven debug logs cannot expose it. -->
+							<nvdApiKeyEnvironmentVariable>NVD_API_KEY</nvdApiKeyEnvironmentVariable>
+							<!-- Keep the vulnerability DB scoped to this build to avoid stale shared H2 locks. -->
+							<dataDirectory>${project.build.directory}/dependency-check-data</dataDirectory>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>

@@ -142,6 +142,18 @@ authkit:
       backup-code-count: ${AUTH_MFA_BACKUP_CODE_COUNT:10}
       login-challenge-ttl-minutes: ${AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES:5}
       secret-encryption-key: ${AUTH_MFA_SECRET_ENCRYPTION_KEY}
+    passkey:
+      enabled: ${AUTH_PASSKEY_ENABLED:true}
+      rp-id: ${AUTH_PASSKEY_RP_ID}
+      rp-name: ${AUTH_PASSKEY_RP_NAME:AuthKit}
+      origins: ${AUTH_PASSKEY_ORIGINS}
+      challenge-ttl-minutes: ${AUTH_PASSKEY_CHALLENGE_TTL_MINUTES:5}
+      allow-origin-port: ${AUTH_PASSKEY_ALLOW_ORIGIN_PORT:false}
+      allow-origin-subdomain: ${AUTH_PASSKEY_ALLOW_ORIGIN_SUBDOMAIN:false}
+    oauth:
+      provider-enabled: ${AUTH_OAUTH_PROVIDER_ENABLED:true}
+      authorization-code-ttl-minutes: ${AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES:5}
+      id-token-ttl-seconds: ${AUTH_OAUTH_ID_TOKEN_TTL_SECONDS:900}
 
 # =============================================================================
 # Server Configuration

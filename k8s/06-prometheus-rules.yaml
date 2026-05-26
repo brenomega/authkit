@@ -46,6 +46,22 @@ spec:
           annotations:
             summary: AuthKit MFA challenge failures increased
             description: MFA challenge failures may indicate account takeover attempts, replayed challenges, or authenticator drift.
+        - alert: AuthKitMfaLoginFailures
+          expr: increase(security_mfa_login_failed_total[10m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit MFA login failures increased
+            description: MFA login failures indicate password-plus-second-factor attack pressure and should be correlated with account lockout events.
+        - alert: AuthKitMfaStepUpFailures
+          expr: increase(security_mfa_step_up_failed_total[10m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit MFA step-up failures increased
+            description: MFA step-up failures may indicate attempted sensitive-operation abuse from an authenticated session.
         - alert: AuthKitBackupCodeUsage
           expr: increase(security_mfa_backup_code_used_total[10m]) > 0
           for: 0m

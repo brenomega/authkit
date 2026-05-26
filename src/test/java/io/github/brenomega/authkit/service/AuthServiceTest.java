@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,7 +66,7 @@ class AuthServiceTest {
         tokenStorage = mock(TokenStorage.class);
         // Use a real AccountLockoutService with a mock Redis template.
         // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
-        lockoutService = new AccountLockoutService(Optional.empty());
+        lockoutService = spy(new AccountLockoutService(Optional.empty()));
         authProperties = new AuthProperties();
         securityEventService = mock(SecurityEventService.class);
         mfaService = mock(MfaService.class);
@@ -103,6 +104,7 @@ class AuthServiceTest {
         assertEquals(900L, result.response().expiresIn());
         assertNotNull(result.refreshToken());
         verify(tokenStorage).storeRefreshToken(any(), any(), any(), eq(7L));
+        verify(lockoutService).clearLockout(email);
     }
 
     @SuppressWarnings("null")
@@ -171,6 +173,7 @@ class AuthServiceTest {
         verify(tokenStorage).storeMfaChallenge(eq(userId), anyString(), eq(result.response().mfaToken()), eq(5L));
         verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
+        verify(lockoutService, never()).clearLockout(email);
     }
 
     @SuppressWarnings("null")
@@ -207,6 +210,32 @@ class AuthServiceTest {
         verify(jwtEncoder).encode(parameters.capture());
         assertEquals(java.util.List.of("pwd", "otp"), parameters.getValue().getClaims().getClaims().get("amr"));
         assertEquals(Boolean.TRUE, parameters.getValue().getClaims().getClaims().get("mfa"));
+        verify(lockoutService).clearLockout("mfa-login@example.com");
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("MFA login: Invalid code records account lockout pressure and does not issue tokens")
+    void verifyMfaLogin_InvalidCode_RecordsFailedAttemptAndDoesNotIssueSession() {
+        String userId = "00000000-0000-0000-0000-000000000015";
+        var challenge = MfaChallengeCodec.issue(userId);
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getEmail()).thenReturn("mfa-fail@example.com");
+        when(user.isEmailConfirmed()).thenReturn(true);
+
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
+        when(mfaService.verifyMfaCode(user, "000000", "login_mfa"))
+                .thenReturn(MfaService.MfaVerificationResult.invalid());
+
+        assertThrows(InvalidMfaCodeException.class, () ->
+                authService.verifyMfaLogin(new MfaLoginVerificationRequest(challenge.rawToken(), "000000")));
+
+        verify(lockoutService).recordFailedAttempt("mfa-fail@example.com");
+        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
     @SuppressWarnings("null")
@@ -217,6 +246,7 @@ class AuthServiceTest {
         var challenge = MfaChallengeCodec.issue(userId);
 
         User user = mock(User.class);
+        when(user.getEmail()).thenReturn("mfa-expired@example.com");
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(false);
 
@@ -315,6 +345,28 @@ class AuthServiceTest {
         assertEquals("rotated-access-token", result.response().accessToken());
         assertNotNull(result.refreshToken());
         assertNotNull(RefreshTokenCodec.parse(result.refreshToken()).orElse(null));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Refresh: Deleted accounts are rejected before token rotation")
+    void refresh_DeletedUser_ThrowsAndDoesNotRotate() {
+        String userId = "00000000-0000-0000-0000-000000000016";
+        RefreshTokenCodec.IssuedRefreshToken currentToken =
+                RefreshTokenCodec.issue(userId, "11111111-1111-1111-1111-111111111116");
+
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getEmail()).thenReturn("deleted-refresh@example.com");
+        when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.isDeleted()).thenReturn(true);
+        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+
+        assertThrows(InvalidRefreshTokenException.class, () -> authService.refresh(currentToken.rawToken()));
+
+        verify(tokenStorage, never()).rotateRefreshToken(
+                anyString(), anyString(), anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
     @Test

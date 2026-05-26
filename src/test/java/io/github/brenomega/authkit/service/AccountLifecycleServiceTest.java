@@ -37,6 +37,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
+import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -45,11 +46,13 @@ class AccountLifecycleServiceTest {
     private UserRepository userRepository;
     private SecurityEventRepository securityEventRepository;
     private ConsentEventRepository consentEventRepository;
+    private OAuthConsentRepository oauthConsentRepository;
     private SecurityEventService securityEventService;
     private TokenStorage tokenStorage;
     private PasswordEncoder passwordEncoder;
     private AuthProperties authProperties;
     private UserAuthoritiesFilter userAuthoritiesFilter;
+    private MfaService mfaService;
     private AccountLifecycleService service;
 
     @BeforeEach
@@ -57,22 +60,26 @@ class AccountLifecycleServiceTest {
         userRepository = mock(UserRepository.class);
         securityEventRepository = mock(SecurityEventRepository.class);
         consentEventRepository = mock(ConsentEventRepository.class);
+        oauthConsentRepository = mock(OAuthConsentRepository.class);
         securityEventService = mock(SecurityEventService.class);
         tokenStorage = mock(TokenStorage.class);
         passwordEncoder = mock(PasswordEncoder.class);
         userAuthoritiesFilter = mock(UserAuthoritiesFilter.class);
+        mfaService = mock(MfaService.class);
         authProperties = new AuthProperties();
         service = new AccountLifecycleService(
                 userRepository,
                 securityEventRepository,
                 consentEventRepository,
+                oauthConsentRepository,
                 securityEventService,
                 tokenStorage,
                 passwordEncoder,
                 authProperties,
                 new SimpleMeterRegistry(),
                 new Argon2ConcurrencyLimiter(),
-                userAuthoritiesFilter);
+                userAuthoritiesFilter,
+                mfaService);
     }
 
     @SuppressWarnings("null")
@@ -102,6 +109,7 @@ class AccountLifecycleServiceTest {
         verify(userAuthoritiesFilter).evict(userId);
         verify(tokenStorage).revokeAllSessions(userId.toString());
         verify(userRepository).save(user);
+        verify(mfaService).requireMfaIfEnabled(user, null, "account_deletion");
         verify(securityEventService).record(
                 eq(SecurityEventType.ACCOUNT_DELETION_REQUESTED),
                 eq(SecurityEventOutcome.SUCCESS),
@@ -138,6 +146,7 @@ class AccountLifecycleServiceTest {
         when(passwordEncoder.matches("current-pass", "secret-hash")).thenReturn(true);
         when(securityEventRepository.findByTargetUserIdOrderByOccurredAtDesc(eq(userId), any())).thenReturn(List.of());
         when(consentEventRepository.findByUserIdOrderByAcceptedAtDesc(userId)).thenReturn(List.of());
+        when(oauthConsentRepository.findByUserIdOrderByGrantedAtDesc(userId)).thenReturn(List.of());
 
         var response = service.exportUserData(userId.toString(), new StepUpRequest("current-pass"));
 
@@ -146,6 +155,7 @@ class AccountLifecycleServiceTest {
         assertEquals("privacy-2026", response.consent().privacyPolicyVersion());
         assertEquals("consent", response.consent().lawfulBasis());
         assertTrue(response.consentHistory().isEmpty());
+        assertTrue(response.oauthConsents().isEmpty());
         assertTrue(response.securityEvents().isEmpty());
         verify(securityEventService).recordForAuthenticatedUser(
                 SecurityEventType.DATA_EXPORT_REQUESTED,
@@ -153,6 +163,7 @@ class AccountLifecycleServiceTest {
                 SecurityEventSeverity.MEDIUM,
                 user,
                 "user_data_export_requested");
+        verify(mfaService).requireMfaIfEnabled(user, null, "data_export");
     }
 
     @SuppressWarnings("null")
@@ -172,6 +183,8 @@ class AccountLifecycleServiceTest {
 
         verify(securityEventRepository, never()).findByTargetUserIdOrderByOccurredAtDesc(any(), any());
         verify(consentEventRepository, never()).findByUserIdOrderByAcceptedAtDesc(any());
+        verify(oauthConsentRepository, never()).findByUserIdOrderByGrantedAtDesc(any());
+        verify(mfaService, never()).requireMfaIfEnabled(any(), any(), any());
         verify(securityEventService).recordForAuthenticatedUser(
                 SecurityEventType.DATA_EXPORT_REQUESTED,
                 SecurityEventOutcome.DENIED,

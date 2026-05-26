@@ -52,6 +52,16 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_MFA_BACKUP_CODE_COUNT`: Number of one-time backup codes generated per regeneration. Default: `10`.
 * `AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES`: Short TTL for one-time password-login MFA challenges stored in Redis. Default: `5`.
 * `AUTH_MFA_SECRET_ENCRYPTION_KEY`: Secret material used to derive the AES-GCM key for encrypted TOTP secrets. Store only in a secret manager; minimum length is 32 characters.
+* `AUTH_PASSKEY_ENABLED`: Enables WebAuthn/passkey registration and login. Default: `true`.
+* `AUTH_PASSKEY_RP_ID`: WebAuthn relying-party ID. In production this must be the registrable domain users see in the browser, e.g. `auth.example.com` or `example.com`.
+* `AUTH_PASSKEY_RP_NAME`: Human-readable relying-party name shown by authenticators. Default: `AuthKit`.
+* `AUTH_PASSKEY_ORIGINS`: Comma-separated allowed WebAuthn origins, e.g. `https://auth.example.com,https://app.example.com`.
+* `AUTH_PASSKEY_CHALLENGE_TTL_MINUTES`: TTL for passkey registration/assertion challenges persisted in PostgreSQL. Default: `5`.
+* `AUTH_PASSKEY_ALLOW_ORIGIN_PORT`: Allows non-default origin ports. Production should keep this `false` unless a controlled deployment needs it.
+* `AUTH_PASSKEY_ALLOW_ORIGIN_SUBDOMAIN`: Allows subdomain origins under the RP ID. Production should keep this `false` unless every subdomain is equally trusted.
+* `AUTH_OAUTH_PROVIDER_ENABLED`: Enables AuthKit's OAuth2/OIDC provider endpoints. Default: `true`.
+* `AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES`: TTL for one-time authorization codes. Default: `5`.
+* `AUTH_OAUTH_ID_TOKEN_TTL_SECONDS`: ID token lifetime. Default: `900`.
 * `AUTH_EMAIL_OUTBOX_ENABLED`: Enables the durable email outbox dispatcher. Default: `true`.
 * `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
 * `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
@@ -119,6 +129,16 @@ AUTH_MFA_ENABLED=true
 AUTH_MFA_BACKUP_CODE_COUNT=10
 AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES=5
 AUTH_MFA_SECRET_ENCRYPTION_KEY=replace-with-secret-random-mfa-encryption-key-at-least-32-chars
+AUTH_PASSKEY_ENABLED=true
+AUTH_PASSKEY_RP_ID=auth.example.com
+AUTH_PASSKEY_RP_NAME=AuthKit
+AUTH_PASSKEY_ORIGINS=https://auth.example.com,https://app.example.com
+AUTH_PASSKEY_CHALLENGE_TTL_MINUTES=5
+AUTH_PASSKEY_ALLOW_ORIGIN_PORT=false
+AUTH_PASSKEY_ALLOW_ORIGIN_SUBDOMAIN=false
+AUTH_OAUTH_PROVIDER_ENABLED=true
+AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES=5
+AUTH_OAUTH_ID_TOKEN_TTL_SECONDS=900
 AUTH_EMAIL_OUTBOX_ENABLED=true
 AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
 AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
@@ -167,12 +187,30 @@ volumeMounts:
 * **Database Concurrency:** All migrations run via Flyway at application startup. Concurrency limits should be monitored per instance, ensuring max pool limits do not overwhelm PostgreSQL.
 * **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and retries failed messages with backoff, so RabbitMQ latency does not hold user database transactions open.
 * **Durable Security Events:** Authentication and account lifecycle flows enqueue privacy-safe rows to `security_events` through a bounded writer. Events store masked identifiers and keyed HMAC identifiers, never raw passwords, tokens, or request bodies. If the writer queue saturates and `AUTH_AUDIT_SYNC_ON_OVERLOAD=true`, events fall back to synchronous persistence to preserve forensic coverage under load.
-* **MFA Baseline:** TOTP enrollment requires current-password step-up, stores encrypted secrets, and returns raw setup material only during enrollment. Enabling or disabling TOTP revokes refresh sessions. Backup codes are generated once, stored only as keyed hashes, consumed atomically, and audited on use. Password change, logout-all, individual session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled for the account.
-* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `security_mfa_challenge_failed_total`, `security_mfa_backup_code_used_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, MFA failures, backup-code use, token reuse, event drops, rate-limit drops, and infrastructure failures. The sample `k8s/07-service-monitor.yaml` wires `/actuator/prometheus` for Prometheus Operator deployments.
-* **Data Governance:** Account export is available at `POST /api/v1/users/me/export` with the current password as step-up proof, consent snapshot at `GET /api/v1/users/me/consent`, and account deletion/anonymization at `DELETE /api/v1/users/me` with the current password as step-up proof. Registration records append-only consent history in `consent_events`; exports include both the current consent snapshot and historical consent events. Deletion immediately anonymizes direct PII, evicts the per-user authority cache, then revokes refresh sessions and emits lifecycle events after the database commit. Retention purges expired security events and deleted-account tombstones in bounded batches according to configured windows.
+* **MFA Baseline:** TOTP enrollment requires current-password step-up, stores encrypted secrets, and returns raw setup material only during enrollment. Enabling or disabling TOTP revokes refresh sessions. Backup codes are generated once, stored only as keyed hashes, consumed atomically, and audited on use. Password change, account export, account deletion, logout-all, individual session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled for the account. Regular profile reads/updates and session listing do not require MFA to avoid unnecessary user friction.
+* **Passkeys/WebAuthn:** WebAuthn registration and assertion are verified by Yubico `webauthn-server-core` with authenticator user verification required. Configure `AUTH_PASSKEY_RP_ID` and `AUTH_PASSKEY_ORIGINS` to exactly match production browser origins before enabling passkeys. Registration and disablement require current-password step-up and, when enrolled, MFA proof. AuthKit stores credential IDs, COSE public keys, signature counters, transports, backup flags, and timestamps; private key material never leaves the authenticator.
+* **OAuth2/OIDC Provider:** AuthKit implements the provider role for authorization-code + PKCE. Client applications are created through `/api/v1/admin/oauth-clients`; confidential client secrets are returned once and stored only as SHA-256 hashes because they are high-entropy generated secrets. Authorization requires explicit user consent unless an active `oauth_consents` row already covers the requested client scopes. Authorization codes are stored as SHA-256 hashes, consumed atomically, and exchanged for RS256 access/ID tokens published through JWKS. Social-login relying-party federation is not enabled by default and should be introduced as a separate provider-linking design if required.
+* **Admin and Policy Plane:** `/api/v1/admin/**` requires `ROLE_ADMIN` from a live authority snapshot. Sensitive writes require MFA proof when the admin has MFA enabled, protect the last active admin from demotion, and write high-severity durable security events.
+* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `security_mfa_challenge_failed_total`, `security_mfa_login_failed_total`, `security_mfa_step_up_failed_total`, `security_mfa_backup_code_used_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, MFA failures, MFA login/step-up failures, backup-code use, token reuse, event drops, rate-limit drops, and infrastructure failures. The sample `k8s/07-service-monitor.yaml` wires `/actuator/prometheus` for Prometheus Operator deployments.
+* **Data Governance:** Account export is available at `POST /api/v1/users/me/export` with the current password as step-up proof, plus `mfaCode` when MFA is enabled. Consent snapshot is available at `GET /api/v1/users/me/consent`, and account deletion/anonymization is available at `DELETE /api/v1/users/me` with the same password-plus-MFA-if-enabled step-up. Registration records append-only consent history in `consent_events`; OAuth authorization consent is stored in `oauth_consents`; exports include the current consent snapshot, historical consent events, OAuth client consents, and bounded security events. Deletion immediately anonymizes direct PII, evicts the per-user authority cache, then revokes refresh sessions and emits lifecycle events after the database commit. Retention purges expired security events, deleted-account tombstones, passkey challenges, and OAuth authorization codes in bounded batches according to configured windows.
 * **Registration Enumeration:** Public deployments must keep `AUTH_REGISTRATION_STEALTH_CONFLICTS=true`, which makes `/api/v1/auth/register` return a generic acknowledgement without exposing whether an email is already registered. Development and trusted internal integrations may disable it if they require explicit conflict responses.
 * **Tenant Strategy:** AuthKit currently models one tenant identifier per user and emits only the canonical JWT claim `tenant_id`. Hibernate tenant filtering is enabled from authenticated service calls when a valid UUID tenant claim is present, and profile/session operations also perform object-level tenant checks. New tenant-owned tables must add equivalent service tests before production use.
 * **CSRF:** Refresh and logout are cookie-backed, so clients must echo the readable CSRF cookie in the configured CSRF header. This is stateless double-submit protection and does not introduce server sessions.
 * **Reverse Proxy:** Production traffic must terminate TLS before reaching AuthKit and forward `X-Forwarded-Proto`. The application uses forwarded headers so HSTS is emitted for HTTPS requests behind a proxy.
 * **Image Pinning:** Production manifests should reference immutable image digests. The sample Kubernetes deployment uses a digest placeholder that must be replaced by the release artifact digest generated by the build pipeline.
 * **NetworkPolicy HTTPS Egress:** The sample Kubernetes NetworkPolicy allows external HTTPS because standard NetworkPolicy cannot restrict by FQDN. Enforce provider-specific FQDN egress allow-lists at the gateway/firewall layer for Resend and image/security-update endpoints.
+
+## 4. Build-Time Supply Chain Verification
+
+The normal Maven `verify` lifecycle is deterministic and does not require live NVD access. CI runs the Java build/tests, generates a CycloneDX SBOM, and uses Trivy for filesystem dependency-manifest scanning plus container-image scanning.
+
+OWASP Dependency-Check remains available as an explicit, NVD-backed security profile for release or scheduled security jobs. The plugin reads the key from `NVD_API_KEY` using `nvdApiKeyEnvironmentVariable`, which avoids exposing the secret in Maven debug logs. Its local vulnerability database is stored under `target/dependency-check-data` so verification is isolated from stale shared H2 locks.
+
+Run locally with the key already exported in the shell:
+
+```bash
+export NVD_API_KEY=...
+./mvnw -Pdependency-check verify
+```
+
+CI or release automation should inject `NVD_API_KEY` from its secret store for this explicit profile and should not print the value in logs. If NVD rejects the key or rate-limits unauthenticated traffic, the default build still remains healthy while the explicit vulnerability-gate job fails visibly.

@@ -153,6 +153,18 @@ authkit:
       backup-code-count: 10
       login-challenge-ttl-minutes: 5
       secret-encryption-key: test-only-authkit-mfa-secret-key-32-bytes
+    passkey:
+      enabled: true
+      rp-id: localhost
+      rp-name: AuthKit Test
+      origins: http://localhost:8080,https://localhost:8443
+      challenge-ttl-minutes: 5
+      allow-origin-port: true
+      allow-origin-subdomain: false
+    oauth:
+      provider-enabled: true
+      authorization-code-ttl-minutes: 5
+      id-token-ttl-seconds: 900
 
 # =============================================================================
 # Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)
