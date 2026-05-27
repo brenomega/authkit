@@ -57,6 +57,7 @@ import java.security.KeyPair;
     "authkit.auth.audit.hash-pepper=production-firewall-test-audit-pepper-32-chars",
     "authkit.auth.audit.async-enabled=false",
     "authkit.auth.mfa.secret-encryption-key=production-firewall-test-mfa-secret-key-32-chars",
+    "authkit.auth.mfa.secret-encryption-key-id=prod-firewall-mfa-key",
     "authkit.auth.passkey.rp-id=auth.example.test",
     "authkit.auth.passkey.origins=https://auth.example.test",
     "resend.api.key=re_prod_firewall_secret"

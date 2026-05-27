@@ -9,8 +9,6 @@ public record PasskeyCredentialResponse(
         String label,
         String transports,
         boolean discoverable,
-        boolean backupEligible,
-        boolean backedUp,
         Instant createdAt,
         Instant lastUsedAt
 ) {

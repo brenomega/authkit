@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +25,6 @@ import io.github.brenomega.authkit.domain.user.dto.TenantSummaryResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
-import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
@@ -44,15 +44,18 @@ public class AdminService {
     private final OAuthClientRepository oauthClientRepository;
     private final MfaService mfaService;
     private final SecurityEventService securityEventService;
+    private final PasswordEncoder passwordEncoder;
 
     public AdminService(UserRepository userRepository,
                         OAuthClientRepository oauthClientRepository,
                         MfaService mfaService,
-                        SecurityEventService securityEventService) {
+                        SecurityEventService securityEventService,
+                        PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.oauthClientRepository = oauthClientRepository;
         this.mfaService = mfaService;
         this.securityEventService = securityEventService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional(readOnly = true)
@@ -126,7 +129,7 @@ public class AdminService {
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
                 request.tenantId(),
                 clientId,
-                rawSecret == null ? null : TokenHasher.sha256Hex(rawSecret),
+                rawSecret == null ? null : passwordEncoder.encode(rawSecret),
                 request.publicClient(),
                 request.displayName(),
                 request.redirectUris(),

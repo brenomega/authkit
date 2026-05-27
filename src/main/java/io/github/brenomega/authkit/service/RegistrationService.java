@@ -120,7 +120,6 @@ public class RegistrationService {
 
         String tokenHash = TokenHasher.sha256Hex(token);
         User user = userRepository.findByEmailConfirmationToken(tokenHash)
-                .or(() -> userRepository.findByEmailConfirmationToken(token))
                 .orElseThrow(InvalidTokenException::new);
 
         user.setEmailConfirmed(true);

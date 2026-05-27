@@ -126,7 +126,6 @@ class RegistrationServiceTest {
     void confirmEmail_invalidToken() {
         String rawToken = "bad-token";
         when(userRepository.findByEmailConfirmationToken(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
-        when(userRepository.findByEmailConfirmationToken(rawToken)).thenReturn(Optional.empty());
 
         assertThrows(InvalidTokenException.class,
                 () -> service.confirmEmail(rawToken));

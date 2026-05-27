@@ -76,12 +76,14 @@ public class DataRetentionService {
             log.info("Purged {} anonymized deleted accounts older than configured retention cutoff.", deletedAccounts);
         }
 
+        @SuppressWarnings("null")
         int deletedPasskeyChallenges = transactionTemplate.execute(status -> passkeyChallengeRepository.deleteExpired(now));
         if (deletedPasskeyChallenges > 0) {
             meterRegistry.counter("security.retention.deleted", "dataset", "passkey_challenges")
                     .increment(deletedPasskeyChallenges);
         }
 
+        @SuppressWarnings("null")
         int deletedAuthorizationCodes = transactionTemplate.execute(status -> oauthAuthorizationCodeRepository.deleteExpired(now));
         if (deletedAuthorizationCodes > 0) {
             meterRegistry.counter("security.retention.deleted", "dataset", "oauth_authorization_codes")

@@ -28,9 +28,13 @@ class ActuatorSecurityIntegrationTest {
     private QueuePublisher<EmailPayload> emailPublisher;
 
     @Test
-    @DisplayName("Prometheus metrics endpoint is available to infrastructure without authentication")
-    void prometheusEndpoint_permitsUnauthenticatedScrape() throws Exception {
+    @DisplayName("Prometheus metrics endpoint requires the internal worker token")
+    void prometheusEndpoint_requiresWorkerToken() throws Exception {
         mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/actuator/prometheus")
+                        .header("X-Worker-Token", "test-dummy-worker-token"))
                 .andExpect(status().isOk());
     }
 }

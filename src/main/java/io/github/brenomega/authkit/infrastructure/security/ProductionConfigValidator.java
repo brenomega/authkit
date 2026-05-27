@@ -45,6 +45,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
 
         validateCredential("spring.datasource.username", "postgres", "CHANGE-ME-DB-USER");
         validateCredential("spring.datasource.password", "secretpassword", "CHANGE-ME-DB-PASSWORD");
+        validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
         validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
         validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
@@ -65,12 +66,19 @@ public class ProductionConfigValidator implements ApplicationRunner {
                 "test-only-authkit-mfa-secret-key-32-bytes",
                 "local-development-mfa-secret-key-change-for-prod",
                 "CHANGE-ME-MFA-SECRET-ENCRYPTION-KEY-AT-LEAST-32-CHARS");
+        validateCredential("authkit.auth.mfa.secret-encryption-key-id", "mfa-key-1", "test-mfa-key-1");
+        validateOptionalKeyRotationList("authkit.auth.mfa.previous-secret-encryption-keys");
+        validateMinLong("authkit.auth.mfa.secret-encryption-kdf-iterations", 100000);
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
         validateBoolean("authkit.auth.csrf.enabled", true);
         validateCredential("authkit.auth.csrf.cookie-name");
         validateCredential("authkit.auth.csrf.header-name");
         validateBoolean("authkit.auth.registration.stealth-conflicts", true);
+        validateBoolean("authkit.auth.passkey.allow-origin-port", false);
+        validateMinLong("security.argon2.memory", 19456);
+        validateMinLong("security.argon2.iterations", 2);
+        validateMinLong("security.argon2.parallelism", 1);
 
         log.info("Production configuration security checks PASSED successfully.");
     }
@@ -113,6 +121,46 @@ public class ProductionConfigValidator implements ApplicationRunner {
         if (value == null || !value.startsWith("https://")) {
             log.error("CRITICAL SECURITY ERROR: Key '{}' must use HTTPS.", propertyKey);
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use HTTPS. Startup aborted.");
+        }
+    }
+
+    private void validateMinLong(@NonNull String propertyKey, long minimumValue) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+        }
+        try {
+            long actual = Long.parseLong(value);
+            if (actual < minimumValue) {
+                log.error("CRITICAL SECURITY ERROR: Key '{}' must be at least '{}'.", propertyKey, minimumValue);
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' is below the production minimum. Startup aborted.");
+            }
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+        }
+    }
+
+    private void validateOptionalKeyRotationList(@NonNull String propertyKey) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (value.startsWith("${") || value.contains("CHANGE-ME")) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+        }
+        for (String entry : value.split(";")) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            int separator = entry.indexOf('=');
+            if (separator <= 0 || separator == entry.length() - 1) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use keyId=secret entries separated by semicolons.");
+            }
+            String keyId = entry.substring(0, separator).trim();
+            String keyMaterial = entry.substring(separator + 1).trim();
+            if (!keyId.matches("[A-Za-z0-9._-]{1,64}") || keyMaterial.length() < 32) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id or short key material.");
+            }
         }
     }
 }

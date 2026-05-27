@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +34,7 @@ class AdminServiceTest {
     @Autowired
     private OAuthClientRepository oauthClientRepository;
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Admin role changes are server-side enforced and audited")
     void adminCanUpdateUserRole() {
@@ -62,6 +64,8 @@ class AdminServiceTest {
         assertNotNull(response.clientSecret());
         var stored = oauthClientRepository.findByClientId(response.clientId()).orElseThrow();
         assertNotNull(stored.getClientSecretHash());
+        assertTrue(stored.getClientSecretHash().startsWith("$argon2"),
+                "Confidential OAuth client secrets must use the configured slow password hash");
         assertNull(response.disabledAt());
     }
 

@@ -41,6 +41,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    @SuppressWarnings("null")
     @Override
     public Optional<ByteArray> getUserHandleForUsername(String username) {
         UUID userId = UUID.fromString(username);
@@ -49,6 +50,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
                 .map(user -> userHandle(user.getId()));
     }
 
+    @SuppressWarnings("null")
     @Override
     public Optional<String> getUsernameForUserHandle(ByteArray userHandle) {
         try {
@@ -99,9 +101,6 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
                 .userHandle(userHandle(credential.getUserId()))
                 .publicKeyCose(byteArray(credential.getPublicKeyCose()))
                 .signatureCount(credential.getSignatureCount())
-                .transports(transports(credential.getTransports()))
-                .backupEligible(credential.isBackupEligible())
-                .backupState(credential.isBackedUp())
                 .build();
     }
 

@@ -36,12 +36,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: authkit-redis
+    environment:
+      REDIS_PASSWORD: authkit_redis_secret
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${REDIS_PASSWORD}\" redis-cli ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -96,6 +99,7 @@ services:
       DB_PASSWORD: authkit_secret
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_PASSWORD: authkit_redis_secret
       RABBIT_HOST: rabbitmq
       RABBIT_PORT: 5672
       RABBIT_USERNAME: authkit
@@ -148,6 +152,11 @@ services:
       AUTH_MFA_BACKUP_CODE_COUNT: 10
       AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES: 5
       AUTH_MFA_SECRET_ENCRYPTION_KEY: local-development-mfa-secret-key-change-for-prod
+      AUTH_MFA_SECRET_ENCRYPTION_KEY_ID: local-mfa-key-1
+      AUTH_MFA_PREVIOUS_SECRET_ENCRYPTION_KEYS: ""
+      AUTH_MFA_SECRET_ENCRYPTION_KDF_ITERATIONS: 1000
+      AUTH_MFA_STATUS_CACHE_TTL_SECONDS: 60
+      AUTH_MFA_STATUS_CACHE_MAX_SIZE: 10000
       AUTH_PASSKEY_ENABLED: "true"
       AUTH_PASSKEY_RP_ID: localhost
       AUTH_PASSKEY_RP_NAME: AuthKit Local

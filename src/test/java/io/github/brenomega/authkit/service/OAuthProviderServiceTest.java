@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -38,6 +39,9 @@ class OAuthProviderServiceTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Test
     @DisplayName("Issues and consumes authorization-code + PKCE tokens for OIDC client")
@@ -91,6 +95,55 @@ class OAuthProviderServiceTest {
                 client.getClientId(),
                 null,
                 verifier));
+    }
+
+    @Test
+    @DisplayName("Confidential OAuth clients require their slow-hashed client secret")
+    void confidentialClient_requiresSlowHashedSecret() throws Exception {
+        User user = confirmedUser("oidc-confidential@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                user.getTenantId(),
+                "client-confidential",
+                passwordEncoder.encode("client-secret-value"),
+                false,
+                "Confidential Client",
+                Set.of("https://confidential.example/callback"),
+                Set.of("openid", "email"),
+                true,
+                java.time.Instant.now()));
+
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        var authz = oauthProviderService.authorize(
+                jwt(user),
+                new OAuthAuthorizeRequest(
+                        "code",
+                        client.getClientId(),
+                        "https://confidential.example/callback",
+                        "openid email",
+                        "state-2",
+                        pkceChallenge(verifier),
+                        "S256",
+                        "nonce-2",
+                        true));
+
+        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.token(
+                "authorization_code",
+                authz.code(),
+                "https://confidential.example/callback",
+                client.getClientId(),
+                "wrong-secret",
+                verifier));
+
+        var tokens = oauthProviderService.token(
+                "authorization_code",
+                authz.code(),
+                "https://confidential.example/callback",
+                client.getClientId(),
+                "client-secret-value",
+                verifier);
+
+        assertNotNull(tokens.accessToken());
+        assertNotNull(tokens.idToken());
     }
 
     private User confirmedUser(String email) {

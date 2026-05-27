@@ -9,6 +9,8 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -42,13 +44,16 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
     public UserAuthoritiesFilter(
             UserRepository userRepository,
             ObjectMapper objectMapper,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            MeterRegistry meterRegistry) {
         this.userRepository = userRepository;
         this.objectMapper = objectMapper;
         this.authorityCache = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofSeconds(authProperties.getAuthorityCache().getTtlSeconds()))
                 .maximumSize(authProperties.getAuthorityCache().getMaxSize())
+                .recordStats()
                 .build();
+        CaffeineCacheMetrics.monitor(meterRegistry, authorityCache, "authkit.authority_cache");
     }
 
     @SuppressWarnings("null")

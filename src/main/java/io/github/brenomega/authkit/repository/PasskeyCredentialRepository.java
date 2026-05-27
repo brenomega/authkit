@@ -27,8 +27,6 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
     @Query("""
             update PasskeyCredential credential
                set credential.signatureCount = :signatureCount,
-                   credential.backupEligible = :backupEligible,
-                   credential.backedUp = :backedUp,
                    credential.lastUsedAt = :usedAt
              where credential.credentialId = :credentialId
                and credential.userId = :userId
@@ -37,8 +35,6 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
     int markUsed(@Param("credentialId") String credentialId,
                  @Param("userId") UUID userId,
                  @Param("signatureCount") long signatureCount,
-                 @Param("backupEligible") boolean backupEligible,
-                 @Param("backedUp") boolean backedUp,
                  @Param("usedAt") Instant usedAt);
 
     @Modifying

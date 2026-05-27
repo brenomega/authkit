@@ -20,6 +20,7 @@ import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.lettuce.core.RedisClient;
 import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFactory;
+import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 
 /**
  * Hybrid service for managing progressive account lockout state (DT 3.2.23).
@@ -115,7 +116,7 @@ public class AccountLockoutService {
                         .build(email.getBytes(java.nio.charset.StandardCharsets.UTF_8), bucketConfigSupplier);
                 globalBucket.tryConsume(1);
             }
-            log.debug("Failed attempt recorded for account: {}", email);
+            log.debug("Failed attempt recorded for account: {}", EmailMasker.mask(email));
         } catch (Exception e) {
             meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
             log.debug("Error recording failed attempt. Fail-open fallback engaged. Error: {}", e.getMessage());

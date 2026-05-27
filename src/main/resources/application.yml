@@ -16,6 +16,13 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_POOL_CONNECT_TIMEOUT_MS:3000}
+      idle-timeout: ${DB_POOL_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_POOL_MAX_LIFETIME_MS:1800000}
+      pool-name: AuthKit-HikariPool
 
   # ---------------------------------------------------------------------------
   # JPA / Hibernate (DT 3.1.20, DT 3.1.22)
@@ -28,6 +35,10 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: ${HIBERNATE_JDBC_BATCH_SIZE:20}
+        order_inserts: true
+        order_updates: true
 
   # ---------------------------------------------------------------------------
   # Flyway — Database schema migrations (DT 3.1.22)
@@ -42,6 +53,7 @@ spring:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
       timeout: 200ms
 
   # ---------------------------------------------------------------------------
@@ -142,6 +154,11 @@ authkit:
       backup-code-count: ${AUTH_MFA_BACKUP_CODE_COUNT:10}
       login-challenge-ttl-minutes: ${AUTH_MFA_LOGIN_CHALLENGE_TTL_MINUTES:5}
       secret-encryption-key: ${AUTH_MFA_SECRET_ENCRYPTION_KEY}
+      secret-encryption-key-id: ${AUTH_MFA_SECRET_ENCRYPTION_KEY_ID:mfa-key-1}
+      previous-secret-encryption-keys: ${AUTH_MFA_PREVIOUS_SECRET_ENCRYPTION_KEYS:}
+      secret-encryption-kdf-iterations: ${AUTH_MFA_SECRET_ENCRYPTION_KDF_ITERATIONS:210000}
+      status-cache-ttl-seconds: ${AUTH_MFA_STATUS_CACHE_TTL_SECONDS:60}
+      status-cache-max-size: ${AUTH_MFA_STATUS_CACHE_MAX_SIZE:10000}
     passkey:
       enabled: ${AUTH_PASSKEY_ENABLED:true}
       rp-id: ${AUTH_PASSKEY_RP_ID}
@@ -170,13 +187,14 @@ security:
     salt-length: 16
     hash-length: 32
     parallelism: ${SECURITY_ARGON2_PARALLELISM:2}
-    # Intentionally relaxed the memory requirement from 65536 (64MB) to 32768 (32MB)
-    # and iterations from 3 to 1 compared to the original DT 3.2.1.
+    # Intentionally use 32768 KiB rather than 65536 KiB to balance production
+    # login capacity and JVM thread-exhaustion resistance. Iterations stay at
+    # the OWASP floor and are guarded by ProductionConfigValidator.
     # This is a calculated trade-off to increase the maximum concurrent login capacity
     # and reduce Thread Exhaustion risks in the JVM, while still maintaining a very high
     # level of security (superior to BCrypt/PBKDF2) against GPU/ASIC brute-forcing.
     memory: ${SECURITY_ARGON2_MEMORY:32768}
-    iterations: ${SECURITY_ARGON2_ITERATIONS:1}
+    iterations: ${SECURITY_ARGON2_ITERATIONS:2}
 
 # =============================================================================
 # Observability / Actuator (DT 3.4.4)
@@ -190,6 +208,8 @@ management:
     health:
       show-details: when_authorized
   metrics:
+    enable:
+      hikaricp: true
     tags:
       application: authkit
 

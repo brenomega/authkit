@@ -8,10 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +45,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
+import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -77,6 +79,7 @@ class MfaServiceTest {
         securityEventService = mock(SecurityEventService.class);
         tokenStorage = mock(TokenStorage.class);
         authProperties = new AuthProperties();
+        authProperties.getMfa().setSecretEncryptionKdfIterations(1000);
         auditDigestService = new AuditDigestService(authProperties);
         mfaSecretCipher = new MfaSecretCipher(authProperties);
         service = new MfaService(
@@ -89,7 +92,8 @@ class MfaServiceTest {
                 authProperties,
                 securityEventService,
                 auditDigestService,
-                tokenStorage);
+                tokenStorage,
+                new MfaStatusCache(authProperties, new SimpleMeterRegistry()));
 
         user = new User("mfa@example.com", "hashed-pass", "Mfa User", "555", true, true, null);
         user.setEmailConfirmed(true);
@@ -135,7 +139,7 @@ class MfaServiceTest {
         String code = new TotpGenerator().currentCode(secret);
 
         when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.of(credential));
-        when(backupCodeRepository.save(any(MfaBackupCode.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(backupCodeRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = service.confirmTotp(
                 USER_ID.toString(),
@@ -147,7 +151,13 @@ class MfaServiceTest {
         assertEquals(authProperties.getMfa().getBackupCodeCount(), response.backupCodes().size());
         response.backupCodes().forEach(rawCode -> assertTrue(rawCode.matches("[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}")));
         verify(backupCodeRepository).deleteByUserIdAndUsedAtIsNull(USER_ID);
-        verify(backupCodeRepository, times(authProperties.getMfa().getBackupCodeCount())).save(any(MfaBackupCode.class));
+        verify(backupCodeRepository).saveAll(argThat(codes -> {
+            int count = 0;
+            for (@SuppressWarnings("unused") MfaBackupCode ignored : codes) {
+                count++;
+            }
+            return count == authProperties.getMfa().getBackupCodeCount();
+        }));
         verify(tokenStorage).revokeAllSessions(USER_ID.toString());
         verify(securityEventService).recordForAuthenticatedUser(
                 SecurityEventType.MFA_CHANGED,
@@ -260,7 +270,7 @@ class MfaServiceTest {
         assertThrows(InvalidMfaCodeException.class, () ->
                 service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(credentialId, "current-pass", "000000")));
 
-        verify(backupCodeRepository, never()).save(any());
+        verify(backupCodeRepository, never()).saveAll(any());
         verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
     }
 }

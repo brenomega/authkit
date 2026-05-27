@@ -38,7 +38,8 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
         String path = request.getRequestURI();
-        return !path.startsWith("/api/v1/internal/");
+        return !path.startsWith("/api/v1/internal/")
+                && !"/actuator/prometheus".equals(path);
     }
 
     @Override

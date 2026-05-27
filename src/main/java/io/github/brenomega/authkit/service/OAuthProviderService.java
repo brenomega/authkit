@@ -18,6 +18,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,12 +31,14 @@ import io.github.brenomega.authkit.domain.user.dto.OAuthTokenResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
@@ -54,6 +57,8 @@ public class OAuthProviderService {
     private final JwtEncoder jwtEncoder;
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
+    private final PasswordEncoder passwordEncoder;
+    private final Argon2ConcurrencyLimiter argon2Limiter;
 
     public OAuthProviderService(OAuthClientRepository clientRepository,
                                 OAuthAuthorizationCodeRepository authorizationCodeRepository,
@@ -61,7 +66,9 @@ public class OAuthProviderService {
                                 UserRepository userRepository,
                                 JwtEncoder jwtEncoder,
                                 AuthProperties authProperties,
-                                SecurityEventService securityEventService) {
+                                SecurityEventService securityEventService,
+                                PasswordEncoder passwordEncoder,
+                                Argon2ConcurrencyLimiter argon2Limiter) {
         this.clientRepository = clientRepository;
         this.authorizationCodeRepository = authorizationCodeRepository;
         this.consentRepository = consentRepository;
@@ -69,6 +76,8 @@ public class OAuthProviderService {
         this.jwtEncoder = jwtEncoder;
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
+        this.passwordEncoder = passwordEncoder;
+        this.argon2Limiter = argon2Limiter;
     }
 
     @Transactional
@@ -238,13 +247,19 @@ public class OAuthProviderService {
         if (client.isPublicClient()) {
             return;
         }
-        if (clientSecret == null || clientSecret.isBlank()) {
+        if (clientSecret == null || clientSecret.isBlank() || clientSecret.length() > 256) {
             throw new InvalidOAuthRequestException();
         }
-        byte[] expected = client.getClientSecretHash().getBytes(StandardCharsets.UTF_8);
-        byte[] actual = TokenHasher.sha256Hex(clientSecret).getBytes(StandardCharsets.UTF_8);
-        if (!MessageDigest.isEqual(expected, actual)) {
-            throw new InvalidOAuthRequestException();
+        boolean acquired = argon2Limiter.tryAcquire();
+        if (!acquired) {
+            throw new AuthenticationCapacityExceededException();
+        }
+        try {
+            if (!passwordEncoder.matches(clientSecret, client.getClientSecretHash())) {
+                throw new InvalidOAuthRequestException();
+            }
+        } finally {
+            argon2Limiter.release();
         }
     }
 

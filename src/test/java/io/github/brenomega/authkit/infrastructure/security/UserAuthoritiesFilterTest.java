@@ -26,6 +26,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class UserAuthoritiesFilterTest {
 
@@ -40,7 +41,8 @@ class UserAuthoritiesFilterTest {
     void doFilterInternal_cachesUserAuthorityLookup() throws Exception {
         UserRepository userRepository = mock(UserRepository.class);
         AuthProperties authProperties = new AuthProperties();
-        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(userRepository, objectMapper(), authProperties);
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, objectMapper(), authProperties, new SimpleMeterRegistry());
         UUID userId = UUID.randomUUID();
         User user = mock(User.class);
 
@@ -63,7 +65,8 @@ class UserAuthoritiesFilterTest {
     void doFilterInternal_rejectsUnconfirmedUser() throws Exception {
         UserRepository userRepository = mock(UserRepository.class);
         AuthProperties authProperties = new AuthProperties();
-        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(userRepository, objectMapper(), authProperties);
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, objectMapper(), authProperties, new SimpleMeterRegistry());
         UUID userId = UUID.randomUUID();
         User user = mock(User.class);
         MockHttpServletResponse response = new MockHttpServletResponse();

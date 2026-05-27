@@ -153,6 +153,11 @@ authkit:
       backup-code-count: 10
       login-challenge-ttl-minutes: 5
       secret-encryption-key: test-only-authkit-mfa-secret-key-32-bytes
+      secret-encryption-key-id: test-mfa-key-1
+      previous-secret-encryption-keys: ''
+      secret-encryption-kdf-iterations: 1000
+      status-cache-ttl-seconds: 1
+      status-cache-max-size: 1000
     passkey:
       enabled: true
       rp-id: localhost

@@ -5,6 +5,9 @@ metadata:
   labels:
     app: authkit
 spec:
+  # /actuator/prometheus requires X-Worker-Token. If your Prometheus Operator
+  # version cannot set custom scrape headers, route this ServiceMonitor through
+  # an in-cluster scrape proxy that injects the worker token from authkit-secrets.
   selector:
     matchLabels:
       app: authkit

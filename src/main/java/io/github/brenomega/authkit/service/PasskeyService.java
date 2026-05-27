@@ -33,7 +33,6 @@ import com.yubico.webauthn.data.UserVerificationRequirement;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyChallenge;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyChallengeType;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
-import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
 import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionFinishRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsResponse;
@@ -184,8 +183,6 @@ public class PasskeyService {
                     transports,
                     request.label(),
                     result.isDiscoverable().orElse(false),
-                    result.isBackupEligible(),
-                    result.isBackedUp(),
                     Instant.now()));
 
             securityEventService.recordForAuthenticatedUser(
@@ -280,11 +277,9 @@ public class PasskeyService {
                     .orElseThrow(InvalidPasskeyCeremonyException::new);
 
             credentialRepository.markUsed(
-                    result.getCredentialId().getBase64Url(),
+                    result.getCredential().getCredentialId().getBase64Url(),
                     user.getId(),
                     result.getSignatureCount(),
-                    result.isBackupEligible(),
-                    result.isBackedUp(),
                     Instant.now());
 
             securityEventService.recordForAuthenticatedUser(
@@ -346,8 +341,6 @@ public class PasskeyService {
                 credential.getLabel(),
                 credential.getTransports(),
                 credential.isDiscoverable(),
-                credential.isBackupEligible(),
-                credential.isBackedUp(),
                 credential.getCreatedAt(),
                 credential.getLastUsedAt());
     }

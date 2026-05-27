@@ -9,7 +9,7 @@ Source surface reviewed:
 - `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/.well-known/openid-configuration`
 - `AdminController`: `/api/v1/admin/**`
 - `JwksController`: `/.well-known/jwks.json`
-- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, Redis token storage, Caffeine authority/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
+- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, Redis token storage, Caffeine authority/MFA-status/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
 
 ## Shared Infrastructure Path
 
@@ -21,11 +21,11 @@ Current request order in the codebase is:
 4. `RateLimitingFilter` resolves the real client IP, applies local Caffeine rate limiting first, then distributed Redis Bucket4j rate limiting.
 5. `RequestBodySizeLimitFilter` rejects oversized POST/PUT/PATCH bodies before JSON parsing or password hashing.
 6. Spring OAuth2 resource-server JWT validation runs for authenticated routes.
-7. `WorkerAuthFilter` applies only to `/api/v1/internal/**`; no controller endpoint for that prefix currently exists in this repository.
+7. `WorkerAuthFilter` applies to `/api/v1/internal/**` and `/actuator/prometheus`; no controller endpoint for the internal prefix currently exists in this repository.
 8. `UserAuthoritiesFilter` refreshes authorities from a local Caffeine cache; on cache miss it loads the current user snapshot from PostgreSQL.
 9. Controller/service logic executes.
 10. Durable security events are written through a bounded async writer, with synchronous fallback when configured.
-11. Metrics are exposed at `/actuator/prometheus`; alerts are defined in `k8s/06-prometheus-rules.yaml`.
+11. Metrics are exposed at `/actuator/prometheus` only when the internal worker token is supplied; alerts are defined in `k8s/06-prometheus-rules.yaml`.
 
 ```mermaid
 sequenceDiagram
@@ -123,7 +123,7 @@ sequenceDiagram
 | `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | Argon2 limiter, lockout check, MFA step-up, audit DB |
 | `GET /api/v1/users/me/sessions` | Bearer JWT | Redis refresh sessions | Authority Caffeine/DB cache |
-| `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | Authority Caffeine/DB cache, tenant check |
+| `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | Authority Caffeine/DB cache, MFA status cache, tenant check |
 | `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | Argon2 limiter, encrypted secret storage, audit DB |
 | `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | TOTP verification, hashed backup codes, session revocation, audit DB |
 | `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA step-up, backup-code cleanup, session revocation, audit DB |
@@ -140,7 +140,7 @@ sequenceDiagram
 | `GET /api/v1/admin/users` | ADMIN bearer JWT | PostgreSQL users | Server-side admin enforcement, authority cache |
 | `PATCH /api/v1/admin/users/{userId}/role` | ADMIN bearer JWT + MFA if enabled | PostgreSQL user role | MFA step-up, last-admin guard, audit DB |
 | `GET /api/v1/admin/tenants` | ADMIN bearer JWT | PostgreSQL users | Tenant inventory |
-| `GET/POST/PATCH/DELETE /api/v1/admin/oauth-clients/**` | ADMIN bearer JWT + MFA for writes | PostgreSQL OAuth clients | Client secret one-time return, hashed secret storage, audit DB |
+| `GET/POST/PATCH/DELETE /api/v1/admin/oauth-clients/**` | ADMIN bearer JWT + MFA for writes | PostgreSQL OAuth clients | Client secret one-time return, slow-hashed secret storage, audit DB |
 | `GET /.well-known/jwks.json` | Public | RSA public key config | Downstream stateless JWT verification |
 
 ## 1. Login
@@ -209,7 +209,7 @@ sequenceDiagram
                 else MFA not enabled
                     AS->>LS: clearLockout(email)
                     AS->>TS: storeRefreshToken(userId,jti,hashedToken,ttl)
-                    TS->>TS: Store token hash and family id in Redis hash
+                    TS->>TS: Store token hash plus O(1) family pointer in Redis
                     AS->>JWT: Sign RS256 JWT with iss,aud,sub,jti,tenant_id,amr=["pwd"],exp
                     AS->>AUD: LOGIN_SUCCESS
                     AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
@@ -284,7 +284,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/refresh`
 
-Infrastructure role: refresh is public at the route layer but requires a valid refresh cookie; CSRF is enforced through double-submit cookie/header before service logic; token rotation is atomic in Redis Lua; reuse detection revokes the refresh-token family and emits critical audit/alert signals.
+Infrastructure role: refresh is public at the route layer but requires a valid refresh cookie; CSRF is enforced through double-submit cookie/header before service logic; token rotation is atomic in Redis Lua; refresh-token family pointers allow O(1) reuse detection and family revocation without scanning every session for the user.
 
 ```mermaid
 sequenceDiagram
@@ -318,7 +318,7 @@ sequenceDiagram
             else User active
                 AS->>LS: isLocked(user.email)
                 AS->>TS: rotateRefreshToken(currentJti,currentRaw,nextJti,nextRaw)
-                TS->>TS: Redis Lua validates current hash, deletes current JTI, stores next JTI
+                TS->>TS: Redis Lua validates hash, swaps JTI, updates family pointer
                 alt Redis detects same-family reuse
                     TS-->>AS: TokenFamilyCompromisedException
                     AS->>AUD: REFRESH_TOKEN_REUSE_DETECTED critical
@@ -808,7 +808,7 @@ sequenceDiagram
 
 `GET /api/v1/users/me/mfa`, `POST /api/v1/users/me/mfa/totp/enroll`, `POST /api/v1/users/me/mfa/totp/confirm`, `DELETE /api/v1/users/me/mfa/totp`, `POST /api/v1/users/me/mfa/backup-codes`
 
-Infrastructure role: MFA management is bearer-authenticated and scoped to the JWT subject. Enrollment requires current-password step-up and replaces stale pending credentials. TOTP secrets are encrypted with AES-GCM before PostgreSQL persistence. Confirmation verifies a live TOTP code, generates one-time backup codes, stores only keyed hashes, revokes refresh sessions, and audits the change. Disabling MFA and regenerating backup codes require both current-password and MFA proof.
+Infrastructure role: MFA management is bearer-authenticated and scoped to the JWT subject. Enrollment requires current-password step-up and replaces stale pending credentials. TOTP secrets are encrypted with versioned AES-GCM envelopes using PBKDF2-derived keys and a key id before PostgreSQL persistence. Confirmation verifies a live TOTP code, generates one-time backup codes, stores only keyed hashes, revokes refresh sessions, and audits the change. Disabling MFA and regenerating backup codes require both current-password and MFA proof.
 
 ```mermaid
 sequenceDiagram
@@ -1084,7 +1084,7 @@ sequenceDiagram
         PS-->>C: 400 Invalid passkey ceremony
     else Assertion valid
         PS->>DB: Atomically consume challenge
-        PS->>DB: Update signatureCount, backup flags, lastUsedAt
+        PS->>DB: Update signatureCount and lastUsedAt
         PS->>AUD: PASSKEY_AUTHENTICATED
         PS->>AS: issueLoginForVerifiedUser(user, ["webauthn"])
         AS->>TS: Store refresh token hash/family in Redis
@@ -1304,10 +1304,10 @@ Production strengths visible in the current implementation:
 - Reverse-proxy trust boundary is enforced in Kubernetes and in application filters.
 - Volumetric protection happens before JSON parsing and password hashing.
 - Password hashing work is concurrency-bounded to reduce hashing DoS risk.
-- Refresh tokens are HttpOnly cookies, server-side hashed in Redis, rotated atomically, and family reuse is audited as critical.
-- MFA login challenges are one-time Redis entries; TOTP secrets are encrypted at rest; backup codes are stored as keyed hashes and consumed atomically.
+- Refresh tokens are HttpOnly cookies, server-side hashed in Redis, rotated atomically with O(1) family pointers, and family reuse is audited as critical.
+- MFA login challenges are one-time Redis entries; TOTP secrets are encrypted at rest with versioned AES-GCM envelopes and PBKDF2-derived keys; backup codes are stored as keyed hashes and consumed atomically.
 - Passkey/WebAuthn ceremonies are verified by Yubico `webauthn-server-core`; authenticator user verification is required, only public credential material is persisted, registration/disablement require password step-up plus MFA when enabled, short-lived challenges are one-time database rows, and passkey login emits `amr=["webauthn"]`.
-- OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, exact redirect URI validation, JWKS-backed RS256 token signing, and admin-managed client registration.
+- OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, slow-hashed confidential client secrets, exact redirect URI validation, JWKS-backed RS256 token signing, and admin-managed client registration.
 - The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, MFA step-up for sensitive writes when enabled, one-time OAuth client secret return, and high-severity durable audit events.
 - Authenticated routes rehydrate live authorities instead of trusting stale JWT roles indefinitely.
 - Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend.
@@ -1317,10 +1317,10 @@ Production strengths visible in the current implementation:
 
 Operational caveats to keep in mind before production:
 
-- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges; rate limiting and lockout have local fallback, but token flows do not.
+- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges and must require authentication; rate limiting and lockout have local fallback, but token flows do not.
 - The Kubernetes service is intended to sit behind an ingress controller; real client IP handling depends on trusted ingress/proxy headers and the configured `network.proxy-depth`.
 - No frontend is included in this repository; browser storage, XSS controls, and redirect UX must be validated in the consuming application.
-- `/actuator/prometheus` is intentionally public in the app security rules; production exposure should be constrained by Kubernetes network policy, ingress rules, or monitoring-network controls.
+- `/actuator/prometheus` requires the internal worker token. Production scraping should inject `X-Worker-Token` from a secret through Prometheus, a scrape proxy, or ingress-level header injection, and still constrain source networks with NetworkPolicy.
 - NetworkPolicy cannot restrict Resend egress by FQDN; production clusters should use an egress gateway, DNS policy, or cloud firewall where available.
 - Downstream services must validate JWT issuer, audience, expiration, signature, and `kid`, and should not call AuthKit per request unless they need a live revocation/authorization decision beyond token TTL.
 - OAuth2/OIDC support currently implements the provider role; social-login relying-party federation is intentionally not part of this service role and should be added as a separate integration if needed.

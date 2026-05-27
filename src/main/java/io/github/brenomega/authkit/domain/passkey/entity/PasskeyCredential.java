@@ -47,12 +47,6 @@ public class PasskeyCredential {
     @Column(name = "discoverable", nullable = false)
     private boolean discoverable;
 
-    @Column(name = "backup_eligible", nullable = false)
-    private boolean backupEligible;
-
-    @Column(name = "backed_up", nullable = false)
-    private boolean backedUp;
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -73,8 +67,6 @@ public class PasskeyCredential {
                              String transports,
                              String label,
                              boolean discoverable,
-                             boolean backupEligible,
-                             boolean backedUp,
                              Instant createdAt) {
         this.userId = userId;
         this.tenantId = tenantId;
@@ -84,8 +76,6 @@ public class PasskeyCredential {
         this.transports = transports;
         this.label = label;
         this.discoverable = discoverable;
-        this.backupEligible = backupEligible;
-        this.backedUp = backedUp;
         this.createdAt = createdAt;
     }
 
@@ -125,14 +115,6 @@ public class PasskeyCredential {
         return discoverable;
     }
 
-    public boolean isBackupEligible() {
-        return backupEligible;
-    }
-
-    public boolean isBackedUp() {
-        return backedUp;
-    }
-
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -149,10 +131,8 @@ public class PasskeyCredential {
         return disabledAt == null;
     }
 
-    public void markUsed(long newSignatureCount, boolean backupEligible, boolean backedUp, Instant usedAt) {
+    public void markUsed(long newSignatureCount, Instant usedAt) {
         this.signatureCount = newSignatureCount;
-        this.backupEligible = backupEligible;
-        this.backedUp = backedUp;
         this.lastUsedAt = usedAt;
     }
 

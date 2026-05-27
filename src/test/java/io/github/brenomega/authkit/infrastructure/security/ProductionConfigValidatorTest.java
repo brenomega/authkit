@@ -30,6 +30,7 @@ class ProductionConfigValidatorTest {
         return new MockEnvironment()
                 .withProperty("spring.datasource.username", "authkit")
                 .withProperty("spring.datasource.password", "db-prod-secret")
+                .withProperty("spring.data.redis.password", "redis-prod-secret")
                 .withProperty("spring.rabbitmq.username", "authkit")
                 .withProperty("spring.rabbitmq.password", "rabbit-prod-secret")
                 .withProperty("app.security.worker-token", "worker-prod-secret")
@@ -43,11 +44,19 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.compliance.privacy-policy-version", "privacy-2026")
                 .withProperty("authkit.auth.compliance.lawful-basis", "consent")
                 .withProperty("authkit.auth.audit.hash-pepper", "production-audit-hash-pepper-at-least-32-chars")
+                .withProperty("authkit.auth.mfa.secret-encryption-key", "production-mfa-secret-key-at-least-32-chars")
+                .withProperty("authkit.auth.mfa.secret-encryption-key-id", "prod-mfa-key-2026-05")
+                .withProperty("authkit.auth.mfa.previous-secret-encryption-keys", "")
+                .withProperty("authkit.auth.mfa.secret-encryption-kdf-iterations", "210000")
                 .withProperty("authkit.auth.cookie.http-only", "true")
                 .withProperty("authkit.auth.cookie.secure", "true")
                 .withProperty("authkit.auth.csrf.enabled", "true")
                 .withProperty("authkit.auth.csrf.cookie-name", "XSRF-TOKEN")
                 .withProperty("authkit.auth.csrf.header-name", "X-XSRF-TOKEN")
-                .withProperty("authkit.auth.registration.stealth-conflicts", "true");
+                .withProperty("authkit.auth.registration.stealth-conflicts", "true")
+                .withProperty("authkit.auth.passkey.allow-origin-port", "false")
+                .withProperty("security.argon2.memory", "32768")
+                .withProperty("security.argon2.iterations", "2")
+                .withProperty("security.argon2.parallelism", "2");
     }
 }

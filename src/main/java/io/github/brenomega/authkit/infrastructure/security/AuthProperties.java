@@ -711,6 +711,22 @@ public class AuthProperties {
         @Pattern(regexp = "^(?!\\$\\{).+")
         private String secretEncryptionKey = "test-only-authkit-mfa-secret-key-32-bytes";
 
+        @NotBlank
+        @Pattern(regexp = "[A-Za-z0-9._-]{1,64}")
+        private String secretEncryptionKeyId = "mfa-key-1";
+
+        private String previousSecretEncryptionKeys = "";
+
+        @Min(1)
+        private int secretEncryptionKdfIterations = 210000;
+
+        @Min(1)
+        @Max(300)
+        private long statusCacheTtlSeconds = 60;
+
+        @Min(1)
+        private long statusCacheMaxSize = 10000;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -741,6 +757,46 @@ public class AuthProperties {
 
         public void setSecretEncryptionKey(String secretEncryptionKey) {
             this.secretEncryptionKey = secretEncryptionKey;
+        }
+
+        public String getSecretEncryptionKeyId() {
+            return secretEncryptionKeyId;
+        }
+
+        public void setSecretEncryptionKeyId(String secretEncryptionKeyId) {
+            this.secretEncryptionKeyId = secretEncryptionKeyId;
+        }
+
+        public String getPreviousSecretEncryptionKeys() {
+            return previousSecretEncryptionKeys;
+        }
+
+        public void setPreviousSecretEncryptionKeys(String previousSecretEncryptionKeys) {
+            this.previousSecretEncryptionKeys = previousSecretEncryptionKeys;
+        }
+
+        public int getSecretEncryptionKdfIterations() {
+            return secretEncryptionKdfIterations;
+        }
+
+        public void setSecretEncryptionKdfIterations(int secretEncryptionKdfIterations) {
+            this.secretEncryptionKdfIterations = secretEncryptionKdfIterations;
+        }
+
+        public long getStatusCacheTtlSeconds() {
+            return statusCacheTtlSeconds;
+        }
+
+        public void setStatusCacheTtlSeconds(long statusCacheTtlSeconds) {
+            this.statusCacheTtlSeconds = statusCacheTtlSeconds;
+        }
+
+        public long getStatusCacheMaxSize() {
+            return statusCacheMaxSize;
+        }
+
+        public void setStatusCacheMaxSize(long statusCacheMaxSize) {
+            this.statusCacheMaxSize = statusCacheMaxSize;
         }
     }
 

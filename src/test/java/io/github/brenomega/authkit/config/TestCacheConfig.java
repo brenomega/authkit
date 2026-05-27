@@ -34,6 +34,7 @@ public class TestCacheConfig {
         
         Map<String, Map<Object, Object>> hashCache = new HashMap<>();
         Map<String, String> valueCache = new HashMap<>();
+        Map<String, Set<String>> setCache = new HashMap<>();
         
         // Mock ValueOperations — set with TTL
         Mockito.doAnswer(invocation -> {
@@ -92,6 +93,7 @@ public class TestCacheConfig {
             String key = invocation.getArgument(0);
             valueCache.remove(key);
             hashCache.remove(key);
+            setCache.remove(key);
             return Boolean.TRUE;
         }).when(template).delete(Mockito.anyString());
 
@@ -106,14 +108,15 @@ public class TestCacheConfig {
             Object[] args = invocation.getArguments();
 
             if (args.length == 3) {
-                if (key.startsWith("refresh:token:")) {
-                    String currentJti = args[2].toString();
-                    Map<Object, Object> sessions = hashCache.get(key);
-                    if (sessions != null) {
-                        sessions.keySet().removeIf(jti -> !jti.equals(currentJti));
-                        return Long.valueOf(sessions.size());
+                if (isRefreshTokenKey(key)) {
+                    String familiesKey = (String) keys.get(1);
+                    Set<String> families = setCache.remove(familiesKey);
+                    if (families != null) {
+                        String familyKeyPrefix = args[2].toString();
+                        families.forEach(family -> valueCache.remove(familyKeyPrefix + family));
                     }
-                    return 0L;
+                    Map<Object, Object> removed = hashCache.remove(key);
+                    return removed == null ? 0L : Long.valueOf(removed.size());
                 }
                 String inputHash = args[2].toString();
                 String storedHash = valueCache.get(key);
@@ -132,7 +135,23 @@ public class TestCacheConfig {
 
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
+            String tokenKey = (String) keys.get(0);
+            String familyKey = (String) keys.get(1);
+            String familiesKey = (String) keys.get(2);
+            String jti = invocation.getArgument(2).toString();
+            String value = invocation.getArgument(3).toString();
+            String familyId = invocation.getArgument(5).toString();
+            hashCache.computeIfAbsent(tokenKey, k -> new HashMap<>()).put(jti, value);
+            valueCache.put(familyKey, jti);
+            setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(familyId);
+            return Boolean.TRUE;
+        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
+            String familyKey = (String) keys.get(1);
+            String familiesKey = (String) keys.get(2);
             String currentJti = invocation.getArgument(2).toString();
             String currentHash = invocation.getArgument(3).toString();
             String nextJti = invocation.getArgument(4).toString();
@@ -158,6 +177,8 @@ public class TestCacheConfig {
                 if (currentHash.equals(storedHash)) {
                     sessions.remove(currentJti);
                     sessions.put(nextJti, nextHash + ":" + storedFamily);
+                    valueCache.put(familyKey, nextJti);
+                    setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(storedFamily);
                     return 1L;
                 }
             }
@@ -192,6 +213,11 @@ public class TestCacheConfig {
                 for (Object k : keysToRemove) {
                     sessions.remove(k);
                 }
+                valueCache.remove(familyKey);
+                Set<String> families = setCache.get(familiesKey);
+                if (families != null) {
+                    families.remove(currentFamilyId);
+                }
                 return -1L; // Compromised!
             }
 
@@ -210,14 +236,14 @@ public class TestCacheConfig {
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
-            if (key.startsWith("refresh:token:")) {
-                String currentJti = invocation.getArgument(2).toString();
-                Map<Object, Object> sessions = hashCache.get(key);
-                if (sessions != null) {
-                    sessions.keySet().removeIf(jti -> !jti.equals(currentJti));
-                    return Long.valueOf(sessions.size());
+            if (isRefreshTokenKey(key)) {
+                Set<String> families = setCache.remove((String) keys.get(1));
+                if (families != null) {
+                    String familyKeyPrefix = invocation.getArgument(2).toString();
+                    families.forEach(family -> valueCache.remove(familyKeyPrefix + family));
                 }
-                return 0L;
+                Map<Object, Object> removed = hashCache.remove(key);
+                return removed == null ? 0L : Long.valueOf(removed.size());
             }
             String inputHash = invocation.getArgument(2).toString();
             String storedHash = valueCache.get(key);
@@ -227,9 +253,77 @@ public class TestCacheConfig {
             }
             return 0L;
         }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any());
+
+        Mockito.doAnswer(invocation -> {
+            java.util.List<?> keys = invocation.getArgument(1);
+            String key = (String) keys.get(0);
+            if (isRefreshTokenKey(key)) {
+                org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+                String jti = invocation.getArgument(2).toString();
+                String familyKeyPrefix = invocation.getArgument(3).toString();
+                Map<Object, Object> sessions = hashCache.get(key);
+                if (sessions == null) {
+                    return 0L;
+                }
+                if (script.getScriptAsString().contains("fields[i] ~= ARGV[1]")) {
+                    java.util.List<Object> removed = new java.util.ArrayList<>();
+                    sessions.keySet().forEach(existingJti -> {
+                        if (!existingJti.equals(jti)) {
+                            removed.add(existingJti);
+                        }
+                    });
+                    removed.forEach(existingJti -> removeRefreshSession(
+                            sessions,
+                            (String) keys.get(1),
+                            familyKeyPrefix,
+                            existingJti,
+                            valueCache,
+                            setCache));
+                    return Long.valueOf(removed.size());
+                }
+                return removeRefreshSession(
+                        sessions,
+                        (String) keys.get(1),
+                        familyKeyPrefix,
+                        jti,
+                        valueCache,
+                        setCache);
+            }
+            return 0L;
+        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any());
         
         Mockito.when(template.opsForValue()).thenReturn(valueOps);
         Mockito.when(template.opsForHash()).thenReturn(hashOps);
         return template;
+    }
+
+    private static boolean isRefreshTokenKey(String key) {
+        return key.startsWith("refresh:{") && key.endsWith("}:tokens");
+    }
+
+    private static long removeRefreshSession(Map<Object, Object> sessions,
+                                             String familiesKey,
+                                             String familyKeyPrefix,
+                                             Object jti,
+                                             Map<String, String> valueCache,
+                                             Map<String, Set<String>> setCache) {
+        Object stored = sessions.remove(jti);
+        if (stored == null) {
+            return 0L;
+        }
+        String storedValue = stored.toString();
+        int colonIdx = storedValue.indexOf(':');
+        if (colonIdx != -1) {
+            String family = storedValue.substring(colonIdx + 1);
+            valueCache.remove(familyKeyPrefix + family);
+            Set<String> families = setCache.get(familiesKey);
+            if (families != null) {
+                families.remove(family);
+            }
+        }
+        if (sessions.isEmpty()) {
+            setCache.remove(familiesKey);
+        }
+        return 1L;
     }
 }

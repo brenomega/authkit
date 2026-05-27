@@ -42,6 +42,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
+import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
 import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -67,6 +68,7 @@ public class MfaService {
     private final SecurityEventService securityEventService;
     private final AuditDigestService auditDigestService;
     private final TokenStorage tokenStorage;
+    private final MfaStatusCache mfaStatusCache;
     private final TotpGenerator totpGenerator = new TotpGenerator();
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -79,7 +81,8 @@ public class MfaService {
                       AuthProperties authProperties,
                       SecurityEventService securityEventService,
                       AuditDigestService auditDigestService,
-                      TokenStorage tokenStorage) {
+                      TokenStorage tokenStorage,
+                      MfaStatusCache mfaStatusCache) {
         this.userRepository = userRepository;
         this.totpRepository = totpRepository;
         this.backupCodeRepository = backupCodeRepository;
@@ -90,6 +93,7 @@ public class MfaService {
         this.securityEventService = securityEventService;
         this.auditDigestService = auditDigestService;
         this.tokenStorage = tokenStorage;
+        this.mfaStatusCache = mfaStatusCache;
     }
 
     @Transactional(readOnly = true)
@@ -170,6 +174,7 @@ public class MfaService {
         credential.confirm(Instant.now());
         credential.markTimeStepUsed(result.timeStep());
         List<String> backupCodes = regenerateBackupCodes(user);
+        mfaStatusCache.evict(user.getId());
         tokenStorage.revokeAllSessions(user.getId().toString());
 
         securityEventService.recordForAuthenticatedUser(
@@ -193,6 +198,7 @@ public class MfaService {
         totpRepository.findByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId())
                 .forEach(credential -> credential.disable(now));
         backupCodeRepository.deleteByUserIdAndUsedAtIsNull(user.getId());
+        mfaStatusCache.evict(user.getId());
         tokenStorage.revokeAllSessions(user.getId().toString());
 
         securityEventService.recordForAuthenticatedUser(
@@ -224,7 +230,9 @@ public class MfaService {
     @Transactional(readOnly = true)
     public boolean isMfaEnabled(User user) {
         return authProperties.getMfa().isEnabled()
-                && totpRepository.existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId());
+                && mfaStatusCache.isEnabled(
+                        user.getId(),
+                        () -> totpRepository.existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId()));
     }
 
     @Transactional
@@ -292,15 +300,18 @@ public class MfaService {
     private List<String> regenerateBackupCodes(User user) {
         backupCodeRepository.deleteByUserIdAndUsedAtIsNull(user.getId());
         List<String> rawCodes = new ArrayList<>();
+        List<MfaBackupCode> hashedCodes = new ArrayList<>(authProperties.getMfa().getBackupCodeCount());
+        Instant now = Instant.now();
         for (int i = 0; i < authProperties.getMfa().getBackupCodeCount(); i++) {
             String code = newBackupCode();
             rawCodes.add(code);
-            backupCodeRepository.save(new MfaBackupCode(
+            hashedCodes.add(new MfaBackupCode(
                     user.getId(),
                     user.getTenantId(),
                     backupCodeHash(user.getId(), normalizeCode(code)),
-                    Instant.now()));
+                    now));
         }
+        backupCodeRepository.saveAll(hashedCodes);
         return List.copyOf(rawCodes);
     }
 
