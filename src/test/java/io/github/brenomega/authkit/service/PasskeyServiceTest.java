@@ -1,14 +1,19 @@
 package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
+
+import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationFinishRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidPasskeyCeremonyException;
+import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +57,30 @@ class PasskeyServiceTest {
                 user.getId().toString(),
                 new PasskeyRegistrationFinishRequest(options.challengeId(), "Laptop", "{}")));
         assertEqualsZero(passkeyCredentialRepository.countByUserIdAndDisabledAtIsNull(user.getId()));
+    }
+
+    @Test
+    @DisplayName("Passkey disable cannot target another user's credential")
+    void disable_rejectsCredentialOwnedByAnotherUser() {
+        User caller = confirmedUser("passkey-caller@example.com");
+        User victim = confirmedUser("passkey-victim@example.com");
+        PasskeyCredential credential = passkeyCredentialRepository.save(new PasskeyCredential(
+                victim.getId(),
+                victim.getTenantId(),
+                "credential-" + victim.getId(),
+                "public-key-cose",
+                0,
+                "internal",
+                "Victim Credential",
+                true,
+                Instant.now()));
+
+        assertThrows(UserNotFoundException.class, () -> passkeyService.disable(
+                caller.getId().toString(),
+                credential.getId(),
+                new StepUpRequest("Password123!")));
+
+        assertNull(passkeyCredentialRepository.findById(credential.getId()).orElseThrow().getDisabledAt());
     }
 
     private void assertEqualsZero(long value) {

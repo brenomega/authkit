@@ -40,7 +40,7 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/v1/users/me")
-@PreAuthorize("hasAnyRole('USER', 'OWNER', 'ADMIN')")
+@PreAuthorize("hasAnyRole('USER', 'OWNER', 'TENANT_ADMIN', 'ADMIN')")
 public class UserController {
 
     private final ProfileService profileService;

@@ -16,10 +16,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
+import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
+import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
+import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 /**
@@ -35,6 +41,12 @@ public class DataRetentionService {
     private final UserRepository userRepository;
     private final PasskeyChallengeRepository passkeyChallengeRepository;
     private final OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository;
+    private final MfaTotpCredentialRepository mfaTotpCredentialRepository;
+    private final MfaBackupCodeRepository mfaBackupCodeRepository;
+    private final PasskeyCredentialRepository passkeyCredentialRepository;
+    private final OAuthConsentRepository oauthConsentRepository;
+    private final ConsentEventRepository consentEventRepository;
+    private final EmailOutboxService emailOutboxService;
     private final AuthProperties authProperties;
     private final MeterRegistry meterRegistry;
     private final TransactionTemplate transactionTemplate;
@@ -43,6 +55,12 @@ public class DataRetentionService {
                                 UserRepository userRepository,
                                 PasskeyChallengeRepository passkeyChallengeRepository,
                                 OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository,
+                                MfaTotpCredentialRepository mfaTotpCredentialRepository,
+                                MfaBackupCodeRepository mfaBackupCodeRepository,
+                                PasskeyCredentialRepository passkeyCredentialRepository,
+                                OAuthConsentRepository oauthConsentRepository,
+                                ConsentEventRepository consentEventRepository,
+                                EmailOutboxService emailOutboxService,
                                 AuthProperties authProperties,
                                 MeterRegistry meterRegistry,
                                 TransactionTemplate transactionTemplate) {
@@ -50,6 +68,12 @@ public class DataRetentionService {
         this.userRepository = userRepository;
         this.passkeyChallengeRepository = passkeyChallengeRepository;
         this.oauthAuthorizationCodeRepository = oauthAuthorizationCodeRepository;
+        this.mfaTotpCredentialRepository = mfaTotpCredentialRepository;
+        this.mfaBackupCodeRepository = mfaBackupCodeRepository;
+        this.passkeyCredentialRepository = passkeyCredentialRepository;
+        this.oauthConsentRepository = oauthConsentRepository;
+        this.consentEventRepository = consentEventRepository;
+        this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
         this.meterRegistry = meterRegistry;
         this.transactionTemplate = transactionTemplate;
@@ -144,6 +168,19 @@ public class DataRetentionService {
         if (ids.isEmpty()) {
             return 0;
         }
+        List<String> emails = userRepository.findAllById(ids).stream()
+                .map(user -> user.getEmail())
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        passkeyChallengeRepository.deleteByUserIdIn(ids);
+        oauthAuthorizationCodeRepository.deleteByUserIdIn(ids);
+        oauthConsentRepository.deleteByUserIdIn(ids);
+        passkeyCredentialRepository.deleteByUserIdIn(ids);
+        mfaBackupCodeRepository.deleteByUserIdIn(ids);
+        mfaTotpCredentialRepository.deleteByUserIdIn(ids);
+        securityEventRepository.purgeByUserReferences(ids);
+        consentEventRepository.deleteByUserIdIn(ids);
+        emailOutboxService.deleteByRecipients(emails);
         return userRepository.purgeDeletedByIdIn(ids);
     }
 

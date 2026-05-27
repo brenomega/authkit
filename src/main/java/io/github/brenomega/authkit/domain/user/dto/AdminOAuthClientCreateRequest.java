@@ -14,6 +14,16 @@ public record AdminOAuthClientCreateRequest(
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 512) String> redirectUris,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 80) String> scopes,
         boolean requirePkce,
+        @Size(max = 128) String currentPassword,
         @Size(max = 32) String mfaCode
 ) {
+    public AdminOAuthClientCreateRequest(UUID tenantId,
+                                         String displayName,
+                                         boolean publicClient,
+                                         Set<String> redirectUris,
+                                         Set<String> scopes,
+                                         boolean requirePkce,
+                                         String mfaCode) {
+        this(tenantId, displayName, publicClient, redirectUris, scopes, requirePkce, null, mfaCode);
+    }
 }

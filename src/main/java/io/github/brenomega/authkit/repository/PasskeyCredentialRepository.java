@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -54,4 +55,7 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
                and credential.disabledAt is null
             """)
     List<PasskeyCredential> findActiveByUserIds(@Param("userIds") Set<UUID> userIds);
+
+    @Modifying
+    long deleteByUserIdIn(Collection<UUID> userIds);
 }

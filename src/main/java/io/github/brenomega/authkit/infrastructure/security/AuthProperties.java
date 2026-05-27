@@ -40,6 +40,9 @@ public class AuthProperties {
     private Registration registration = new Registration();
 
     @Valid
+    private StepUp stepUp = new StepUp();
+
+    @Valid
     private AuthorityCache authorityCache = new AuthorityCache();
 
     @Valid
@@ -109,6 +112,14 @@ public class AuthProperties {
 
     public void setRegistration(Registration registration) {
         this.registration = registration;
+    }
+
+    public StepUp getStepUp() {
+        return stepUp;
+    }
+
+    public void setStepUp(StepUp stepUp) {
+        this.stepUp = stepUp;
     }
 
     public AuthorityCache getAuthorityCache() {
@@ -403,12 +414,39 @@ public class AuthProperties {
 
         private boolean stealthConflicts = true;
 
+        @Min(1)
+        @Max(168)
+        private long emailConfirmationTtlHours = 24;
+
         public boolean isStealthConflicts() {
             return stealthConflicts;
         }
 
         public void setStealthConflicts(boolean stealthConflicts) {
             this.stealthConflicts = stealthConflicts;
+        }
+
+        public long getEmailConfirmationTtlHours() {
+            return emailConfirmationTtlHours;
+        }
+
+        public void setEmailConfirmationTtlHours(long emailConfirmationTtlHours) {
+            this.emailConfirmationTtlHours = emailConfirmationTtlHours;
+        }
+    }
+
+    public static class StepUp {
+
+        @Min(60)
+        @Max(900)
+        private long passkeyFreshnessSeconds = 300;
+
+        public long getPasskeyFreshnessSeconds() {
+            return passkeyFreshnessSeconds;
+        }
+
+        public void setPasskeyFreshnessSeconds(long passkeyFreshnessSeconds) {
+            this.passkeyFreshnessSeconds = passkeyFreshnessSeconds;
         }
     }
 

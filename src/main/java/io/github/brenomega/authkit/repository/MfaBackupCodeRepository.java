@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.repository;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,4 +28,7 @@ public interface MfaBackupCodeRepository extends JpaRepository<MfaBackupCode, UU
 
     @Modifying
     void deleteByUserIdAndUsedAtIsNull(UUID userId);
+
+    @Modifying
+    long deleteByUserIdIn(Collection<UUID> userIds);
 }

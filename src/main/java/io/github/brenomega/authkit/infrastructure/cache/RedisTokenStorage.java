@@ -197,6 +197,15 @@ public class RedisTokenStorage implements TokenStorage {
 
     @SuppressWarnings("null")
     @Override
+    public boolean isSessionActive(String userId, String jti) {
+        if (userId == null || userId.isBlank() || jti == null || jti.isBlank()) {
+            return false;
+        }
+        return redisTemplate.opsForHash().get(tokenKey(userId), jti) != null;
+    }
+
+    @SuppressWarnings("null")
+    @Override
     public boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
                                       String nextJti, String nextRawToken, long durationDays) {
         String currentHash = hashToken(currentRawToken);

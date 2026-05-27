@@ -2,6 +2,8 @@ package io.github.brenomega.authkit;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,10 +19,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
@@ -43,6 +49,12 @@ public class AuthIntegrationTest {
 
     @Autowired
     private SecurityEventRepository securityEventRepository;
+
+    @Autowired
+    private EmailOutboxRepository emailOutboxRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
@@ -214,8 +226,22 @@ public class AuthIntegrationTest {
                         .header("X-XSRF-TOKEN", csrfCookie.getValue()))
                 .andExpect(status().isUnauthorized());
 
+        String accessToken = accessToken(loginResult);
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+
         User user = userRepository.findByEmail("logout-flow@example.com").orElseThrow();
         assertSecurityEvent(user, SecurityEventType.LOGOUT);
+    }
+
+    @Test
+    @DisplayName("Logout-all, session revocation, password reset, and account deletion invalidate old access tokens")
+    void sensitiveRevocationsInvalidateBoundAccessTokens() throws Exception {
+        assertAccessTokenRevokedAfterLogoutAll();
+        assertAccessTokenRevokedAfterSessionRevocation();
+        assertAccessTokenRevokedAfterPasswordReset();
+        assertAccessTokenRevokedAfterAccountDeletion();
     }
 
     @Test
@@ -256,6 +282,107 @@ public class AuthIntegrationTest {
         User user = registrationService.registerUser(registerRequest);
         user.setEmailConfirmed(true);
         return userRepository.save(user);
+    }
+
+    private void assertAccessTokenRevokedAfterLogoutAll() throws Exception {
+        MvcResult login = login("logout-all-revoke@example.com", "SuperPassword123!");
+        String accessToken = accessToken(login);
+
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/auth/logout-all")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private void assertAccessTokenRevokedAfterSessionRevocation() throws Exception {
+        MvcResult login = login("session-revoke@example.com", "SuperPassword123!");
+        String accessToken = accessToken(login);
+        String jti = jwtClaim(accessToken, "jti").asText();
+
+        mockMvc.perform(delete("/api/v1/users/me/sessions/{jti}", jti)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @SuppressWarnings("null")
+private void assertAccessTokenRevokedAfterPasswordReset() throws Exception {
+        MvcResult login = login("reset-revoke@example.com", "SuperPassword123!");
+        String accessToken = accessToken(login);
+
+        mockMvc.perform(post("/api/v1/auth/password-recovery/request")
+                        .contentType("application/json")
+                        .content("{\"email\":\"reset-revoke@example.com\"}"))
+                .andExpect(status().isOk());
+        String body = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc("reset-revoke@example.com")
+                .orElseThrow()
+                .getBody();
+        String token = queryParameter(body, "token");
+        mockMvc.perform(post("/api/v1/auth/password-recovery/reset")
+                        .param("email", "reset-revoke@example.com")
+                        .contentType("application/json")
+                        .content("""
+                                {"token":"%s","newPassword":"NewPassword123!"}
+                                """.formatted(token)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private void assertAccessTokenRevokedAfterAccountDeletion() throws Exception {
+        MvcResult login = login("delete-revoke@example.com", "SuperPassword123!");
+        String accessToken = accessToken(login);
+
+        mockMvc.perform(delete("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{\"currentPassword\":\"SuperPassword123!\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @SuppressWarnings("null")
+private MvcResult login(String email, String password) throws Exception {
+        registerConfirmed(new RegisterRequest(email, password, true, true));
+        return mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType("application/json")
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(email, password)))
+                .andExpect(status().isOk())
+                .andReturn();
+    }
+
+    private String accessToken(MvcResult loginResult) throws Exception {
+        return objectMapper.readTree(loginResult.getResponse().getContentAsString())
+                .path("data")
+                .path("accessToken")
+                .asText();
+    }
+
+    private JsonNode jwtClaim(String accessToken, String claim) throws Exception {
+        String payload = accessToken.split("\\.")[1];
+        byte[] decoded = java.util.Base64.getUrlDecoder().decode(payload);
+        return objectMapper.readTree(decoded).path(claim);
+    }
+
+    private String queryParameter(String text, String name) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile(name + "=([^&\\s\"']+)")
+                .matcher(text);
+        if (!matcher.find()) {
+            throw new IllegalStateException("Missing query parameter " + name);
+        }
+        return java.net.URLDecoder.decode(matcher.group(1), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private void assertSecurityEvent(User user, SecurityEventType eventType) {

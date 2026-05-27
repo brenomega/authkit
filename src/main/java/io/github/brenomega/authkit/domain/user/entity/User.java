@@ -106,6 +106,10 @@ public class User {
     @Column(name = "email_confirmation_token", length = 100)
     private String emailConfirmationToken;
 
+    /** Expiration for the current email confirmation token. */
+    @Column(name = "email_confirmation_expires_at")
+    private Instant emailConfirmationExpiresAt;
+
     /** Terms of Use version accepted by the user. */
     @Column(name = "terms_version", nullable = false, length = 64)
     private String termsVersion = DEFAULT_TERMS_VERSION;
@@ -221,6 +225,8 @@ public class User {
     public void setEmailConfirmed(boolean emailConfirmed) { this.emailConfirmed = emailConfirmed; }
     public String getEmailConfirmationToken() { return emailConfirmationToken; }
     public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
+    public Instant getEmailConfirmationExpiresAt() { return emailConfirmationExpiresAt; }
+    public void setEmailConfirmationExpiresAt(Instant emailConfirmationExpiresAt) { this.emailConfirmationExpiresAt = emailConfirmationExpiresAt; }
     public String getTermsVersion() { return termsVersion; }
     public String getPrivacyPolicyVersion() { return privacyPolicyVersion; }
     public Instant getConsentAcceptedAt() { return consentAcceptedAt; }
@@ -253,6 +259,7 @@ public class User {
         this.name = null;
         this.phone = null;
         this.emailConfirmationToken = null;
+        this.emailConfirmationExpiresAt = null;
         this.emailConfirmed = false;
         this.termsAccepted = false;
         this.privacyPolicyAccepted = false;

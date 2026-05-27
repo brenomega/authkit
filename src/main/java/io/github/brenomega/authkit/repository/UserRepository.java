@@ -45,6 +45,8 @@ public interface UserRepository extends JpaRepository<User, java.util.UUID> {
     @Query("select u.id from User u where u.deletedAt is not null and u.deletedAt < :cutoff order by u.deletedAt asc")
     List<UUID> findDeletedIdsBefore(@Param("cutoff") Instant cutoff, Pageable pageable);
 
+    List<User> findByTenantIdAndDeletedAtIsNull(UUID tenantId, Pageable pageable);
+
     @Modifying
     @Query("delete from User u where u.id in :ids")
     long purgeDeletedByIdIn(@Param("ids") Collection<UUID> ids);

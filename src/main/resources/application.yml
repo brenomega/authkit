@@ -121,6 +121,9 @@ authkit:
       password-reset-url: ${AUTH_FRONTEND_PASSWORD_RESET_URL}
     registration:
       stealth-conflicts: ${AUTH_REGISTRATION_STEALTH_CONFLICTS:true}
+      email-confirmation-ttl-hours: ${AUTH_EMAIL_CONFIRMATION_TTL_HOURS:24}
+    step-up:
+      passkey-freshness-seconds: ${AUTH_STEP_UP_PASSKEY_FRESHNESS_SECONDS:300}
     authority-cache:
       ttl-seconds: ${AUTH_AUTHORITY_CACHE_TTL_SECONDS:30}
       max-size: ${AUTH_AUTHORITY_CACHE_MAX_SIZE:10000}

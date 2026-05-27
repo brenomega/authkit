@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,4 +33,7 @@ public interface PasskeyChallengeRepository extends JpaRepository<PasskeyChallen
     @Modifying
     @Query("delete from PasskeyChallenge challenge where challenge.expiresAt <= :now")
     int deleteExpired(@Param("now") Instant now);
+
+    @Modifying
+    long deleteByUserIdIn(Collection<UUID> userIds);
 }

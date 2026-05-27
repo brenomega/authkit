@@ -14,7 +14,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -33,6 +35,9 @@ public class ProfileIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private TokenStorage tokenStorage;
 
     @SuppressWarnings("null")
     @Test
@@ -168,9 +173,13 @@ public class ProfileIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    private static org.springframework.test.web.servlet.request.RequestPostProcessor userJwt(User user) {
+    private org.springframework.test.web.servlet.request.RequestPostProcessor userJwt(User user) {
+        String jti = java.util.UUID.randomUUID().toString();
+        var refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
+        tokenStorage.storeRefreshToken(user.getId().toString(), jti, refreshToken.rawToken(), 7);
         return jwt().jwt(builder -> builder
                 .subject(user.getId().toString())
+                .claim("jti", jti)
                 .claim("tenant_id", user.getTenantId().toString()));
     }
 }

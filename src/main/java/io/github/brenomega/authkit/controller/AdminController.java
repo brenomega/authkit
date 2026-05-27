@@ -30,7 +30,7 @@ import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/admin")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN', 'TENANT_ADMIN')")
 public class AdminController {
 
     private final AdminService adminService;
@@ -41,8 +41,9 @@ public class AdminController {
 
     @GetMapping("/users")
     public ApiResponse<List<AdminUserResponse>> listUsers(
+            @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "100") int limit) {
-        return new ApiResponse<>(adminService.listUsers(limit), null, Instant.now());
+        return new ApiResponse<>(adminService.listUsers(jwt, limit), null, Instant.now());
     }
 
     @PatchMapping("/users/{userId}/role")
@@ -55,13 +56,14 @@ public class AdminController {
 
     @GetMapping("/tenants")
     public ApiResponse<List<TenantSummaryResponse>> listTenants(
+            @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "100") int limit) {
-        return new ApiResponse<>(adminService.listTenants(limit), null, Instant.now());
+        return new ApiResponse<>(adminService.listTenants(jwt, limit), null, Instant.now());
     }
 
     @GetMapping("/oauth-clients")
-    public ApiResponse<List<AdminOAuthClientResponse>> listOAuthClients() {
-        return new ApiResponse<>(adminService.listOAuthClients(), null, Instant.now());
+    public ApiResponse<List<AdminOAuthClientResponse>> listOAuthClients(@AuthenticationPrincipal Jwt jwt) {
+        return new ApiResponse<>(adminService.listOAuthClients(jwt), null, Instant.now());
     }
 
     @PostMapping("/oauth-clients")
@@ -84,7 +86,11 @@ public class AdminController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID clientId,
             @Valid @RequestBody(required = false) MfaOptionalVerificationRequest request) {
-        adminService.disableOAuthClient(jwt, clientId, request == null ? null : request.code());
+        adminService.disableOAuthClient(
+                jwt,
+                clientId,
+                request == null ? null : request.currentPassword(),
+                request == null ? null : request.code());
         return new ApiResponse<>("OAuth client disabled successfully.", null, Instant.now());
     }
 }

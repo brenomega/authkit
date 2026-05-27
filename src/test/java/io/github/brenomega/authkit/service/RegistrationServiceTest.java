@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
+import java.time.Instant;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -82,6 +83,7 @@ class RegistrationServiceTest {
         assertNotNull(user);
         assertNotNull(user.getTenantId(), "Multi-tenancy ID must be generated");
         assertFalse(user.isEmailConfirmed(), "Email must not be confirmed yet");
+        assertNotNull(user.getEmailConfirmationExpiresAt(), "Email confirmation token must expire");
         assertEquals("terms-2026", user.getTermsVersion());
         assertEquals("privacy-2026", user.getPrivacyPolicyVersion());
         assertEquals("consent", user.getLawfulBasis());
@@ -112,13 +114,49 @@ class RegistrationServiceTest {
         String rawToken = "activation-token";
         String tokenHash = TokenHasher.sha256Hex(rawToken);
         User user = new User("confirm@example.com", "pw", null, null, true, true, tokenHash);
+        user.setEmailConfirmationExpiresAt(Instant.now().plusSeconds(300));
         when(userRepository.findByEmailConfirmationToken(tokenHash)).thenReturn(Optional.of(user));
 
         service.confirmEmail(rawToken);
 
         assertTrue(user.isEmailConfirmed());
         assertNull(user.getEmailConfirmationToken());
+        assertNull(user.getEmailConfirmationExpiresAt());
         verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Email confirmation rejects expired tokens and invalidates them")
+    void confirmEmail_expiredToken() {
+        String rawToken = "expired-token";
+        String tokenHash = TokenHasher.sha256Hex(rawToken);
+        User user = new User("expired@example.com", "pw", null, null, true, true, tokenHash);
+        user.setEmailConfirmationExpiresAt(Instant.now().minusSeconds(1));
+        when(userRepository.findByEmailConfirmationToken(tokenHash)).thenReturn(Optional.of(user));
+
+        assertThrows(InvalidTokenException.class, () -> service.confirmEmail(rawToken));
+
+        assertNull(user.getEmailConfirmationToken());
+        assertNull(user.getEmailConfirmationExpiresAt());
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("Resending email confirmation rotates the token and queues a new message")
+    void resendEmailConfirmation_rotatesToken() {
+        User user = new User("resend@example.com", "pw", null, null, true, true, "old-token-hash");
+        user.setEmailConfirmationExpiresAt(Instant.now().plusSeconds(60));
+        when(userRepository.findByEmail("resend@example.com")).thenReturn(Optional.of(user));
+
+        service.resendEmailConfirmation("resend@example.com");
+
+        assertNotNull(user.getEmailConfirmationToken());
+        assertNotNull(user.getEmailConfirmationExpiresAt());
+        org.junit.jupiter.api.Assertions.assertNotEquals("old-token-hash", user.getEmailConfirmationToken());
+        verify(userRepository).save(user);
+        verify(emailOutboxService).enqueue(argThat(payload ->
+                payload.to().equals("resend@example.com")
+                        && payload.htmlBody().contains("https://frontend.example.test/activate?token=")));
     }
 
     @Test

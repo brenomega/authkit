@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +29,7 @@ public interface OAuthAuthorizationCodeRepository extends JpaRepository<OAuthAut
     @Modifying
     @Query("delete from OAuthAuthorizationCode code where code.expiresAt <= :now")
     int deleteExpired(@Param("now") Instant now);
+
+    @Modifying
+    long deleteByUserIdIn(Collection<UUID> userIds);
 }

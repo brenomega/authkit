@@ -57,12 +57,14 @@ public class ProfileService {
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final SecurityEventService securityEventService;
     private final MfaService mfaService;
+    private final StepUpService stepUpService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
                           Argon2ConcurrencyLimiter argon2Limiter,
                           SecurityEventService securityEventService,
-                          MfaService mfaService) {
+                          MfaService mfaService,
+                          StepUpService stepUpService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
@@ -70,6 +72,7 @@ public class ProfileService {
         this.argon2Limiter = argon2Limiter;
         this.securityEventService = securityEventService;
         this.mfaService = mfaService;
+        this.stepUpService = stepUpService;
     }
 
     /**
@@ -167,25 +170,20 @@ public class ProfileService {
 
         user.requireEmailConfirmed();
 
+        stepUpService.verifyCurrentPassword(
+                user,
+                request.currentPassword(),
+                SecurityEventType.PASSWORD_CHANGED,
+                "password_change_current_password_invalid");
+        mfaService.requireMfaIfEnabled(user, request.mfaCode(), "password_change");
+
         boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
             throw new AuthenticationCapacityExceededException();
         }
 
         try {
-            // Bound both Argon2 verify and encode work to prevent authenticated hashing DoS.
-            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-                securityEventService.recordForAuthenticatedUser(
-                        SecurityEventType.PASSWORD_CHANGED,
-                        SecurityEventOutcome.DENIED,
-                        SecurityEventSeverity.HIGH,
-                        user,
-                        "password_change_current_password_invalid");
-                throw new InvalidCredentialsException();
-            }
-
-            mfaService.requireMfaIfEnabled(user, request.mfaCode(), "password_change");
-
+            // Bound Argon2 encode work to prevent authenticated hashing DoS.
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {

@@ -21,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.response.ApiResponse;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,15 +39,18 @@ import jakarta.servlet.http.HttpServletResponse;
 public class UserAuthoritiesFilter extends OncePerRequestFilter {
 
     private final UserRepository userRepository;
+    private final TokenStorage tokenStorage;
     private final ObjectMapper objectMapper;
     private final Cache<UUID, Optional<CachedUserAuthorities>> authorityCache;
 
     public UserAuthoritiesFilter(
             UserRepository userRepository,
+            TokenStorage tokenStorage,
             ObjectMapper objectMapper,
             AuthProperties authProperties,
             MeterRegistry meterRegistry) {
         this.userRepository = userRepository;
+        this.tokenStorage = tokenStorage;
         this.objectMapper = objectMapper;
         this.authorityCache = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofSeconds(authProperties.getAuthorityCache().getTtlSeconds()))
@@ -69,6 +73,13 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
             try {
                 userId = UUID.fromString(jwtAuth.getName()); // Resolves to 'sub' claim
             } catch (IllegalArgumentException ex) {
+                reject(response);
+                return;
+            }
+
+            String jti = jwtAuth.getToken().getId();
+            if (jti == null || jti.isBlank() || !tokenStorage.isSessionActive(userId.toString(), jti)) {
+                SecurityContextHolder.clearContext();
                 reject(response);
                 return;
             }

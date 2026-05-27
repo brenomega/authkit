@@ -22,8 +22,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: authkit
-          # Replace the digest with the immutable sha256 of the promoted release image.
-          image: brenomega/authkit@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          # CI/CD must replace this tag with the immutable digest of the promoted release.
+          image: brenomega/authkit:0.0.1-SNAPSHOT
           # Container-level security hardening
           securityContext:
             allowPrivilegeEscalation: false
@@ -42,6 +42,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: jwt-keys
+              mountPath: /etc/authkit/keys
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
@@ -64,3 +67,6 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: jwt-keys
+          secret:
+            secretName: authkit-jwt-keys

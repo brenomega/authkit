@@ -2,6 +2,8 @@ package io.github.brenomega.authkit.service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -69,8 +71,7 @@ public class RegistrationService {
         }
 
         String hashedPassword = passwordEncoder.encode(request.password());
-        String confirmationToken = SecureTokenGenerator.randomUrlSafeToken(32);
-        String confirmationTokenHash = TokenHasher.sha256Hex(confirmationToken);
+        ConfirmationToken confirmationToken = newConfirmationToken();
 
         User user = new User(
                 email,
@@ -79,8 +80,9 @@ public class RegistrationService {
                 null,
                 request.termsAccepted(),
                 request.privacyPolicyAccepted(),
-                confirmationTokenHash
+                confirmationToken.hash()
         );
+        user.setEmailConfirmationExpiresAt(confirmationToken.expiresAt());
         user.recordConsent(
                 authProperties.getCompliance().getTermsVersion(),
                 authProperties.getCompliance().getPrivacyPolicyVersion(),
@@ -94,15 +96,7 @@ public class RegistrationService {
         }
         consentEventService.recordCurrentConsent(user);
 
-        String activationUrl = authProperties.getFrontend().getActivationUrl()
-                + "?token=" + URLEncoder.encode(confirmationToken, StandardCharsets.UTF_8);
-        EmailPayload payload = new EmailPayload(
-                user.getEmail(),
-                "Welcome to AuthKit - Activate your account",
-                "<p>Click <a href='" + activationUrl + "'>here</a> to activate your account.</p>"
-        );
-
-        emailOutboxService.enqueue(payload);
+        enqueueActivationEmail(user, confirmationToken.raw());
 
         return user;
     }
@@ -121,9 +115,16 @@ public class RegistrationService {
         String tokenHash = TokenHasher.sha256Hex(token);
         User user = userRepository.findByEmailConfirmationToken(tokenHash)
                 .orElseThrow(InvalidTokenException::new);
+        if (user.getEmailConfirmationExpiresAt() == null || !user.getEmailConfirmationExpiresAt().isAfter(Instant.now())) {
+            user.setEmailConfirmationToken(null);
+            user.setEmailConfirmationExpiresAt(null);
+            userRepository.save(user);
+            throw new InvalidTokenException();
+        }
 
         user.setEmailConfirmed(true);
         user.setEmailConfirmationToken(null);
+        user.setEmailConfirmationExpiresAt(null);
         userRepository.save(user);
         securityEventService.recordForTargetUser(
                 SecurityEventType.EMAIL_VERIFIED,
@@ -131,5 +132,49 @@ public class RegistrationService {
                 SecurityEventSeverity.MEDIUM,
                 user,
                 "email_verified");
+    }
+
+    @Transactional
+    @LogExecutionTime
+    public void resendEmailConfirmation(String emailInput) {
+        String email = EmailNormalizer.normalize(emailInput);
+        userRepository.findByEmail(email)
+                .filter(user -> !user.isDeleted())
+                .filter(user -> !user.isEmailConfirmed())
+                .ifPresent(user -> {
+                    ConfirmationToken confirmationToken = newConfirmationToken();
+                    user.setEmailConfirmationToken(confirmationToken.hash());
+                    user.setEmailConfirmationExpiresAt(confirmationToken.expiresAt());
+                    userRepository.save(user);
+                    enqueueActivationEmail(user, confirmationToken.raw());
+                    securityEventService.recordForTargetUser(
+                            SecurityEventType.EMAIL_VERIFIED,
+                            SecurityEventOutcome.INFO,
+                            SecurityEventSeverity.LOW,
+                            user,
+                            "email_confirmation_resent");
+                });
+    }
+
+    private ConfirmationToken newConfirmationToken() {
+        String raw = SecureTokenGenerator.randomUrlSafeToken(32);
+        Instant expiresAt = Instant.now().plus(Duration.ofHours(
+                authProperties.getRegistration().getEmailConfirmationTtlHours()));
+        return new ConfirmationToken(raw, TokenHasher.sha256Hex(raw), expiresAt);
+    }
+
+    private void enqueueActivationEmail(User user, String rawToken) {
+        String activationUrl = authProperties.getFrontend().getActivationUrl()
+                + "?token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
+        EmailPayload payload = new EmailPayload(
+                user.getEmail(),
+                "Welcome to AuthKit - Activate your account",
+                "<p>Click <a href='" + activationUrl + "'>here</a> to activate your account.</p>"
+        );
+
+        emailOutboxService.enqueue(payload);
+    }
+
+    private record ConfirmationToken(String raw, String hash, Instant expiresAt) {
     }
 }

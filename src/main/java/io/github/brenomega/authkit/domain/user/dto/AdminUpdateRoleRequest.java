@@ -6,6 +6,10 @@ import jakarta.validation.constraints.Size;
 
 public record AdminUpdateRoleRequest(
         @NotNull Role role,
+        @Size(max = 128) String currentPassword,
         @Size(max = 32) String mfaCode
 ) {
+    public AdminUpdateRoleRequest(Role role, String mfaCode) {
+        this(role, null, mfaCode);
+    }
 }

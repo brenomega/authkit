@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.infrastructure.queue.outbox;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -53,5 +54,13 @@ public class EmailOutboxService {
     public void markFailed(UUID messageId, String error) {
         repository.findById(messageId)
                 .ifPresent(message -> message.markFailed(error, Instant.now()));
+    }
+
+    @Transactional
+    public long deleteByRecipients(Collection<String> recipients) {
+        if (recipients == null || recipients.isEmpty()) {
+            return 0;
+        }
+        return repository.deleteByRecipientIn(recipients);
     }
 }

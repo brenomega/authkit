@@ -26,4 +26,12 @@ public interface SecurityEventRepository extends Repository<SecurityEvent, UUID>
     @Modifying
     @Query("delete from SecurityEvent e where e.id in :ids")
     long purgeByIdIn(@Param("ids") Collection<UUID> ids);
+
+    @Modifying
+    @Query("""
+            delete from SecurityEvent e
+             where e.actorUserId in :userIds
+                or e.targetUserId in :userIds
+            """)
+    long purgeByUserReferences(@Param("userIds") Collection<UUID> userIds);
 }

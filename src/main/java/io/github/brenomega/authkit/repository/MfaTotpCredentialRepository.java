@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.repository;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +21,9 @@ public interface MfaTotpCredentialRepository extends JpaRepository<MfaTotpCreden
 
     @Modifying
     void deleteByUserIdAndConfirmedFalse(UUID userId);
+
+    @Modifying
+    long deleteByUserIdIn(Collection<UUID> userIds);
 
     @Modifying
     @Query("""

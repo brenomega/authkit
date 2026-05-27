@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -49,6 +50,8 @@ import io.github.brenomega.authkit.repository.UserRepository;
 public class OAuthProviderService {
 
     private static final String PKCE_S256 = "S256";
+    private static final Pattern PKCE_VERIFIER_PATTERN = Pattern.compile("[A-Za-z0-9._~-]{43,128}");
+    private static final Pattern PKCE_CHALLENGE_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43,128}");
 
     private final OAuthClientRepository clientRepository;
     private final OAuthAuthorizationCodeRepository authorizationCodeRepository;
@@ -93,6 +96,9 @@ public class OAuthProviderService {
         if (!PKCE_S256.equals(request.codeChallengeMethod())) {
             throw new InvalidOAuthRequestException();
         }
+        if (!PKCE_CHALLENGE_PATTERN.matcher(request.codeChallenge()).matches()) {
+            throw new InvalidOAuthRequestException();
+        }
 
         Set<String> requestedScopes = parseScopes(request.scope());
         if (requestedScopes.isEmpty() || !client.getScopes().containsAll(requestedScopes)) {
@@ -135,7 +141,6 @@ public class OAuthProviderService {
 
         return new OAuthAuthorizeResponse(
                 redirectWithCode(code.getRedirectUri(), rawCode, request.state()),
-                rawCode,
                 request.state(),
                 authProperties.getOauth().getAuthorizationCodeTtlMinutes() * 60);
     }
@@ -152,7 +157,7 @@ public class OAuthProviderService {
                 || code == null || code.isBlank()
                 || redirectUri == null || redirectUri.isBlank()
                 || clientId == null || clientId.isBlank()
-                || codeVerifier == null || codeVerifier.isBlank()) {
+                || codeVerifier == null || !PKCE_VERIFIER_PATTERN.matcher(codeVerifier).matches()) {
             throw new InvalidOAuthRequestException();
         }
 

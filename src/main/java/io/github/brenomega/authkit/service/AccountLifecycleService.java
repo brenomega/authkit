@@ -37,6 +37,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -59,6 +60,8 @@ public class AccountLifecycleService {
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final MfaService mfaService;
+    private final StepUpService stepUpService;
+    private final EmailOutboxService emailOutboxService;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
@@ -71,7 +74,9 @@ public class AccountLifecycleService {
                                    MeterRegistry meterRegistry,
                                    Argon2ConcurrencyLimiter argon2Limiter,
                                    UserAuthoritiesFilter userAuthoritiesFilter,
-                                   MfaService mfaService) {
+                                   MfaService mfaService,
+                                   StepUpService stepUpService,
+                                   EmailOutboxService emailOutboxService) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
@@ -84,6 +89,8 @@ public class AccountLifecycleService {
         this.argon2Limiter = argon2Limiter;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.mfaService = mfaService;
+        this.stepUpService = stepUpService;
+        this.emailOutboxService = emailOutboxService;
     }
 
     @Transactional(readOnly = true)
@@ -185,6 +192,11 @@ public class AccountLifecycleService {
             } catch (RuntimeException ex) {
                 meterRegistry.counter("security.infrastructure.failure", "component", "token_storage").increment();
             }
+            try {
+                emailOutboxService.deleteByRecipients(java.util.List.of(originalEmail));
+            } catch (RuntimeException ex) {
+                meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
+            }
 
             securityEventService.record(
                     SecurityEventType.ACCOUNT_DELETION_REQUESTED,
@@ -275,34 +287,12 @@ public class AccountLifecycleService {
                               SecurityEventType eventType,
                               SecurityEventSeverity failureSeverity,
                               String failureReason) {
-        if (request == null || request.currentPassword() == null || request.currentPassword().isBlank()) {
-            securityEventService.recordForAuthenticatedUser(
-                    eventType,
-                    SecurityEventOutcome.DENIED,
-                    failureSeverity,
-                    user,
-                    failureReason);
-            throw new InvalidCredentialsException();
-        }
-
-        boolean acquired = argon2Limiter.tryAcquire();
-        if (!acquired) {
-            throw new AuthenticationCapacityExceededException();
-        }
-
-        try {
-            if (!passwordEncoder.matches(request.currentPassword(), user.getPassword())) {
-                securityEventService.recordForAuthenticatedUser(
-                        eventType,
-                        SecurityEventOutcome.DENIED,
-                        failureSeverity,
-                        user,
-                        failureReason);
-                throw new InvalidCredentialsException();
-            }
-        } finally {
-            argon2Limiter.release();
-        }
+        stepUpService.verifyCurrentPassword(
+                user,
+                request == null ? null : request.currentPassword(),
+                eventType,
+                failureSeverity,
+                failureReason);
     }
 
     private String encodeWithCapacity(String rawPassword) {

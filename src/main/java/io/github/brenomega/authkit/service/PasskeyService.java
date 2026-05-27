@@ -9,7 +9,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,14 +43,11 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.exception.InvalidPasskeyCeremonyException;
-import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
-import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
-import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.JpaWebAuthnCredentialRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
@@ -67,10 +63,9 @@ public class PasskeyService {
     private final RelyingParty relyingParty;
     private final MfaService mfaService;
     private final AuthService authService;
-    private final PasswordEncoder passwordEncoder;
-    private final Argon2ConcurrencyLimiter argon2Limiter;
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
+    private final StepUpService stepUpService;
 
     public PasskeyService(UserRepository userRepository,
                           PasskeyCredentialRepository credentialRepository,
@@ -78,20 +73,18 @@ public class PasskeyService {
                           RelyingParty relyingParty,
                           MfaService mfaService,
                           AuthService authService,
-                          PasswordEncoder passwordEncoder,
-                          Argon2ConcurrencyLimiter argon2Limiter,
                           AuthProperties authProperties,
-                          SecurityEventService securityEventService) {
+                          SecurityEventService securityEventService,
+                          StepUpService stepUpService) {
         this.userRepository = userRepository;
         this.credentialRepository = credentialRepository;
         this.challengeRepository = challengeRepository;
         this.relyingParty = relyingParty;
         this.mfaService = mfaService;
         this.authService = authService;
-        this.passwordEncoder = passwordEncoder;
-        this.argon2Limiter = argon2Limiter;
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
+        this.stepUpService = stepUpService;
     }
 
     @Transactional(readOnly = true)
@@ -385,34 +378,7 @@ public class PasskeyService {
                                       String currentPassword,
                                       SecurityEventType eventType,
                                       String failureReason) {
-        if (currentPassword == null || currentPassword.isBlank()) {
-            securityEventService.recordForAuthenticatedUser(
-                    eventType,
-                    SecurityEventOutcome.DENIED,
-                    SecurityEventSeverity.HIGH,
-                    user,
-                    failureReason);
-            throw new InvalidCredentialsException();
-        }
-
-        boolean acquired = argon2Limiter.tryAcquire();
-        if (!acquired) {
-            throw new AuthenticationCapacityExceededException();
-        }
-
-        try {
-            if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-                securityEventService.recordForAuthenticatedUser(
-                        eventType,
-                        SecurityEventOutcome.DENIED,
-                        SecurityEventSeverity.HIGH,
-                        user,
-                        failureReason);
-                throw new InvalidCredentialsException();
-            }
-        } finally {
-            argon2Limiter.release();
-        }
+        stepUpService.verifyCurrentPassword(user, currentPassword, eventType, failureReason);
     }
 
     private String toJson(PublicKeyCredentialCreationOptions options) {

@@ -6,8 +6,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +31,9 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 /**
  * Unit tests for ProfileService (DT 3.4.5).
@@ -51,7 +58,21 @@ class ProfileServiceTest {
         lockoutService = mock(AccountLockoutService.class);
         securityEventService = mock(SecurityEventService.class);
         mfaService = mock(MfaService.class);
-        profileService = new ProfileService(userRepository, passwordEncoder, tokenStorage, lockoutService, new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter(), securityEventService, mfaService);
+        var argon2Limiter = new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter();
+        profileService = new ProfileService(
+                userRepository,
+                passwordEncoder,
+                tokenStorage,
+                lockoutService,
+                argon2Limiter,
+                securityEventService,
+                mfaService,
+                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService));
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     /**
@@ -167,6 +188,25 @@ class ProfileServiceTest {
         verify(tokenStorage).revokeSession(userId, "target-jti");
     }
 
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Session: Tenant mismatch hides session list and revocation targets")
+    void sessionManagement_TenantMismatch_Throws404AndDoesNotTouchStorage() {
+        String userId = "00000000-0000-0000-0000-000000000010";
+        UUID userTenant = UUID.fromString("00000000-0000-0000-0000-000000000011");
+        UUID jwtTenant = UUID.fromString("00000000-0000-0000-0000-000000000012");
+        User user = mock(User.class);
+        when(user.getTenantId()).thenReturn(userTenant);
+
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
+        authenticateAsTenant(jwtTenant);
+
+        assertThrows(UserNotFoundException.class, () -> profileService.listSessions(userId));
+        assertThrows(UserNotFoundException.class, () -> profileService.revokeSession(userId, "target-jti"));
+        verify(tokenStorage, never()).listSessions(userId);
+        verify(tokenStorage, never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
     /**
      * DT 3.2.24 — IDOR Protection: Confirms that updating another user's profile throws 404 (Hidden).
      */
@@ -227,5 +267,15 @@ class ProfileServiceTest {
 
         assertThrows(UserNotFoundException.class, () -> 
             profileService.updateProfile(userId, new ProfileUpdateRequest("Any", "123"), userId));
+    }
+
+    private void authenticateAsTenant(UUID tenantId) {
+        Jwt jwt = new Jwt(
+                "token",
+                Instant.now(),
+                Instant.now().plusSeconds(900),
+                Map.of("alg", "none"),
+                Map.of("sub", UUID.randomUUID().toString(), "tenant_id", tenantId.toString()));
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
     }
 }

@@ -18,6 +18,9 @@ public enum Role {
     /** Tenant owner with elevated data-management permissions. */
     OWNER,
 
+    /** Tenant administrator scoped to users and OAuth clients in one tenant. */
+    TENANT_ADMIN,
+
     /** System administrator with full platform access. */
     ADMIN
 }

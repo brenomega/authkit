@@ -10,7 +10,7 @@ public record OAuthAuthorizeRequest(
         @NotBlank @Size(max = 512) String redirectUri,
         @NotBlank @Size(max = 512) String scope,
         @Size(max = 255) String state,
-        @NotBlank @Size(min = 43, max = 128) String codeChallenge,
+        @NotBlank @Size(min = 43, max = 128) @Pattern(regexp = "[A-Za-z0-9_-]{43,128}") String codeChallenge,
         @NotBlank @Pattern(regexp = "S256") String codeChallengeMethod,
         @Size(max = 255) String nonce,
         Boolean consentAccepted

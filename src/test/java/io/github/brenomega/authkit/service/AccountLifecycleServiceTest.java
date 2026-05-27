@@ -35,8 +35,10 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -53,6 +55,8 @@ class AccountLifecycleServiceTest {
     private AuthProperties authProperties;
     private UserAuthoritiesFilter userAuthoritiesFilter;
     private MfaService mfaService;
+    private AccountLockoutService lockoutService;
+    private EmailOutboxService emailOutboxService;
     private AccountLifecycleService service;
 
     @BeforeEach
@@ -66,7 +70,10 @@ class AccountLifecycleServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         userAuthoritiesFilter = mock(UserAuthoritiesFilter.class);
         mfaService = mock(MfaService.class);
+        lockoutService = mock(AccountLockoutService.class);
+        emailOutboxService = mock(EmailOutboxService.class);
         authProperties = new AuthProperties();
+        var argon2Limiter = new Argon2ConcurrencyLimiter();
         service = new AccountLifecycleService(
                 userRepository,
                 securityEventRepository,
@@ -77,9 +84,11 @@ class AccountLifecycleServiceTest {
                 passwordEncoder,
                 authProperties,
                 new SimpleMeterRegistry(),
-                new Argon2ConcurrencyLimiter(),
+                argon2Limiter,
                 userAuthoritiesFilter,
-                mfaService);
+                mfaService,
+                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService),
+                emailOutboxService);
     }
 
     @SuppressWarnings("null")

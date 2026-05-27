@@ -15,8 +15,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
+import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
  * Integration test validating the progressive lockout lifecycle (DT 3.2.23).
@@ -47,6 +50,9 @@ public class LockoutManagementIntegrationTest {
     @Autowired
     private EmailOutboxRepository emailOutboxRepository;
 
+    @Autowired
+    private TokenStorage tokenStorage;
+
     @Test
     @SuppressWarnings({ "null" })
     @DisplayName("Lockout Lifecycle: 5 failures -> management blocked -> reset -> unlocked (DT 3.2.23)")
@@ -59,7 +65,7 @@ public class LockoutManagementIntegrationTest {
         var user = registrationService.registerUser(new RegisterRequest(email, password, true, true));
         user.setEmailConfirmed(true);
         userRepository.save(user);
-        String userId = user.getId().toString();
+        user.getId().toString();
 
         emailOutboxRepository.deleteAll();
 
@@ -80,7 +86,7 @@ public class LockoutManagementIntegrationTest {
 
         // --- STEP 3: Attempt password change with valid JWT → should be REJECTED (403) ---
         mockMvc.perform(post("/api/v1/users/me/password")
-                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenant_id", user.getTenantId().toString())))
+                        .with(userJwt(user))
                         .contentType("application/json")
                         .content("{\"currentPassword\": \"" + password + "\", \"newPassword\": \"" + newPassword + "\"}"))
                 .andExpect(status().isForbidden())
@@ -89,7 +95,7 @@ public class LockoutManagementIntegrationTest {
 
         // --- STEP 4: Attempt session revocation with valid JWT → should be REJECTED (403) ---
         mockMvc.perform(delete("/api/v1/users/me/sessions/some-jti")
-                        .with(jwt().jwt(builder -> builder.subject(userId).claim("tenant_id", user.getTenantId().toString()))))
+                        .with(userJwt(user)))
                 .andExpect(status().isForbidden());
 
         // --- STEP 5: Initiate password recovery ---
@@ -117,5 +123,15 @@ public class LockoutManagementIntegrationTest {
                         .content("{\"email\": \"" + email + "\", \"password\": \"" + newPassword + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").exists());
+    }
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor userJwt(User user) {
+        String jti = java.util.UUID.randomUUID().toString();
+        var refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
+        tokenStorage.storeRefreshToken(user.getId().toString(), jti, refreshToken.rawToken(), 7);
+        return jwt().jwt(builder -> builder
+                .subject(user.getId().toString())
+                .claim("jti", jti)
+                .claim("tenant_id", user.getTenantId().toString()));
     }
 }

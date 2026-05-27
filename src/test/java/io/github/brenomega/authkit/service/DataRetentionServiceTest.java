@@ -19,9 +19,16 @@ import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
+import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
+import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
+import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 class DataRetentionServiceTest {
@@ -34,6 +41,12 @@ class DataRetentionServiceTest {
         UserRepository userRepository = mock(UserRepository.class);
         PasskeyChallengeRepository passkeyChallengeRepository = mock(PasskeyChallengeRepository.class);
         OAuthAuthorizationCodeRepository oauthAuthorizationCodeRepository = mock(OAuthAuthorizationCodeRepository.class);
+        MfaTotpCredentialRepository mfaTotpCredentialRepository = mock(MfaTotpCredentialRepository.class);
+        MfaBackupCodeRepository mfaBackupCodeRepository = mock(MfaBackupCodeRepository.class);
+        PasskeyCredentialRepository passkeyCredentialRepository = mock(PasskeyCredentialRepository.class);
+        OAuthConsentRepository oauthConsentRepository = mock(OAuthConsentRepository.class);
+        ConsentEventRepository consentEventRepository = mock(ConsentEventRepository.class);
+        EmailOutboxService emailOutboxService = mock(EmailOutboxService.class);
         AuthProperties authProperties = new AuthProperties();
         authProperties.getCompliance().setSecurityEventRetentionDays(30);
         authProperties.getCompliance().setDeletedAccountRetentionDays(7);
@@ -47,11 +60,14 @@ class DataRetentionServiceTest {
         UUID eventOne = UUID.fromString("00000000-0000-0000-0000-000000000101");
         UUID eventTwo = UUID.fromString("00000000-0000-0000-0000-000000000102");
         UUID deletedUser = UUID.fromString("00000000-0000-0000-0000-000000000201");
+        User deletedUserEntity = mock(User.class);
+        when(deletedUserEntity.getEmail()).thenReturn("deleted@example.test");
         when(securityEventRepository.findExpiredIds(any(), any(Pageable.class)))
                 .thenReturn(List.of(eventOne, eventTwo));
         when(securityEventRepository.purgeByIdIn(List.of(eventOne, eventTwo))).thenReturn(5L);
         when(userRepository.findDeletedIdsBefore(any(), any(Pageable.class)))
                 .thenReturn(List.of(deletedUser));
+        when(userRepository.findAllById(List.of(deletedUser))).thenReturn(List.of(deletedUserEntity));
         when(userRepository.purgeDeletedByIdIn(List.of(deletedUser))).thenReturn(2L);
 
         when(passkeyChallengeRepository.deleteExpired(any())).thenReturn(3);
@@ -62,6 +78,12 @@ class DataRetentionServiceTest {
                 userRepository,
                 passkeyChallengeRepository,
                 oauthAuthorizationCodeRepository,
+                mfaTotpCredentialRepository,
+                mfaBackupCodeRepository,
+                passkeyCredentialRepository,
+                oauthConsentRepository,
+                consentEventRepository,
+                emailOutboxService,
                 authProperties,
                 meterRegistry,
                 transactionTemplate)
@@ -73,6 +95,15 @@ class DataRetentionServiceTest {
         verify(userRepository).findDeletedIdsBefore(accountCutoff.capture(), any(Pageable.class));
         verify(securityEventRepository).purgeByIdIn(List.of(eventOne, eventTwo));
         verify(userRepository).purgeDeletedByIdIn(List.of(deletedUser));
+        verify(passkeyChallengeRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(oauthAuthorizationCodeRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(oauthConsentRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(passkeyCredentialRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(mfaBackupCodeRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(mfaTotpCredentialRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(securityEventRepository).purgeByUserReferences(List.of(deletedUser));
+        verify(consentEventRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(emailOutboxService).deleteByRecipients(List.of("deleted@example.test"));
         verify(passkeyChallengeRepository).deleteExpired(any());
         verify(oauthAuthorizationCodeRepository).deleteExpired(any());
 

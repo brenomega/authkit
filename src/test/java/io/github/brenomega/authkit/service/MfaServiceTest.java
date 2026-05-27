@@ -17,14 +17,19 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.github.brenomega.authkit.domain.mfa.entity.MfaBackupCode;
@@ -37,6 +42,7 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidMfaCodeException;
 import io.github.brenomega.authkit.exception.MfaRequiredException;
+import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
@@ -44,6 +50,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
 import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -62,6 +69,7 @@ class MfaServiceTest {
     private MfaBackupCodeRepository backupCodeRepository;
     private PasswordEncoder passwordEncoder;
     private SecurityEventService securityEventService;
+    private AccountLockoutService lockoutService;
     private TokenStorage tokenStorage;
     private AuthProperties authProperties;
     private AuditDigestService auditDigestService;
@@ -70,13 +78,14 @@ class MfaServiceTest {
     private User user;
 
     @SuppressWarnings("null")
-@BeforeEach
+    @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         totpRepository = mock(MfaTotpCredentialRepository.class);
         backupCodeRepository = mock(MfaBackupCodeRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
         securityEventService = mock(SecurityEventService.class);
+        lockoutService = mock(AccountLockoutService.class);
         tokenStorage = mock(TokenStorage.class);
         authProperties = new AuthProperties();
         authProperties.getMfa().setSecretEncryptionKdfIterations(1000);
@@ -87,24 +96,33 @@ class MfaServiceTest {
                 totpRepository,
                 backupCodeRepository,
                 mfaSecretCipher,
-                passwordEncoder,
-                new Argon2ConcurrencyLimiter(),
                 authProperties,
                 securityEventService,
                 auditDigestService,
                 tokenStorage,
-                new MfaStatusCache(authProperties, new SimpleMeterRegistry()));
+                new MfaStatusCache(authProperties, new SimpleMeterRegistry()),
+                new StepUpService(
+                        passwordEncoder,
+                        new Argon2ConcurrencyLimiter(),
+                        lockoutService,
+                        securityEventService));
 
         user = new User("mfa@example.com", "hashed-pass", "Mfa User", "555", true, true, null);
         user.setEmailConfirmed(true);
         ReflectionTestUtils.setField(user, "id", USER_ID);
         ReflectionTestUtils.setField(user, "tenantId", TENANT_ID);
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(lockoutService.isLocked("mfa@example.com")).thenReturn(false);
         when(passwordEncoder.matches("current-pass", "hashed-pass")).thenReturn(true);
     }
 
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
     @SuppressWarnings("null")
-@Test
+    @Test
     @DisplayName("TOTP enrollment replaces stale pending credentials and stores encrypted secret")
     void startTotpEnrollment_replacesPendingAndStoresEncryptedSecret() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000203");
@@ -128,7 +146,7 @@ class MfaServiceTest {
     }
 
     @SuppressWarnings("null")
-@Test
+    @Test
     @DisplayName("TOTP confirmation enables MFA, generates hashed backup codes, and revokes sessions")
     void confirmTotp_generatesBackupCodesAndRevokesSessions() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000204");
@@ -244,7 +262,7 @@ class MfaServiceTest {
     }
 
     @SuppressWarnings("null")
-@Test
+    @Test
     @DisplayName("MFA enrollment rejects invalid password step-up before creating credentials")
     void startTotpEnrollment_invalidPasswordStepUpDoesNotCreateCredential() {
         when(passwordEncoder.matches("wrong-pass", "hashed-pass")).thenReturn(false);
@@ -256,7 +274,7 @@ class MfaServiceTest {
     }
 
     @SuppressWarnings("null")
-@Test
+    @Test
     @DisplayName("TOTP confirmation rejects invalid codes")
     void confirmTotp_invalidCodeThrows() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000207");
@@ -272,5 +290,39 @@ class MfaServiceTest {
 
         verify(backupCodeRepository, never()).saveAll(any());
         verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("TOTP confirmation rejects credentials not owned by the caller")
+    void confirmTotp_credentialOwnedByAnotherUser_Throws() {
+        UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000208");
+        when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(InvalidMfaCodeException.class, () ->
+                service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(credentialId, "current-pass", "123456")));
+
+        verify(backupCodeRepository, never()).saveAll(any());
+        verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("MFA status hides users outside the authenticated tenant")
+    void getStatus_TenantMismatch_Throws404() {
+        UUID jwtTenant = UUID.fromString("00000000-0000-0000-0000-000000000209");
+        authenticateAsTenant(jwtTenant);
+
+        assertThrows(UserNotFoundException.class, () -> service.getStatus(USER_ID.toString()));
+        verify(totpRepository, never()).findByUserIdAndConfirmedTrueAndDisabledAtIsNull(any());
+    }
+
+    private void authenticateAsTenant(UUID tenantId) {
+        Jwt jwt = new Jwt(
+                "token",
+                Instant.now(),
+                Instant.now().plusSeconds(900),
+                Map.of("alg", "none"),
+                Map.of("sub", UUID.randomUUID().toString(), "tenant_id", tenantId.toString()));
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
     }
 }

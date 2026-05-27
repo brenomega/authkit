@@ -11,7 +11,6 @@ import java.util.UUID;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,8 +27,6 @@ import io.github.brenomega.authkit.domain.user.dto.MfaVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
-import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
-import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidMfaCodeException;
 import io.github.brenomega.authkit.exception.MfaAlreadyEnabledException;
 import io.github.brenomega.authkit.exception.MfaRequiredException;
@@ -39,7 +36,6 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
-import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
 import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
@@ -62,13 +58,12 @@ public class MfaService {
     private final MfaTotpCredentialRepository totpRepository;
     private final MfaBackupCodeRepository backupCodeRepository;
     private final MfaSecretCipher mfaSecretCipher;
-    private final PasswordEncoder passwordEncoder;
-    private final Argon2ConcurrencyLimiter argon2Limiter;
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
     private final AuditDigestService auditDigestService;
     private final TokenStorage tokenStorage;
     private final MfaStatusCache mfaStatusCache;
+    private final StepUpService stepUpService;
     private final TotpGenerator totpGenerator = new TotpGenerator();
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -76,24 +71,22 @@ public class MfaService {
                       MfaTotpCredentialRepository totpRepository,
                       MfaBackupCodeRepository backupCodeRepository,
                       MfaSecretCipher mfaSecretCipher,
-                      PasswordEncoder passwordEncoder,
-                      Argon2ConcurrencyLimiter argon2Limiter,
                       AuthProperties authProperties,
                       SecurityEventService securityEventService,
                       AuditDigestService auditDigestService,
                       TokenStorage tokenStorage,
-                      MfaStatusCache mfaStatusCache) {
+                      MfaStatusCache mfaStatusCache,
+                      StepUpService stepUpService) {
         this.userRepository = userRepository;
         this.totpRepository = totpRepository;
         this.backupCodeRepository = backupCodeRepository;
         this.mfaSecretCipher = mfaSecretCipher;
-        this.passwordEncoder = passwordEncoder;
-        this.argon2Limiter = argon2Limiter;
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
         this.auditDigestService = auditDigestService;
         this.tokenStorage = tokenStorage;
         this.mfaStatusCache = mfaStatusCache;
+        this.stepUpService = stepUpService;
     }
 
     @Transactional(readOnly = true)
@@ -277,21 +270,20 @@ public class MfaService {
         if (!isMfaEnabled(user)) {
             return;
         }
+        stepUpService.requireNotLocked(user, SecurityEventType.MFA_CHALLENGE_FAILED, reason + "_mfa");
         if (code == null || code.isBlank()) {
-            securityEventService.recordForAuthenticatedUser(
-                    SecurityEventType.MFA_CHALLENGE_FAILED,
-                    SecurityEventOutcome.DENIED,
-                    SecurityEventSeverity.HIGH,
+            stepUpService.recordFailedStepUp(
                     user,
+                    SecurityEventType.MFA_CHALLENGE_FAILED,
+                    SecurityEventSeverity.HIGH,
                     reason + "_mfa_missing");
             throw new MfaRequiredException();
         }
         if (!verifyMfaCode(user, code, reason).valid()) {
-            securityEventService.recordForAuthenticatedUser(
-                    SecurityEventType.MFA_CHALLENGE_FAILED,
-                    SecurityEventOutcome.DENIED,
-                    SecurityEventSeverity.HIGH,
+            stepUpService.recordFailedStepUp(
                     user,
+                    SecurityEventType.MFA_CHALLENGE_FAILED,
+                    SecurityEventSeverity.HIGH,
                     reason + "_mfa_invalid");
             throw new InvalidMfaCodeException();
         }
@@ -319,34 +311,7 @@ public class MfaService {
                                       String currentPassword,
                                       SecurityEventType eventType,
                                       String failureReason) {
-        if (currentPassword == null || currentPassword.isBlank()) {
-            securityEventService.recordForAuthenticatedUser(
-                    eventType,
-                    SecurityEventOutcome.DENIED,
-                    SecurityEventSeverity.HIGH,
-                    user,
-                    failureReason);
-            throw new InvalidCredentialsException();
-        }
-
-        boolean acquired = argon2Limiter.tryAcquire();
-        if (!acquired) {
-            throw new AuthenticationCapacityExceededException();
-        }
-
-        try {
-            if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
-                securityEventService.recordForAuthenticatedUser(
-                        eventType,
-                        SecurityEventOutcome.DENIED,
-                        SecurityEventSeverity.HIGH,
-                        user,
-                        failureReason);
-                throw new InvalidCredentialsException();
-            }
-        } finally {
-            argon2Limiter.release();
-        }
+        stepUpService.verifyCurrentPassword(user, currentPassword, eventType, failureReason);
     }
 
     private User loadActiveUser(String userId) {

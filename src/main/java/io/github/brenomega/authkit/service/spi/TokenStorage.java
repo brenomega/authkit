@@ -16,6 +16,17 @@ public interface TokenStorage {
     boolean validateToken(String userId, String jti, String rawToken);
 
     /**
+     * Verifies that a session identifier is still active for access-token binding.
+     *
+     * <p>This intentionally does not validate a raw refresh-token secret. It is used
+     * after JWT signature, issuer, audience, and expiry validation to ensure the JWT
+     * {@code jti} is still present in the server-side session store.</p>
+     */
+    default boolean isSessionActive(String userId, String jti) {
+        return false;
+    }
+
+    /**
      * Atomically validates the current refresh token, consumes it, and stores the
      * replacement token for rotation/replay resistance.
      */

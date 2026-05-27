@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
+import io.github.brenomega.authkit.domain.user.dto.EmailConfirmationResendRequest;
 import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionFinishRequest;
@@ -216,6 +217,14 @@ public class AuthController {
     public ResponseEntity<ApiResponse<String>> confirmEmail(@RequestParam String token) {
         registrationService.confirmEmail(token);
         return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
+    }
+
+    @PostMapping("/email-confirmation/resend")
+    public ResponseEntity<ApiResponse<String>> resendEmailConfirmation(
+            @Valid @RequestBody EmailConfirmationResendRequest request) {
+        registrationService.resendEmailConfirmation(request.email());
+        return ResponseEntity.accepted().body(ApiResponse.success(
+                "If this account is awaiting confirmation, a new activation email will be sent."));
     }
 
     /**
