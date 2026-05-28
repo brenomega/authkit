@@ -49,6 +49,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
@@ -74,6 +75,7 @@ class MfaServiceTest {
     private AuthProperties authProperties;
     private AuditDigestService auditDigestService;
     private MfaSecretCipher mfaSecretCipher;
+    private AbuseThrottleService abuseThrottleService;
     private MfaService service;
     private User user;
 
@@ -91,6 +93,7 @@ class MfaServiceTest {
         authProperties.getMfa().setSecretEncryptionKdfIterations(1000);
         auditDigestService = new AuditDigestService(authProperties);
         mfaSecretCipher = new MfaSecretCipher(authProperties);
+        abuseThrottleService = mock(AbuseThrottleService.class);
         service = new MfaService(
                 userRepository,
                 totpRepository,
@@ -105,7 +108,9 @@ class MfaServiceTest {
                         passwordEncoder,
                         new Argon2ConcurrencyLimiter(),
                         lockoutService,
-                        securityEventService));
+                        securityEventService,
+                        abuseThrottleService),
+                abuseThrottleService);
 
         user = new User("mfa@example.com", "hashed-pass", "Mfa User", "555", true, true, null);
         user.setEmailConfirmed(true);

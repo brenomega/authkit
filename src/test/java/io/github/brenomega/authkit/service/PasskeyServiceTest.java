@@ -59,6 +59,7 @@ class PasskeyServiceTest {
         assertEqualsZero(passkeyCredentialRepository.countByUserIdAndDisabledAtIsNull(user.getId()));
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Passkey disable cannot target another user's credential")
     void disable_rejectsCredentialOwnedByAnotherUser() {

@@ -29,6 +29,7 @@ import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 class DataRetentionServiceTest {
@@ -45,6 +46,7 @@ class DataRetentionServiceTest {
         MfaBackupCodeRepository mfaBackupCodeRepository = mock(MfaBackupCodeRepository.class);
         PasskeyCredentialRepository passkeyCredentialRepository = mock(PasskeyCredentialRepository.class);
         OAuthConsentRepository oauthConsentRepository = mock(OAuthConsentRepository.class);
+        PasswordHistoryRepository passwordHistoryRepository = mock(PasswordHistoryRepository.class);
         ConsentEventRepository consentEventRepository = mock(ConsentEventRepository.class);
         EmailOutboxService emailOutboxService = mock(EmailOutboxService.class);
         AuthProperties authProperties = new AuthProperties();
@@ -82,6 +84,7 @@ class DataRetentionServiceTest {
                 mfaBackupCodeRepository,
                 passkeyCredentialRepository,
                 oauthConsentRepository,
+                passwordHistoryRepository,
                 consentEventRepository,
                 emailOutboxService,
                 authProperties,
@@ -101,6 +104,7 @@ class DataRetentionServiceTest {
         verify(passkeyCredentialRepository).deleteByUserIdIn(List.of(deletedUser));
         verify(mfaBackupCodeRepository).deleteByUserIdIn(List.of(deletedUser));
         verify(mfaTotpCredentialRepository).deleteByUserIdIn(List.of(deletedUser));
+        verify(passwordHistoryRepository).deleteByUserId(deletedUser);
         verify(securityEventRepository).purgeByUserReferences(List.of(deletedUser));
         verify(consentEventRepository).deleteByUserIdIn(List.of(deletedUser));
         verify(emailOutboxService).deleteByRecipients(List.of("deleted@example.test"));

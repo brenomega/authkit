@@ -116,6 +116,8 @@ authkit:
       issuer: ${AUTH_JWT_ISSUER}
       audience: ${AUTH_JWT_AUDIENCE}
       key-id: ${AUTH_JWT_KEY_ID:authkit-key-1}
+      retiring-public-keys: ${AUTH_JWT_RETIRING_PUBLIC_KEYS:}
+      revoked-key-ids: ${AUTH_JWT_REVOKED_KEY_IDS:}
     frontend:
       activation-url: ${AUTH_FRONTEND_ACTIVATION_URL}
       password-reset-url: ${AUTH_FRONTEND_PASSWORD_RESET_URL}
@@ -129,11 +131,20 @@ authkit:
       max-size: ${AUTH_AUTHORITY_CACHE_MAX_SIZE:10000}
     request:
       max-body-bytes: ${AUTH_MAX_REQUEST_BODY_BYTES:65536}
+    abuse-control:
+      capacity-multiplier: ${AUTH_ABUSE_CONTROL_CAPACITY_MULTIPLIER:1}
     email-outbox:
       enabled: ${AUTH_EMAIL_OUTBOX_ENABLED:true}
       batch-size: ${AUTH_EMAIL_OUTBOX_BATCH_SIZE:50}
       poll-delay-ms: ${AUTH_EMAIL_OUTBOX_POLL_DELAY_MS:5000}
       lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}
+      delivery-ack-timeout-seconds: ${AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS:600}
+    email-provider:
+      connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}
+      read-timeout-ms: ${AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS:5000}
+      max-attempts: ${AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS:3}
+      retry-backoff-ms: ${AUTH_EMAIL_PROVIDER_RETRY_BACKOFF_MS:250}
+      from: ${AUTH_EMAIL_PROVIDER_FROM:AuthKit Account <onboarding@resend.dev>}
     compliance:
       terms-version: ${AUTH_TERMS_VERSION}
       privacy-policy-version: ${AUTH_PRIVACY_POLICY_VERSION}
@@ -174,6 +185,14 @@ authkit:
       provider-enabled: ${AUTH_OAUTH_PROVIDER_ENABLED:true}
       authorization-code-ttl-minutes: ${AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES:5}
       id-token-ttl-seconds: ${AUTH_OAUTH_ID_TOKEN_TTL_SECONDS:900}
+    cors:
+      enabled: ${AUTH_CORS_ENABLED:true}
+      allowed-origins: ${AUTH_CORS_ALLOWED_ORIGINS}
+      allowed-methods: ${AUTH_CORS_ALLOWED_METHODS:GET,POST,PATCH,DELETE,OPTIONS}
+      allowed-headers: ${AUTH_CORS_ALLOWED_HEADERS:Authorization,Content-Type,X-XSRF-TOKEN,X-Worker-Token}
+      exposed-headers: ${AUTH_CORS_EXPOSED_HEADERS:Location}
+      allow-credentials: ${AUTH_CORS_ALLOW_CREDENTIALS:true}
+      max-age-seconds: ${AUTH_CORS_MAX_AGE_SECONDS:3600}
 
 # =============================================================================
 # Server Configuration
@@ -222,6 +241,7 @@ management:
 app:
   security:
     worker-token: ${WORKER_TOKEN}
+    worker-previous-tokens: ${WORKER_PREVIOUS_TOKENS:}
 
 # =============================================================================
 # Rate Limiting — Hybrid Layer Configuration (DT 3.2.21)

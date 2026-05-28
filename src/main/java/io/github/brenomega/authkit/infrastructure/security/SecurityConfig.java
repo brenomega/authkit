@@ -2,6 +2,8 @@ package io.github.brenomega.authkit.infrastructure.security;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,11 +18,16 @@ import org.springframework.security.config.annotation.web.configurers.HeadersCon
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.session.DisableEncodeUrlFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter;
+import io.github.brenomega.authkit.infrastructure.network.rateLimit.EndpointAbuseRateLimitingFilter;
 import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 
 import io.github.brenomega.authkit.response.ApiResponse;
@@ -48,8 +55,10 @@ public class SecurityConfig {
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final OriginFirewallFilter originFirewallFilter;
     private final RateLimitingFilter rateLimitingFilter;
+    private final EndpointAbuseRateLimitingFilter endpointAbuseRateLimitingFilter;
     private final WorkerAuthFilter workerAuthFilter;
     private final RequestBodySizeLimitFilter requestBodySizeLimitFilter;
+    private final AuthProperties authProperties;
 
     /**
      * @param objectMapper Jackson mapper for serializing error responses
@@ -62,14 +71,18 @@ public class SecurityConfig {
             UserAuthoritiesFilter userAuthoritiesFilter,
             OriginFirewallFilter originFirewallFilter,
             RateLimitingFilter rateLimitingFilter,
+            EndpointAbuseRateLimitingFilter endpointAbuseRateLimitingFilter,
             WorkerAuthFilter workerAuthFilter,
-            RequestBodySizeLimitFilter requestBodySizeLimitFilter) {
+            RequestBodySizeLimitFilter requestBodySizeLimitFilter,
+            AuthProperties authProperties) {
         this.objectMapper = objectMapper;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.originFirewallFilter = originFirewallFilter;
         this.rateLimitingFilter = rateLimitingFilter;
+        this.endpointAbuseRateLimitingFilter = endpointAbuseRateLimitingFilter;
         this.workerAuthFilter = workerAuthFilter;
         this.requestBodySizeLimitFilter = requestBodySizeLimitFilter;
+        this.authProperties = authProperties;
     }
 
     /**
@@ -84,6 +97,7 @@ public class SecurityConfig {
         http
             // DT 3.2.6 — CSRF disabled for stateless Bearer Token API
             .csrf(AbstractHttpConfigurer::disable)
+            .cors(cors -> {})
 
             // DT 3.2.5 — No HTTP sessions
             .sessionManagement(session ->
@@ -97,6 +111,8 @@ public class SecurityConfig {
                         .includeSubDomains(true)
                         .preload(true)
                         .maxAgeInSeconds(31536000))
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                 .contentSecurityPolicy(csp -> csp
                         .policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"))
             )
@@ -114,6 +130,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/email-confirmation/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-recovery/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/oauth2/token").permitAll()
+                .requestMatchers(HttpMethod.POST, "/oauth2/revoke", "/oauth2/introspect").permitAll()
+                .requestMatchers(HttpMethod.GET, "/oauth2/userinfo").permitAll()
                 .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/.well-known/**").permitAll()
                 .requestMatchers("/api/v1/internal/**").hasRole("WORKER")
                 .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "TENANT_ADMIN")
@@ -137,8 +155,11 @@ public class SecurityConfig {
             // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
             .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)
 
+            // Prompt 2 — Endpoint-specific abuse throttles using IP and device/user-agent dimensions.
+            .addFilterAfter(endpointAbuseRateLimitingFilter, RateLimitingFilter.class)
+
             // DT 3.1.30 — Reject oversized bodies before JSON parsing or password hashing.
-            .addFilterAfter(requestBodySizeLimitFilter, RateLimitingFilter.class)
+            .addFilterBefore(requestBodySizeLimitFilter, BearerTokenAuthenticationFilter.class)
 
             // DT 3.2.11 — Worker Auth injection immediately after standard extraction
             .addFilterAfter(workerAuthFilter, BearerTokenAuthenticationFilter.class)
@@ -147,6 +168,33 @@ public class SecurityConfig {
             .addFilterAfter(userAuthoritiesFilter, WorkerAuthFilter.class);
 
         return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        var cors = authProperties.getCors();
+        if (cors.isEnabled()) {
+            configuration.setAllowedOrigins(splitCsv(cors.getAllowedOrigins()));
+            configuration.setAllowedMethods(splitCsv(cors.getAllowedMethods()));
+            configuration.setAllowedHeaders(splitCsv(cors.getAllowedHeaders()));
+            configuration.setExposedHeaders(splitCsv(cors.getExposedHeaders()));
+            configuration.setAllowCredentials(cors.isAllowCredentials());
+            configuration.setMaxAge(cors.getMaxAgeSeconds());
+        }
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    private List<String> splitCsv(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .toList();
     }
 
     /**

@@ -173,6 +173,7 @@ class AdminServiceTest {
                         Set.of("https://mutated.example/callback"),
                         Set.of("openid"),
                         true,
+                        false,
                         "AdminPass12345!",
                         null)));
 

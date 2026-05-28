@@ -53,6 +53,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("authkit.auth.jwt.issuer", "authkit");
         validateCredential("authkit.auth.jwt.audience", "authkit-api");
         validateCredential("authkit.auth.jwt.key-id");
+        validateOptionalJwtPublicKeyRotationList("authkit.auth.jwt.retiring-public-keys");
+        validateOptionalKeyIdList("authkit.auth.jwt.revoked-key-ids");
         validateHttpsUrl("authkit.auth.frontend.activation-url", "https://authkit.io/activate");
         validateHttpsUrl("authkit.auth.frontend.password-reset-url", "https://frontend.url/reset-password");
         validateCredential("authkit.auth.compliance.terms-version");
@@ -72,10 +74,16 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
         validateBoolean("authkit.auth.csrf.enabled", true);
+        validateBoolean("authkit.auth.cors.enabled", true);
+        validateCorsOrigins();
+        validateMaxLong("authkit.auth.abuse-control.capacity-multiplier", 1);
         validateCredential("authkit.auth.csrf.cookie-name");
         validateCredential("authkit.auth.csrf.header-name");
         validateBoolean("authkit.auth.registration.stealth-conflicts", true);
         validateBoolean("authkit.auth.passkey.allow-origin-port", false);
+        validateMinLong("authkit.auth.email-provider.connect-timeout-ms", 100);
+        validateMinLong("authkit.auth.email-provider.read-timeout-ms", 100);
+        validateMinLong("authkit.auth.email-provider.max-attempts", 1);
         validateMinLong("security.argon2.memory", 19456);
         validateMinLong("security.argon2.iterations", 2);
         validateMinLong("security.argon2.parallelism", 1);
@@ -140,6 +148,22 @@ public class ProductionConfigValidator implements ApplicationRunner {
         }
     }
 
+    private void validateMaxLong(@NonNull String propertyKey, long maximumValue) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+        }
+        try {
+            long actual = Long.parseLong(value);
+            if (actual > maximumValue) {
+                log.error("CRITICAL SECURITY ERROR: Key '{}' must be at most '{}'.", propertyKey, maximumValue);
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' is above the production maximum. Startup aborted.");
+            }
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+        }
+    }
+
     private void validateOptionalKeyRotationList(@NonNull String propertyKey) {
         String value = environment.getProperty(propertyKey);
         if (value == null || value.isBlank()) {
@@ -160,6 +184,66 @@ public class ProductionConfigValidator implements ApplicationRunner {
             String keyMaterial = entry.substring(separator + 1).trim();
             if (!keyId.matches("[A-Za-z0-9._-]{1,64}") || keyMaterial.length() < 32) {
                 throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id or short key material.");
+            }
+        }
+    }
+
+    private void validateOptionalJwtPublicKeyRotationList(@NonNull String propertyKey) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (value.startsWith("${") || value.contains("CHANGE-ME")) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+        }
+        for (String entry : value.split(";")) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            int separator = entry.indexOf('=');
+            if (separator <= 0 || separator == entry.length() - 1) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use keyId=publicKey entries separated by semicolons.");
+            }
+            String keyId = entry.substring(0, separator).trim();
+            String keyMaterial = entry.substring(separator + 1).trim();
+            if (!keyId.matches("[A-Za-z0-9._-]{1,64}") || keyMaterial.length() < 16) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id or missing public key material.");
+            }
+        }
+    }
+
+    private void validateOptionalKeyIdList(@NonNull String propertyKey) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (value.startsWith("${") || value.contains("CHANGE-ME")) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+        }
+        for (String item : value.split("[,;]")) {
+            String keyId = item.trim();
+            if (!keyId.isBlank() && !keyId.matches("[A-Za-z0-9._-]{1,64}")) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id.");
+            }
+        }
+    }
+
+    private void validateCorsOrigins() {
+        String origins = environment.getProperty("authkit.auth.cors.allowed-origins");
+        if (origins == null || origins.isBlank()) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS allowed origins must be explicit in production.");
+        }
+        boolean credentials = Boolean.parseBoolean(environment.getProperty("authkit.auth.cors.allow-credentials", "true"));
+        for (String origin : origins.split(",")) {
+            String trimmed = origin.trim();
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if ("*".equals(trimmed) && credentials) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS wildcard cannot be used with credentials.");
+            }
+            if (trimmed.startsWith("http://") && !trimmed.startsWith("http://localhost")) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Production CORS origins must use HTTPS.");
             }
         }
     }

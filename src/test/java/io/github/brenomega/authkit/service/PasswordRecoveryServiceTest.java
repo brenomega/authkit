@@ -23,6 +23,7 @@ import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
@@ -41,6 +42,8 @@ class PasswordRecoveryServiceTest {
     private AccountLockoutService lockoutService;
     private AuthProperties authProperties;
     private SecurityEventService securityEventService;
+    private AbuseThrottleService abuseThrottleService;
+    private PasswordPolicyService passwordPolicyService;
     private PasswordRecoveryService recoveryService;
 
     @BeforeEach
@@ -51,6 +54,8 @@ class PasswordRecoveryServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         lockoutService = mock(AccountLockoutService.class);
         securityEventService = mock(SecurityEventService.class);
+        abuseThrottleService = mock(AbuseThrottleService.class);
+        passwordPolicyService = mock(PasswordPolicyService.class);
         authProperties = new AuthProperties();
         authProperties.getToken().setRecoveryTokenTtlMinutes(30);
         authProperties.getFrontend().setPasswordResetUrl("https://frontend.example.test/reset-password");
@@ -62,7 +67,9 @@ class PasswordRecoveryServiceTest {
                 lockoutService,
                 authProperties,
                 new Argon2ConcurrencyLimiter(),
-                securityEventService
+                securityEventService,
+                abuseThrottleService,
+                passwordPolicyService
         );
     }
 
@@ -81,7 +88,7 @@ class PasswordRecoveryServiceTest {
 
         verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(30L));
         verify(emailOutboxService).enqueue(argThat(payload ->
-                payload.htmlBody().contains("https://frontend.example.test/reset-password?token=")
+                payload.htmlBody().contains("https://frontend.example.test/reset-password#token=")
                         && payload.htmlBody().contains("&email=exists%40example.com")));
     }
 

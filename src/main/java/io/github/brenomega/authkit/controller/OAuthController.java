@@ -44,13 +44,20 @@ public class OAuthController {
                 Map.entry("issuer", issuer),
                 Map.entry("authorization_endpoint", issuer + "/api/v1/oauth2/authorize"),
                 Map.entry("token_endpoint", issuer + "/oauth2/token"),
+                Map.entry("revocation_endpoint", issuer + "/oauth2/revoke"),
+                Map.entry("introspection_endpoint", issuer + "/oauth2/introspect"),
+                Map.entry("userinfo_endpoint", issuer + "/oauth2/userinfo"),
                 Map.entry("jwks_uri", issuer + "/.well-known/jwks.json"),
                 Map.entry("response_types_supported", List.of("code")),
                 Map.entry("grant_types_supported", List.of("authorization_code")),
+                Map.entry("token_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post", "none")),
+                Map.entry("revocation_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post", "none")),
+                Map.entry("introspection_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post")),
                 Map.entry("subject_types_supported", List.of("public")),
                 Map.entry("id_token_signing_alg_values_supported", List.of("RS256")),
                 Map.entry("code_challenge_methods_supported", List.of("S256")),
                 Map.entry("scopes_supported", List.of("openid", "profile", "email")),
+                Map.entry("response_modes_supported", List.of("query")),
                 Map.entry("claims_supported", List.of("sub", "iss", "aud", "exp", "iat", "nonce", "name", "email", "email_verified", "tenant_id", "amr"))
         );
     }
@@ -79,6 +86,37 @@ public class OAuthController {
                 credentials.clientId(),
                 credentials.clientSecret(),
                 codeVerifier);
+    }
+
+    @PostMapping(path = "/oauth2/revoke", consumes = "application/x-www-form-urlencoded")
+    public void revoke(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam("token") String token,
+            @RequestParam(value = "token_type_hint", required = false) String tokenTypeHint,
+            @RequestParam(value = "client_id", required = false) String clientId,
+            @RequestParam(value = "client_secret", required = false) String clientSecret) {
+        ClientCredentials credentials = readClientCredentials(authorization, clientId, clientSecret);
+        oauthProviderService.revoke(token, tokenTypeHint, credentials.clientId(), credentials.clientSecret());
+    }
+
+    @PostMapping(path = "/oauth2/introspect", consumes = "application/x-www-form-urlencoded")
+    public Map<String, Object> introspect(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestParam("token") String token,
+            @RequestParam(value = "token_type_hint", required = false) String tokenTypeHint,
+            @RequestParam(value = "client_id", required = false) String clientId,
+            @RequestParam(value = "client_secret", required = false) String clientSecret) {
+        ClientCredentials credentials = readClientCredentials(authorization, clientId, clientSecret);
+        return oauthProviderService.introspect(token, tokenTypeHint, credentials.clientId(), credentials.clientSecret());
+    }
+
+    @GetMapping("/oauth2/userinfo")
+    public Map<String, Object> userInfo(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
+            throw new InvalidOAuthRequestException();
+        }
+        return oauthProviderService.userInfo(authorization.substring(7));
     }
 
     private ClientCredentials readClientCredentials(String authorization, String bodyClientId, String bodyClientSecret) {

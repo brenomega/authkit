@@ -48,6 +48,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.JpaWebAuthnCredentialRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
@@ -66,6 +68,7 @@ public class PasskeyService {
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
     private final StepUpService stepUpService;
+    private final AbuseThrottleService abuseThrottleService;
 
     public PasskeyService(UserRepository userRepository,
                           PasskeyCredentialRepository credentialRepository,
@@ -75,7 +78,8 @@ public class PasskeyService {
                           AuthService authService,
                           AuthProperties authProperties,
                           SecurityEventService securityEventService,
-                          StepUpService stepUpService) {
+                          StepUpService stepUpService,
+                          AbuseThrottleService abuseThrottleService) {
         this.userRepository = userRepository;
         this.credentialRepository = credentialRepository;
         this.challengeRepository = challengeRepository;
@@ -85,6 +89,7 @@ public class PasskeyService {
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
         this.stepUpService = stepUpService;
+        this.abuseThrottleService = abuseThrottleService;
     }
 
     @Transactional(readOnly = true)
@@ -100,6 +105,7 @@ public class PasskeyService {
     public PasskeyRegistrationOptionsResponse startRegistration(String userId, StepUpRequest request) {
         ensureEnabled();
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PASSKEY_CHANGE_USER, user);
         verifyPasswordStepUp(user,
                 request == null ? null : request.currentPassword(),
                 SecurityEventType.PASSKEY_REGISTRATION_STARTED,
@@ -208,7 +214,9 @@ public class PasskeyService {
 
         UUID userId = null;
         if (request != null && request.email() != null && !request.email().isBlank()) {
-            User user = userRepository.findByEmail(EmailNormalizer.normalize(request.email()))
+            String normalizedEmail = EmailNormalizer.normalize(request.email());
+            abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSKEY_ASSERTION_EMAIL, normalizedEmail);
+            User user = userRepository.findByEmail(normalizedEmail)
                     .filter(existing -> !existing.isDeleted())
                     .orElse(null);
             if (user != null) {
@@ -303,6 +311,7 @@ public class PasskeyService {
     @Transactional
     public void disable(String userId, UUID credentialId, StepUpRequest request) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PASSKEY_CHANGE_USER, user);
         verifyPasswordStepUp(user,
                 request == null ? null : request.currentPassword(),
                 SecurityEventType.PASSKEY_DISABLED,

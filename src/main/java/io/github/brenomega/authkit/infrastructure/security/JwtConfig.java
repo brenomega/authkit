@@ -1,11 +1,10 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import java.security.interfaces.RSAPublicKey;
-import java.security.interfaces.RSAPrivateKey;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
@@ -15,13 +14,16 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 
-import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.JWSKeySelector;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
 /**
  * JWT configuration that loads RSA keys and provides the decoder/encoder beans (DT 3.2.2).
@@ -31,21 +33,20 @@ import com.nimbusds.jose.proc.SecurityContext;
 @Configuration
 public class JwtConfig {
 
-    private final RSAPublicKey publicKey;
-    private final RSAPrivateKey privateKey;
+    private final JwtKeyService jwtKeyService;
     private final AuthProperties authProperties;
+    private final OAuthTokenRevocationService tokenRevocationService;
 
-    public JwtConfig(
-            @Value("${jwt.public.key}") RSAPublicKey publicKey,
-            @Value("${jwt.private.key}") RSAPrivateKey privateKey,
-            AuthProperties authProperties) {
-        this.publicKey = publicKey;
-        this.privateKey = privateKey;
+    public JwtConfig(JwtKeyService jwtKeyService,
+                     AuthProperties authProperties,
+                     OAuthTokenRevocationService tokenRevocationService) {
+        this.jwtKeyService = jwtKeyService;
         this.authProperties = authProperties;
+        this.tokenRevocationService = tokenRevocationService;
     }
 
     public RSAPublicKey getPublicKey() {
-        return publicKey;
+        return jwtKeyService.activePublicKey();
     }
 
     /**
@@ -54,15 +55,26 @@ public class JwtConfig {
      */
     @Bean
     public JwtDecoder jwtDecoder() {
-        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(publicKey).build();
+        DefaultJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
+        JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
+                JWSAlgorithm.RS256,
+                new ImmutableJWKSet<>(jwtKeyService.publishedPublicJwkSet()));
+        jwtProcessor.setJWSKeySelector(keySelector);
+        NimbusJwtDecoder decoder = new NimbusJwtDecoder(jwtProcessor);
 
         OAuth2TokenValidator<Jwt> defaultValidator =
                 JwtValidators.createDefaultWithIssuer(authProperties.getJwt().getIssuer());
 
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(authProperties.getJwt().getAudience());
+        OAuth2TokenValidator<Jwt> keyRevocationValidator = new KeyRevocationValidator(jwtKeyService);
+        OAuth2TokenValidator<Jwt> tokenRevocationValidator = new TokenRevocationValidator(tokenRevocationService);
 
         OAuth2TokenValidator<Jwt> combinedValidator =
-                new DelegatingOAuth2TokenValidator<>(defaultValidator, audienceValidator);
+                new DelegatingOAuth2TokenValidator<>(
+                        defaultValidator,
+                        audienceValidator,
+                        keyRevocationValidator,
+                        tokenRevocationValidator);
 
         decoder.setJwtValidator(combinedValidator);
         return decoder;
@@ -74,10 +86,7 @@ public class JwtConfig {
      */
     @Bean
     public JwtEncoder jwtEncoder() {
-        RSAKey rsaKey = new RSAKey.Builder(publicKey)
-                .privateKey(privateKey)
-                .keyID(authProperties.getJwt().getKeyId())
-                .build();
+        RSAKey rsaKey = jwtKeyService.activePrivateJwk();
         JWKSource<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(rsaKey));
         return new NimbusJwtEncoder(jwkSource);
     }
@@ -99,6 +108,41 @@ public class JwtConfig {
             }
             OAuth2Error error = new OAuth2Error("invalid_token", "The required audience is missing", null);
             return OAuth2TokenValidatorResult.failure(error);
+        }
+    }
+
+    private static class KeyRevocationValidator implements OAuth2TokenValidator<Jwt> {
+        private final JwtKeyService jwtKeyService;
+
+        private KeyRevocationValidator(JwtKeyService jwtKeyService) {
+            this.jwtKeyService = jwtKeyService;
+        }
+
+        @Override
+        public OAuth2TokenValidatorResult validate(Jwt jwt) {
+            Object kid = jwt.getHeaders().get("kid");
+            if (kid instanceof String keyId && jwtKeyService.isRevokedKid(keyId)) {
+                OAuth2Error error = new OAuth2Error("invalid_token", "JWT signing key has been revoked", null);
+                return OAuth2TokenValidatorResult.failure(error);
+            }
+            return OAuth2TokenValidatorResult.success();
+        }
+    }
+
+    private static class TokenRevocationValidator implements OAuth2TokenValidator<Jwt> {
+        private final OAuthTokenRevocationService tokenRevocationService;
+
+        private TokenRevocationValidator(OAuthTokenRevocationService tokenRevocationService) {
+            this.tokenRevocationService = tokenRevocationService;
+        }
+
+        @Override
+        public OAuth2TokenValidatorResult validate(Jwt jwt) {
+            if (tokenRevocationService.isRevoked(jwt.getId())) {
+                OAuth2Error error = new OAuth2Error("invalid_token", "JWT has been revoked", null);
+                return OAuth2TokenValidatorResult.failure(error);
+            }
+            return OAuth2TokenValidatorResult.success();
         }
     }
 }

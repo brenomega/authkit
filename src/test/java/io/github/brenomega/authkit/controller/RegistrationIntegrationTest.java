@@ -74,7 +74,7 @@ public class RegistrationIntegrationTest {
         String payload = """
                 {
                    "email": "legit@example.com",
-                   "password": "LegitPassword!",
+                   "password": "VaultRiver73!",
                    "termsAccepted": true,
                    "privacyPolicyAccepted": true
                 }
@@ -104,7 +104,7 @@ public class RegistrationIntegrationTest {
         String payload = """
                 {
                    "email": "confirm-flow@example.com",
-                   "password": "LegitPassword!",
+                   "password": "VaultRiver73!",
                    "termsAccepted": true,
                    "privacyPolicyAccepted": true
                 }

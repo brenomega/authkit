@@ -271,6 +271,45 @@ class OAuthProviderServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("OAuth revocation, introspection, and userinfo honor client-scoped tokens")
+    void revocationIntrospectionAndUserinfo() throws Exception {
+        User user = confirmedUser("oidc-userinfo@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                user.getTenantId(),
+                "client-userinfo",
+                null,
+                true,
+                "Userinfo Client",
+                Set.of("https://client.example/callback"),
+                Set.of("openid", "email", "profile"),
+                true,
+                java.time.Instant.now()));
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
+                "code", client.getClientId(), "https://client.example/callback", "openid email profile", null,
+                pkceChallenge(verifier), "S256", null, true));
+        var tokens = oauthProviderService.token(
+                "authorization_code",
+                codeFrom(authz.redirectUri()),
+                "https://client.example/callback",
+                client.getClientId(),
+                null,
+                verifier);
+
+        assertEquals(true, oauthProviderService
+                .introspect(tokens.accessToken(), "access_token", client.getClientId(), null)
+                .get("active"));
+        assertEquals(user.getEmail(), oauthProviderService.userInfo(tokens.accessToken()).get("email"));
+
+        oauthProviderService.revoke(tokens.accessToken(), "access_token", client.getClientId(), null);
+
+        assertEquals(false, oauthProviderService
+                .introspect(tokens.accessToken(), "access_token", client.getClientId(), null)
+                .get("active"));
+        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.userInfo(tokens.accessToken()));
+    }
+
     private User confirmedUser(String email) {
         User user = new User(email, "hash", "Test User", null, true, true, "token");
         user.setEmailConfirmed(true);

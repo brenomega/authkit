@@ -22,7 +22,6 @@ import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
-import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
@@ -34,6 +33,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
@@ -62,6 +63,7 @@ public class AccountLifecycleService {
     private final MfaService mfaService;
     private final StepUpService stepUpService;
     private final EmailOutboxService emailOutboxService;
+    private final AbuseThrottleService abuseThrottleService;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
@@ -76,7 +78,8 @@ public class AccountLifecycleService {
                                    UserAuthoritiesFilter userAuthoritiesFilter,
                                    MfaService mfaService,
                                    StepUpService stepUpService,
-                                   EmailOutboxService emailOutboxService) {
+                                   EmailOutboxService emailOutboxService,
+                                   AbuseThrottleService abuseThrottleService) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
@@ -91,6 +94,7 @@ public class AccountLifecycleService {
         this.mfaService = mfaService;
         this.stepUpService = stepUpService;
         this.emailOutboxService = emailOutboxService;
+        this.abuseThrottleService = abuseThrottleService;
     }
 
     @Transactional(readOnly = true)
@@ -108,6 +112,7 @@ public class AccountLifecycleService {
     @Transactional(readOnly = true)
     public UserDataExportResponse exportUserData(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
         verifyStepUp(user,
                 stepUpRequest,
                 SecurityEventType.DATA_EXPORT_REQUESTED,
@@ -167,6 +172,7 @@ public class AccountLifecycleService {
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.ACCOUNT_DELETION_USER, user);
         verifyStepUp(user,
                 stepUpRequest,
                 SecurityEventType.ACCOUNT_DELETION_REQUESTED,

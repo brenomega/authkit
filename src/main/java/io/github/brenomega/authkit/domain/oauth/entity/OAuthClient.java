@@ -144,6 +144,14 @@ public class OAuthClient {
         this.updatedAt = now;
     }
 
+    public void rotateSecret(String clientSecretHash, Instant now) {
+        if (publicClient || clientSecretHash == null || clientSecretHash.isBlank()) {
+            throw new IllegalStateException("Only confidential OAuth clients can rotate secrets");
+        }
+        this.clientSecretHash = clientSecretHash;
+        this.updatedAt = now;
+    }
+
     public void disable(Instant now) {
         this.enabled = false;
         this.disabledAt = now;

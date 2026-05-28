@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -182,6 +183,24 @@ class SecurityIntegrationTest {
         mockMvc.perform(get("/api/v1/anything"))
                 .andExpect(header().string("Content-Security-Policy", containsString("default-src 'none'")))
                 .andExpect(header().string("Content-Security-Policy", containsString("frame-ancestors 'none'")));
+    }
+
+    @Test
+    @DisplayName("Responses include no-referrer policy for recovery-token leakage resistance")
+    void securityHeader_referrerPolicy() throws Exception {
+        mockMvc.perform(get("/api/v1/anything"))
+                .andExpect(header().string("Referrer-Policy", "no-referrer"));
+    }
+
+    @Test
+    @DisplayName("CORS preflight only allows configured origins")
+    void corsPreflight_allowsConfiguredOrigin() throws Exception {
+        mockMvc.perform(options("/api/v1/auth/login")
+                        .header("Origin", "http://localhost:3000")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 
     @SuppressWarnings("null")

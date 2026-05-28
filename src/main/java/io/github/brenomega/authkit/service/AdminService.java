@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
-import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientCreateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientResponse;
 import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientUpdateRequest;
@@ -33,6 +32,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
@@ -56,6 +57,7 @@ public class AdminService {
     private final TokenStorage tokenStorage;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final AuthProperties authProperties;
+    private final AbuseThrottleService abuseThrottleService;
 
     public AdminService(UserRepository userRepository,
                         OAuthClientRepository oauthClientRepository,
@@ -66,7 +68,8 @@ public class AdminService {
                         StepUpService stepUpService,
                         TokenStorage tokenStorage,
                         UserAuthoritiesFilter userAuthoritiesFilter,
-                        AuthProperties authProperties) {
+                        AuthProperties authProperties,
+                        AbuseThrottleService abuseThrottleService) {
         this.userRepository = userRepository;
         this.oauthClientRepository = oauthClientRepository;
         this.mfaService = mfaService;
@@ -77,6 +80,7 @@ public class AdminService {
         this.tokenStorage = tokenStorage;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.authProperties = authProperties;
+        this.abuseThrottleService = abuseThrottleService;
     }
 
     @Transactional(readOnly = true)
@@ -210,6 +214,14 @@ public class AdminService {
                 .orElseThrow(InvalidOAuthRequestException::new);
         requireCanManageClient(admin, client);
         client.update(request.displayName(), request.redirectUris(), request.scopes(), true, Instant.now());
+        String rawSecret = null;
+        if (request.rotateSecret()) {
+            if (client.isPublicClient()) {
+                throw new InvalidOAuthRequestException();
+            }
+            rawSecret = SecureTokenGenerator.randomUrlSafeToken(32);
+            client.rotateSecret(passwordEncoder.encode(rawSecret), Instant.now());
+        }
 
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.OAUTH_CLIENT_UPDATED,
@@ -217,9 +229,9 @@ public class AdminService {
                 SecurityEventSeverity.HIGH,
                 admin,
                 "oauth_client_updated",
-                java.util.Map.of("client_id", client.getClientId()));
+                java.util.Map.of("client_id", client.getClientId(), "secret_rotated", Boolean.toString(request.rotateSecret())));
 
-        return toClientResponse(client, null);
+        return toClientResponse(client, rawSecret);
     }
 
     @Transactional
@@ -254,6 +266,7 @@ public class AdminService {
     }
 
     private void requireAdminWriteStepUp(Jwt jwt, User admin, String currentPassword, String mfaCode, String reason) {
+        abuseThrottleService.checkTenant(AbuseRateLimitPolicy.ADMIN_WRITE_TENANT, admin.getTenantId());
         stepUpService.verifyCurrentPassword(admin, currentPassword, SecurityEventType.ADMIN_ACTION, reason + "_password_step_up_failed");
 
         boolean hasTotp = mfaService.isMfaEnabled(admin);

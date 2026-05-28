@@ -45,7 +45,9 @@ public class EmailOutboxProcessor {
         for (EmailOutboxMessage message : messages) {
             try {
                 emailPublisher.publish(message.toPayload());
-                outboxService.markSent(message.getId());
+                outboxService.markQueued(
+                        message.getId(),
+                        Duration.ofSeconds(properties.getDeliveryAckTimeoutSeconds()));
             } catch (RuntimeException ex) {
                 log.warn("Email outbox publish failed for message {}.", message.getId());
                 meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();

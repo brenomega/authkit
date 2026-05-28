@@ -22,7 +22,7 @@ class EmailOutboxProcessorTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    @DisplayName("Outbox processor publishes claimed email and marks it sent")
+    @DisplayName("Outbox processor publishes claimed email and marks it queued for provider delivery")
     void publishDueMessages_success() {
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         QueuePublisher<EmailPayload> emailPublisher = mock(QueuePublisher.class);
@@ -39,7 +39,7 @@ class EmailOutboxProcessorTest {
         processor.publishDueMessages();
 
         verify(emailPublisher).publish(payload);
-        verify(outboxService).markSent(messageId);
+        verify(outboxService).markQueued(eq(messageId), any(Duration.class));
     }
 
     @Test

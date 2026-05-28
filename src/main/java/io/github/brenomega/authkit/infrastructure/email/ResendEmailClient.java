@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.infrastructure.email;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 
 /**
@@ -24,15 +26,17 @@ import io.github.brenomega.authkit.service.dto.EmailPayload;
 public class ResendEmailClient {
 
     private static final Logger log = LoggerFactory.getLogger(ResendEmailClient.class);
-    private static final String DEFAULT_FROM = "AuthKit Account <onboarding@resend.dev>";
 
     private final RestClient resendRestClient;
+    private final AuthProperties authProperties;
 
     /**
      * @param resendRestClient configured HTTP client connected to Resend
      */
-    public ResendEmailClient(RestClient resendRestClient) {
+    public ResendEmailClient(RestClient resendRestClient,
+                             AuthProperties authProperties) {
         this.resendRestClient = resendRestClient;
+        this.authProperties = authProperties;
     }
 
     /**
@@ -41,9 +45,9 @@ public class ResendEmailClient {
      * @param payload the target email definition
      */
     @SuppressWarnings("null")
-    public void sendEmail(EmailPayload payload) {
+    public EmailDeliveryResult sendEmail(EmailPayload payload) {
         Map<String, Object> requestBody = Map.of(
-                "from", DEFAULT_FROM,
+                "from", authProperties.getEmailProvider().getFrom(),
                 "to", List.of(payload.to()),
                 "subject", payload.subject(),
                 "html", payload.htmlBody()
@@ -52,15 +56,45 @@ public class ResendEmailClient {
         String maskedRecipient = EmailMasker.mask(payload.to());
         log.debug("Dispatching HTTP request to Resend API for: {}", maskedRecipient);
 
+        String idempotencyKey = payload.messageId() == null
+                ? "authkit-email-" + UUID.randomUUID()
+                : "authkit-email-" + payload.messageId();
+        RuntimeException lastFailure = null;
+        int attempts = authProperties.getEmailProvider().getMaxAttempts();
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                @SuppressWarnings("rawtypes")
+                Map response = resendRestClient.post()
+                        .header("Idempotency-Key", idempotencyKey)
+                        .body(requestBody)
+                        .retrieve()
+                        .body(Map.class);
+                String providerId = response == null || response.get("id") == null
+                        ? null
+                        : response.get("id").toString();
+                log.info("Email accepted by Resend API for: {}", maskedRecipient);
+                return new EmailDeliveryResult(providerId);
+            } catch (RuntimeException e) {
+                lastFailure = e;
+                if (attempt < attempts) {
+                    backoff();
+                }
+            }
+        }
+        log.error("Failed to send email to {} after {} attempts", maskedRecipient, attempts, lastFailure);
+        throw new RuntimeException("Email delivery failed", lastFailure);
+    }
+
+    private void backoff() {
+        long backoffMs = authProperties.getEmailProvider().getRetryBackoffMs();
+        if (backoffMs <= 0) {
+            return;
+        }
         try {
-            resendRestClient.post()
-                    .body(requestBody)
-                    .retrieve()
-                    .toBodilessEntity();
-            log.info("Email delivered to Resend API for: {}", maskedRecipient);
-        } catch (Exception e) {
-            log.error("Failed to send email to {}", maskedRecipient, e);
-            throw new RuntimeException("Email delivery failed", e);
+            Thread.sleep(backoffMs);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Email delivery interrupted", ex);
         }
     }
 }

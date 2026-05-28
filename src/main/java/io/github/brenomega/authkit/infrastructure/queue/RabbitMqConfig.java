@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.infrastructure.queue;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.context.annotation.Bean;
@@ -21,8 +22,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class RabbitMqConfig {
 
     public static final String EXCHANGE_API = "authkit.api.exchange";
+    public static final String EXCHANGE_DLX = "authkit.dlx.exchange";
     public static final String QUEUE_EMAIL  = "authkit.email.queue";
+    public static final String QUEUE_EMAIL_DLQ  = "authkit.email.dlq";
     public static final String ROUTING_KEY_EMAIL = "email.send";
+    public static final String ROUTING_KEY_EMAIL_DLQ = "email.dead";
 
     /**
      * Replaces the default Java serialization with JSON.
@@ -43,12 +47,25 @@ public class RabbitMqConfig {
         return new TopicExchange(EXCHANGE_API);
     }
 
+    @Bean
+    public TopicExchange deadLetterExchange() {
+        return new TopicExchange(EXCHANGE_DLX);
+    }
+
     /**
      * Declares the durable queue for email notifications.
      */
     @Bean
     public Queue emailQueue() {
-        return new Queue(QUEUE_EMAIL, true);
+        return QueueBuilder.durable(QUEUE_EMAIL)
+                .deadLetterExchange(EXCHANGE_DLX)
+                .deadLetterRoutingKey(ROUTING_KEY_EMAIL_DLQ)
+                .build();
+    }
+
+    @Bean
+    public Queue emailDeadLetterQueue() {
+        return QueueBuilder.durable(QUEUE_EMAIL_DLQ).build();
     }
 
     /**
@@ -57,5 +74,10 @@ public class RabbitMqConfig {
     @Bean
     public Binding emailBinding(Queue emailQueue, TopicExchange apiExchange) {
         return BindingBuilder.bind(emailQueue).to(apiExchange).with(ROUTING_KEY_EMAIL);
+    }
+
+    @Bean
+    public Binding emailDeadLetterBinding(Queue emailDeadLetterQueue, TopicExchange deadLetterExchange) {
+        return BindingBuilder.bind(emailDeadLetterQueue).to(deadLetterExchange).with(ROUTING_KEY_EMAIL_DLQ);
     }
 }

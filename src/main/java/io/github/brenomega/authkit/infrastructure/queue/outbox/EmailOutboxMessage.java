@@ -52,6 +52,12 @@ public class EmailOutboxMessage {
     @Column(name = "last_error", length = MAX_ERROR_LENGTH)
     private String lastError;
 
+    @Column(name = "provider_message_id", length = 255)
+    private String providerMessageId;
+
+    @Column(name = "delivered_at")
+    private Instant deliveredAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -89,7 +95,7 @@ public class EmailOutboxMessage {
     }
 
     public EmailPayload toPayload() {
-        return new EmailPayload(recipient, subject, body);
+        return new EmailPayload(id, recipient, subject, body);
     }
 
     public void markProcessing(Instant now) {
@@ -99,10 +105,19 @@ public class EmailOutboxMessage {
         this.lastError = null;
     }
 
-    public void markSent() {
+    public void markQueued(Instant now, Duration deliveryTimeout) {
+        this.status = EmailOutboxStatus.QUEUED;
+        this.lockedAt = null;
+        this.lastError = null;
+        this.nextAttemptAt = now.plus(deliveryTimeout);
+    }
+
+    public void markSent(String providerMessageId, Instant now) {
         this.status = EmailOutboxStatus.SENT;
         this.lockedAt = null;
         this.lastError = null;
+        this.providerMessageId = providerMessageId;
+        this.deliveredAt = now;
     }
 
     public void markFailed(String error, Instant now) {
@@ -158,6 +173,14 @@ public class EmailOutboxMessage {
 
     public String getLastError() {
         return lastError;
+    }
+
+    public String getProviderMessageId() {
+        return providerMessageId;
+    }
+
+    public Instant getDeliveredAt() {
+        return deliveredAt;
     }
 
     public Instant getCreatedAt() {

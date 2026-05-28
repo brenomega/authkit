@@ -49,7 +49,13 @@ public class AuthProperties {
     private Request request = new Request();
 
     @Valid
+    private AbuseControl abuseControl = new AbuseControl();
+
+    @Valid
     private EmailOutbox emailOutbox = new EmailOutbox();
+
+    @Valid
+    private EmailProvider emailProvider = new EmailProvider();
 
     @Valid
     private Compliance compliance = new Compliance();
@@ -65,6 +71,9 @@ public class AuthProperties {
 
     @Valid
     private OAuth oauth = new OAuth();
+
+    @Valid
+    private Cors cors = new Cors();
 
     public Token getToken() {
         return token;
@@ -138,12 +147,28 @@ public class AuthProperties {
         this.request = request;
     }
 
+    public AbuseControl getAbuseControl() {
+        return abuseControl;
+    }
+
+    public void setAbuseControl(AbuseControl abuseControl) {
+        this.abuseControl = abuseControl;
+    }
+
     public EmailOutbox getEmailOutbox() {
         return emailOutbox;
     }
 
     public void setEmailOutbox(EmailOutbox emailOutbox) {
         this.emailOutbox = emailOutbox;
+    }
+
+    public EmailProvider getEmailProvider() {
+        return emailProvider;
+    }
+
+    public void setEmailProvider(EmailProvider emailProvider) {
+        this.emailProvider = emailProvider;
     }
 
     public Compliance getCompliance() {
@@ -184,6 +209,14 @@ public class AuthProperties {
 
     public void setOauth(OAuth oauth) {
         this.oauth = oauth;
+    }
+
+    public Cors getCors() {
+        return cors;
+    }
+
+    public void setCors(Cors cors) {
+        this.cors = cors;
     }
 
     public static class Token {
@@ -358,6 +391,10 @@ public class AuthProperties {
         @Pattern(regexp = "^(?!\\$\\{).+")
         private String keyId = "authkit-key-1";
 
+        private String retiringPublicKeys = "";
+
+        private String revokedKeyIds = "";
+
         public String getIssuer() {
             return issuer;
         }
@@ -380,6 +417,22 @@ public class AuthProperties {
 
         public void setKeyId(String keyId) {
             this.keyId = keyId;
+        }
+
+        public String getRetiringPublicKeys() {
+            return retiringPublicKeys;
+        }
+
+        public void setRetiringPublicKeys(String retiringPublicKeys) {
+            this.retiringPublicKeys = retiringPublicKeys;
+        }
+
+        public String getRevokedKeyIds() {
+            return revokedKeyIds;
+        }
+
+        public void setRevokedKeyIds(String revokedKeyIds) {
+            this.revokedKeyIds = revokedKeyIds;
         }
     }
 
@@ -490,6 +543,21 @@ public class AuthProperties {
         }
     }
 
+    public static class AbuseControl {
+
+        @Min(1)
+        @Max(1000)
+        private long capacityMultiplier = 1;
+
+        public long getCapacityMultiplier() {
+            return capacityMultiplier;
+        }
+
+        public void setCapacityMultiplier(long capacityMultiplier) {
+            this.capacityMultiplier = capacityMultiplier;
+        }
+    }
+
     public static class EmailOutbox {
 
         private boolean enabled = true;
@@ -503,6 +571,9 @@ public class AuthProperties {
 
         @Min(1)
         private long lockTtlSeconds = 300;
+
+        @Min(1)
+        private long deliveryAckTimeoutSeconds = 600;
 
         public boolean isEnabled() {
             return enabled;
@@ -534,6 +605,73 @@ public class AuthProperties {
 
         public void setLockTtlSeconds(long lockTtlSeconds) {
             this.lockTtlSeconds = lockTtlSeconds;
+        }
+
+        public long getDeliveryAckTimeoutSeconds() {
+            return deliveryAckTimeoutSeconds;
+        }
+
+        public void setDeliveryAckTimeoutSeconds(long deliveryAckTimeoutSeconds) {
+            this.deliveryAckTimeoutSeconds = deliveryAckTimeoutSeconds;
+        }
+    }
+
+    public static class EmailProvider {
+
+        @Min(100)
+        private int connectTimeoutMs = 2000;
+
+        @Min(100)
+        private int readTimeoutMs = 5000;
+
+        @Min(1)
+        @Max(5)
+        private int maxAttempts = 3;
+
+        @Min(0)
+        private long retryBackoffMs = 250;
+
+        @NotBlank
+        private String from = "AuthKit Account <onboarding@resend.dev>";
+
+        public int getConnectTimeoutMs() {
+            return connectTimeoutMs;
+        }
+
+        public void setConnectTimeoutMs(int connectTimeoutMs) {
+            this.connectTimeoutMs = connectTimeoutMs;
+        }
+
+        public int getReadTimeoutMs() {
+            return readTimeoutMs;
+        }
+
+        public void setReadTimeoutMs(int readTimeoutMs) {
+            this.readTimeoutMs = readTimeoutMs;
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = maxAttempts;
+        }
+
+        public long getRetryBackoffMs() {
+            return retryBackoffMs;
+        }
+
+        public void setRetryBackoffMs(long retryBackoffMs) {
+            this.retryBackoffMs = retryBackoffMs;
+        }
+
+        public String getFrom() {
+            return from;
+        }
+
+        public void setFrom(String from) {
+            this.from = from;
         }
     }
 
@@ -953,6 +1091,83 @@ public class AuthProperties {
 
         public void setIdTokenTtlSeconds(long idTokenTtlSeconds) {
             this.idTokenTtlSeconds = idTokenTtlSeconds;
+        }
+    }
+
+    public static class Cors {
+
+        private boolean enabled = true;
+
+        @NotBlank
+        private String allowedOrigins = "http://localhost:3000";
+
+        @NotBlank
+        private String allowedMethods = "GET,POST,PATCH,DELETE,OPTIONS";
+
+        @NotBlank
+        private String allowedHeaders = "Authorization,Content-Type,X-XSRF-TOKEN,X-Worker-Token";
+
+        private String exposedHeaders = "Location";
+
+        private boolean allowCredentials = true;
+
+        @Min(0)
+        private long maxAgeSeconds = 3600;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getAllowedOrigins() {
+            return allowedOrigins;
+        }
+
+        public void setAllowedOrigins(String allowedOrigins) {
+            this.allowedOrigins = allowedOrigins;
+        }
+
+        public String getAllowedMethods() {
+            return allowedMethods;
+        }
+
+        public void setAllowedMethods(String allowedMethods) {
+            this.allowedMethods = allowedMethods;
+        }
+
+        public String getAllowedHeaders() {
+            return allowedHeaders;
+        }
+
+        public void setAllowedHeaders(String allowedHeaders) {
+            this.allowedHeaders = allowedHeaders;
+        }
+
+        public String getExposedHeaders() {
+            return exposedHeaders;
+        }
+
+        public void setExposedHeaders(String exposedHeaders) {
+            this.exposedHeaders = exposedHeaders;
+        }
+
+        public boolean isAllowCredentials() {
+            return allowCredentials;
+        }
+
+        public void setAllowCredentials(boolean allowCredentials) {
+            this.allowCredentials = allowCredentials;
+        }
+
+        public long getMaxAgeSeconds() {
+            return maxAgeSeconds;
+        }
+
+        public void setMaxAgeSeconds(long maxAgeSeconds) {
+            this.maxAgeSeconds = maxAgeSeconds;
         }
     }
 }

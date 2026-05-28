@@ -247,6 +247,7 @@ public class RedisTokenStorage implements TokenStorage {
         return result != null && result == 1L;
     }
 
+    @SuppressWarnings("null")
     @Override
     public java.util.List<String> listSessions(String userId) {
         return redisTemplate.opsForHash().keys(tokenKey(userId)).stream()

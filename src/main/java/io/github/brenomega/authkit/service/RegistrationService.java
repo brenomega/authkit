@@ -23,6 +23,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
@@ -40,19 +42,25 @@ public class RegistrationService {
     private final AuthProperties authProperties;
     private final SecurityEventService securityEventService;
     private final ConsentEventService consentEventService;
+    private final AbuseThrottleService abuseThrottleService;
+    private final PasswordPolicyService passwordPolicyService;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
                                EmailOutboxService emailOutboxService,
                                AuthProperties authProperties,
                                SecurityEventService securityEventService,
-                               ConsentEventService consentEventService) {
+                               ConsentEventService consentEventService,
+                               AbuseThrottleService abuseThrottleService,
+                               PasswordPolicyService passwordPolicyService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
         this.securityEventService = securityEventService;
         this.consentEventService = consentEventService;
+        this.abuseThrottleService = abuseThrottleService;
+        this.passwordPolicyService = passwordPolicyService;
     }
 
     /**
@@ -65,6 +73,8 @@ public class RegistrationService {
     @LogExecutionTime
     public User registerUser(RegisterRequest request) {
         String email = EmailNormalizer.normalize(request.email());
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.REGISTRATION_EMAIL, email);
+        passwordPolicyService.validateForRegistration(email, request.password());
 
         if (userRepository.findByEmail(email).isPresent()) {
             throw new UserAlreadyExistsException("Email already in use");
@@ -138,6 +148,8 @@ public class RegistrationService {
     @LogExecutionTime
     public void resendEmailConfirmation(String emailInput) {
         String email = EmailNormalizer.normalize(emailInput);
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_COOLDOWN, email);
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_DAILY, email);
         userRepository.findByEmail(email)
                 .filter(user -> !user.isDeleted())
                 .filter(user -> !user.isEmailConfirmed())

@@ -36,6 +36,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
@@ -66,6 +68,7 @@ public class AuthService {
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final SecurityEventService securityEventService;
     private final MfaService mfaService;
+    private final AbuseThrottleService abuseThrottleService;
     private final String dummyPasswordHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
@@ -74,7 +77,8 @@ public class AuthService {
                        AuthProperties authProperties,
                        Argon2ConcurrencyLimiter argon2Limiter,
                        SecurityEventService securityEventService,
-                       MfaService mfaService) {
+                       MfaService mfaService,
+                       AbuseThrottleService abuseThrottleService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtEncoder = jwtEncoder;
@@ -84,6 +88,7 @@ public class AuthService {
         this.argon2Limiter = argon2Limiter;
         this.securityEventService = securityEventService;
         this.mfaService = mfaService;
+        this.abuseThrottleService = abuseThrottleService;
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
     }
 
@@ -105,6 +110,7 @@ public class AuthService {
     @LogExecutionTime
     public LoginResult login(LoginRequest request) {
         String email = EmailNormalizer.normalize(request.email());
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.LOGIN_EMAIL, email);
         
         // DT 3.2.15 & DT 3.2.23: return the same credential failure while locked.
         if (lockoutService.isLocked(email)) {
@@ -235,6 +241,7 @@ public class AuthService {
                 });
 
         UUID userId = UUID.fromString(challenge.userId());
+        abuseThrottleService.checkUserId(AbuseRateLimitPolicy.MFA_VERIFY_USER, userId);
         @SuppressWarnings("null")
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> {

@@ -6,10 +6,10 @@ Source surface reviewed:
 
 - `AuthController`: `/api/v1/auth/**`
 - `UserController`: `/api/v1/users/me/**`
-- `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/.well-known/openid-configuration`
+- `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/oauth2/revoke`, `/oauth2/introspect`, `/oauth2/userinfo`, `/.well-known/openid-configuration`
 - `AdminController`: `/api/v1/admin/**`
 - `JwksController`: `/.well-known/jwks.json`
-- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, Redis token storage, Caffeine authority/MFA-status/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
+- Shared infrastructure: Kubernetes manifests, Spring Security filter chain, network/rate-limit filters, endpoint/account abuse throttles, Redis token storage, Caffeine authority/MFA-status/rate-limit caches, PostgreSQL/Flyway schema, RabbitMQ email queue and DLQ, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
 
 ## Shared Infrastructure Path
 
@@ -19,13 +19,14 @@ Current request order in the codebase is:
 2. Kubernetes `NetworkPolicy` only permits ingress-controller traffic to the AuthKit pods.
 3. `OriginFirewallFilter` rejects direct backend access unless the remote source is trusted.
 4. `RateLimitingFilter` resolves the real client IP, applies local Caffeine rate limiting first, then distributed Redis Bucket4j rate limiting.
-5. `RequestBodySizeLimitFilter` rejects oversized POST/PUT/PATCH bodies before JSON parsing or password hashing.
-6. Spring OAuth2 resource-server JWT validation runs for authenticated routes.
-7. `WorkerAuthFilter` applies to `/api/v1/internal/**` and `/actuator/prometheus`; no controller endpoint for the internal prefix currently exists in this repository.
-8. `UserAuthoritiesFilter` refreshes authorities from a local Caffeine cache; on cache miss it loads the current user snapshot from PostgreSQL.
-9. Controller/service logic executes.
-10. Durable security events are written through a bounded async writer, with synchronous fallback when configured.
-11. Metrics are exposed at `/actuator/prometheus` only when the internal worker token is supplied; alerts are defined in `k8s/06-prometheus-rules.yaml`.
+5. `EndpointAbuseRateLimitingFilter` applies route-specific IP and device/user-agent throttles before expensive auth work.
+6. `RequestBodySizeLimitFilter` rejects oversized POST/PUT/PATCH bodies before JSON parsing or password hashing.
+7. Spring OAuth2 resource-server JWT validation runs for authenticated routes.
+8. `WorkerAuthFilter` applies to `/api/v1/internal/**` and `/actuator/prometheus`; it requires a trusted network source plus the current or previous internal worker token.
+9. `UserAuthoritiesFilter` refreshes authorities from a local Caffeine cache; on cache miss it loads the current user snapshot from PostgreSQL.
+10. Controller/service logic executes.
+11. Durable security events are written through a bounded async writer, with synchronous fallback when configured.
+12. Metrics are exposed at `/actuator/prometheus` only when the internal worker token is supplied; alerts are defined in `k8s/06-prometheus-rules.yaml`.
 
 ```mermaid
 sequenceDiagram
@@ -35,6 +36,7 @@ sequenceDiagram
     participant NP as K8s NetworkPolicy
     participant OF as OriginFirewallFilter
     participant RL as RateLimitingFilter
+    participant AR as EndpointAbuseRateLimitingFilter
     participant LC as Caffeine rate bucket
     participant RR as Redis rate bucket
     participant BL as RequestBodySizeLimitFilter
@@ -66,10 +68,16 @@ sequenceDiagram
                     RL-->>C: 429 Too Many Requests
                 else Redis unavailable
                     RL->>RL: Record infrastructure failure, fail open to local limit
-                    RL->>BL: Continue
+                    RL->>AR: Continue
                 else Redis allowed
-                    RL->>BL: Continue
+                    RL->>AR: Continue
                 end
+            end
+            AR->>AR: Check endpoint IP and device/user-agent buckets
+            alt Endpoint bucket exhausted
+                AR-->>C: 429 Too Many Requests
+            else Endpoint allowed
+                AR->>BL: Continue
             end
             BL->>BL: Check Content-Length and streamed body size
             alt Body too large
@@ -106,42 +114,46 @@ sequenceDiagram
 
 | Endpoint | Auth | Primary state | Key infrastructure |
 |---|---:|---|---|
-| `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token or MFA challenge | Caffeine/Redis rate limits, Argon2 limiter, lockout Caffeine/Redis, MFA Redis challenge, audit DB |
-| `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | Redis MFA challenge, Redis refresh token | One-time MFA challenge consume, TOTP/backup code verification, audit DB |
-| `POST /api/v1/auth/passkeys/options` | Public | PostgreSQL passkey challenge | WebAuthn assertion options, DB challenge state, audit DB |
-| `POST /api/v1/auth/passkeys/verify` | Public + passkey assertion | PostgreSQL passkey credential/challenge, Redis refresh token | Yubico WebAuthn assertion verification, signature counter update, JWT/cookies |
-| `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | CSRF double-submit cookie, Redis Lua rotation, audit DB |
+| `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token or MFA challenge | Endpoint/account throttles, Argon2 limiter, lockout Caffeine/Redis, MFA Redis challenge, audit DB |
+| `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | Redis MFA challenge, Redis refresh token | Endpoint/user throttles, one-time MFA challenge consume, TOTP/backup code verification, audit DB |
+| `POST /api/v1/auth/passkeys/options` | Public | PostgreSQL passkey challenge | Endpoint/email throttles, WebAuthn assertion options, DB challenge state, audit DB |
+| `POST /api/v1/auth/passkeys/verify` | Public + passkey assertion | PostgreSQL passkey credential/challenge, Redis refresh token | Endpoint/email throttles, Yubico WebAuthn assertion verification, signature counter update, JWT/cookies |
+| `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | Endpoint throttles, CSRF double-submit cookie, Redis Lua rotation, audit DB |
 | `POST /api/v1/auth/logout` | Refresh cookie + CSRF | Redis refresh token session | CSRF double-submit cookie, Redis revocation, audit DB |
 | `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | Redis all sessions | JWT validation, authority cache, MFA step-up, Redis revocation |
-| `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Argon2, consent event DB, outbox, RabbitMQ, Resend |
+| `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Endpoint/email throttles, password policy/history, Argon2, consent event DB, outbox, RabbitMQ, Resend |
 | `POST /api/v1/auth/email-confirmation/confirm` | Public | PostgreSQL user token hash | Audit DB |
-| `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, outbox, RabbitMQ, Resend, audit DB |
-| `POST /api/v1/auth/password-recovery/reset` | Public | Redis recovery token, PostgreSQL password | Argon2 limiter, Redis session revoke, outbox, audit DB |
+| `POST /api/v1/auth/email-confirmation/resend` | Public | PostgreSQL user token hash, email outbox | Endpoint/email cooldown and daily caps, token rotation, outbox |
+| `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, endpoint/email cooldown and daily caps, outbox, RabbitMQ, Resend, audit DB |
+| `POST /api/v1/auth/password-recovery/reset` | Public | Redis recovery token, PostgreSQL password | Endpoint/email throttles, password policy/history, Argon2 limiter, Redis session revoke, outbox, audit DB |
 | `GET /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
 | `POST /api/v1/users/me/export` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL user, consent events, security events | Argon2 limiter, MFA step-up, audit DB |
-| `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | Authority Caffeine/DB cache, tenant check |
-| `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | Argon2 limiter, lockout check, MFA step-up, audit DB |
+| `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | User write throttle, authority Caffeine/DB cache, tenant check |
+| `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | User write throttle, password policy/history, Argon2 limiter, lockout check, MFA step-up, audit DB |
 | `GET /api/v1/users/me/sessions` | Bearer JWT | Redis refresh sessions | Authority Caffeine/DB cache |
 | `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | Authority Caffeine/DB cache, MFA status cache, tenant check |
-| `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | Argon2 limiter, encrypted secret storage, audit DB |
-| `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | TOTP verification, hashed backup codes, session revocation, audit DB |
-| `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA step-up, backup-code cleanup, session revocation, audit DB |
-| `POST /api/v1/users/me/mfa/backup-codes` | Bearer JWT + current password + MFA | PostgreSQL hashed backup codes | Atomic backup-code replacement, audit DB |
+| `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | MFA change throttle, Argon2 limiter, encrypted secret storage, audit DB |
+| `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | MFA change throttle, TOTP verification, hashed backup codes, session revocation, audit DB |
+| `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA change throttle, MFA step-up, backup-code cleanup, session revocation, audit DB |
+| `POST /api/v1/users/me/mfa/backup-codes` | Bearer JWT + current password + MFA | PostgreSQL hashed backup codes | MFA change throttle, atomic backup-code replacement, audit DB |
 | `GET /api/v1/users/me/passkeys` | Bearer JWT | PostgreSQL passkey credentials | Authority Caffeine/DB cache, tenant check |
-| `POST /api/v1/users/me/passkeys/options` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey challenge | Argon2 limiter, MFA step-up, WebAuthn registration options, DB challenge state, audit DB |
+| `POST /api/v1/users/me/passkeys/options` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey challenge | Passkey change throttle, Argon2 limiter, MFA step-up, WebAuthn registration options, DB challenge state, audit DB |
 | `POST /api/v1/users/me/passkeys` | Bearer JWT + WebAuthn challenge | PostgreSQL passkey credential | Yubico registration verification, public key storage, audit DB |
-| `DELETE /api/v1/users/me/passkeys/{credentialId}` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey credential | Argon2 limiter, MFA step-up, credential disablement, audit DB |
+| `DELETE /api/v1/users/me/passkeys/{credentialId}` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey credential | Passkey change throttle, Argon2 limiter, MFA step-up, credential disablement, audit DB |
 | `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT + MFA if enabled | Redis refresh session | Lockout check, MFA step-up, audit DB |
-| `DELETE /api/v1/users/me` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL anonymized user, Redis sessions | Argon2 limiter, MFA step-up, authority cache eviction, audit DB |
-| `POST /api/v1/oauth2/authorize` | Bearer JWT + explicit/reused client consent | PostgreSQL OAuth consent and authorization code | Client registry, PKCE S256, consent persistence, audit DB |
-| `POST /oauth2/token` | Public + client/PKCE proof | PostgreSQL OAuth authorization code | One-time code consume, RS256 access/ID token signing, audit DB |
+| `DELETE /api/v1/users/me` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL anonymized user, Redis sessions | Account deletion throttle, Argon2 limiter, MFA step-up, authority cache eviction, audit DB |
+| `POST /api/v1/oauth2/authorize` | Bearer JWT + explicit/reused client consent | PostgreSQL OAuth consent and authorization code | Endpoint/client throttles, client registry, PKCE S256, consent persistence, audit DB |
+| `POST /oauth2/token` | Public + client/PKCE proof | PostgreSQL OAuth authorization code | Endpoint/client throttles, one-time code consume, RS256 access/ID token signing, audit DB |
+| `POST /oauth2/revoke` | Public + client proof | Redis/Caffeine revoked token state | Client throttles, JWT decode, revoked-JTI TTL |
+| `POST /oauth2/introspect` | Public + confidential client proof | JWT and revocation state | Client throttles, active token response |
+| `GET /oauth2/userinfo` | Bearer OAuth access token | JWT claims | OIDC `openid` scope enforcement, scope-filtered claims |
 | `GET /.well-known/openid-configuration` | Public | AuthProperties | OIDC discovery metadata |
 | `GET /api/v1/admin/users` | ADMIN bearer JWT | PostgreSQL users | Server-side admin enforcement, authority cache |
 | `PATCH /api/v1/admin/users/{userId}/role` | ADMIN bearer JWT + MFA if enabled | PostgreSQL user role | MFA step-up, last-admin guard, audit DB |
 | `GET /api/v1/admin/tenants` | ADMIN bearer JWT | PostgreSQL users | Tenant inventory |
-| `GET/POST/PATCH/DELETE /api/v1/admin/oauth-clients/**` | ADMIN bearer JWT + MFA for writes | PostgreSQL OAuth clients | Client secret one-time return, slow-hashed secret storage, audit DB |
-| `GET /.well-known/jwks.json` | Public | RSA public key config | Downstream stateless JWT verification |
+| `GET/POST/PATCH/DELETE /api/v1/admin/oauth-clients/**` | ADMIN bearer JWT + MFA for writes | PostgreSQL OAuth clients | Admin/tenant throttles, client secret one-time return and rotation, slow-hashed secret storage, audit DB |
+| `GET /.well-known/jwks.json` | Public | RSA public key config | Active and retiring public keys, revoked key IDs hidden |
 
 ## 1. Login
 
@@ -517,7 +529,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/password-recovery/request`
 
-Infrastructure role: the endpoint intentionally returns the same success response for existing and non-existing accounts; existing accounts get a Redis recovery token and an outbox-backed email; unknown accounts still create a durable security event for abuse visibility.
+Infrastructure role: the endpoint intentionally returns the same success response for existing and non-existing accounts; existing accounts get a Redis recovery token and an outbox-backed email; unknown accounts still create a durable security event for abuse visibility. Endpoint, IP, and per-email cooldown/daily throttles apply before token creation.
 
 ```mermaid
 sequenceDiagram
@@ -537,11 +549,12 @@ sequenceDiagram
     C->>I: POST /api/v1/auth/password-recovery/request {email}
     I->>AC: Public endpoint after origin/rate/body checks
     AC->>PR: requestRecovery(email)
+    PR->>PR: Check per-email cooldown and daily caps
     PR->>DB: findByEmail(normalizedEmail)
     alt Existing user
         PR->>AUD: PASSWORD_RESET_REQUESTED target user
         PR->>TS: storeRecoveryToken(email, token hash, ttl)
-        PR->>OB: enqueue reset email
+        PR->>OB: enqueue reset email with token in URL fragment
         OB->>DB: Insert email_outbox PENDING
         OP->>MQ: Publish due email job
         MQ->>EP: Listener sends via Resend
@@ -555,7 +568,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/password-recovery/reset?email=...`
 
-Infrastructure role: recovery tokens are consumed atomically from Redis before password mutation; Argon2 encoding is concurrency-bounded; all refresh sessions are revoked; a password-change notification is outbox-backed; audit and lockout state are updated.
+Infrastructure role: recovery email links carry token material in the URL fragment, not the query string, so browsers do not send the token to the backend as a referrer during normal navigation. The reset API still receives the token in the request body and the email as request metadata. Recovery tokens are consumed atomically from Redis before password mutation; password policy rejects weak, identity-derived, common, current, and recent-history passwords; Argon2 encoding is concurrency-bounded; all refresh sessions are revoked; a password-change notification is outbox-backed; audit and lockout state are updated. The app also emits `Referrer-Policy: no-referrer`.
 
 ```mermaid
 sequenceDiagram
@@ -574,6 +587,7 @@ sequenceDiagram
     C->>I: POST /api/v1/auth/password-recovery/reset?email=... {token,newPassword}
     I->>AC: Public endpoint after origin/rate/body checks
     AC->>PR: resetPassword(email, token, newPassword)
+    PR->>PR: Check endpoint/email reset throttles
     PR->>TS: consumeRecoveryToken(email, token)
     alt Token invalid, expired, or already consumed
         PR->>AUD: PASSWORD_RESET_FAILED invalid_or_expired_reset_token
@@ -584,7 +598,7 @@ sequenceDiagram
             PR->>AUD: PASSWORD_RESET_FAILED
             PR-->>C: UserNotFoundException
         else User active
-            PR->>ARG: Encode new password
+            PR->>ARG: Validate policy/history and encode new password
             alt Argon2 capacity exhausted
                 ARG-->>PR: AuthenticationCapacityExceededException
             else Encoded
@@ -1096,9 +1110,9 @@ sequenceDiagram
 
 ## 19. OAuth2/OIDC Provider Flow
 
-`POST /api/v1/oauth2/authorize`, `POST /oauth2/token`, `GET /.well-known/openid-configuration`
+`POST /api/v1/oauth2/authorize`, `POST /oauth2/token`, `POST /oauth2/revoke`, `POST /oauth2/introspect`, `GET /oauth2/userinfo`, `GET /.well-known/openid-configuration`
 
-Infrastructure role: AuthKit acts as an API-oriented OAuth2/OIDC provider for authorization-code + PKCE. The authorization endpoint requires an already-authenticated AuthKit user token plus explicit user consent unless an active consent already covers the requested client scopes; client applications are managed through the admin policy plane. OAuth consents are durable PostgreSQL rows included in account export. Authorization codes are high-entropy one-time values stored as SHA-256 hashes in PostgreSQL and consumed atomically before RS256 access/ID token issuance.
+Infrastructure role: AuthKit acts as an API-oriented OAuth2/OIDC provider for authorization-code + PKCE. The authorization endpoint requires an already-authenticated AuthKit user token plus explicit user consent unless an active consent already covers the requested client scopes; client applications are managed through the admin policy plane. OAuth consents are durable PostgreSQL rows included in account export. Authorization codes are high-entropy one-time values stored as SHA-256 hashes in PostgreSQL and consumed atomically before RS256 access/ID token issuance. Token, revocation, introspection, and userinfo paths enforce client/endpoint throttles; revoked OAuth token `jti` values are tracked in Redis when available and in local Caffeine as fallback.
 
 ```mermaid
 sequenceDiagram
@@ -1116,7 +1130,7 @@ sequenceDiagram
 
     App->>I: GET /.well-known/openid-configuration
     I->>OC: Public discovery
-    OC-->>App: issuer, authorization_endpoint, token_endpoint, jwks_uri, PKCE S256
+    OC-->>App: issuer, auth/token/revoke/introspect/userinfo endpoints, jwks_uri, PKCE S256
 
     App->>I: POST /api/v1/oauth2/authorize + Bearer JWT {clientId,redirectUri,scope,codeChallenge,S256,nonce,state,consentAccepted}
     I->>OC: JWT valid and authorities current
@@ -1150,13 +1164,25 @@ sequenceDiagram
     end
     OPS->>AUD: OAUTH_TOKEN_ISSUED
     OPS-->>App: access_token, id_token?, token_type=Bearer, expires_in, scope
+
+    App->>I: POST /oauth2/introspect form token, client_id, client_secret
+    OPS->>OPS: Validate confidential client and decode token
+    OPS-->>App: active, sub, aud, scope, exp, iat, iss, client_id
+
+    App->>I: POST /oauth2/revoke form token, client_id, client_secret?
+    OPS->>OPS: Validate client, decode token, store revoked jti until expiry
+    OPS-->>App: 200 empty success
+
+    App->>I: GET /oauth2/userinfo + Bearer OAuth access token
+    OPS->>OPS: Validate token, require openid scope, filter claims by scopes
+    OPS-->>App: sub, email?, email_verified?, name?
 ```
 
 ## 20. Admin And Policy Plane
 
 `/api/v1/admin/**`
 
-Infrastructure role: admin routes require a live bearer JWT with `ROLE_ADMIN`; `UserAuthoritiesFilter` refreshes the role snapshot from Caffeine/PostgreSQL before controller execution. Write operations call `MfaService.requireMfaIfEnabled` for step-up when the admin has MFA enabled, preserve a last-admin guard, hash OAuth client secrets at rest, and emit high-severity durable audit events.
+Infrastructure role: admin routes require a live bearer JWT with `ROLE_ADMIN`; `UserAuthoritiesFilter` refreshes the role snapshot from Caffeine/PostgreSQL before controller execution. Write operations require current-password step-up and MFA proof, with passkeys preferred for phishing resistance and TOTP accepted as fallback. Admin writes are tenant-throttled, preserve a last-admin guard, hash OAuth client secrets at rest, support confidential-client secret rotation with one-time return, and emit high-severity durable audit events.
 
 ```mermaid
 sequenceDiagram
@@ -1178,11 +1204,11 @@ sequenceDiagram
     AS->>UDB: Read users/tenants or clients
     AS-->>A: Privacy-bounded admin response
 
-    A->>I: PATCH /api/v1/admin/users/{id}/role {role,mfaCode?}
+    A->>I: PATCH /api/v1/admin/users/{id}/role {role,currentPassword,mfaCode?}
     AF->>AC: ROLE_ADMIN confirmed
     AC->>AS: updateRole(jwt,id,request)
     AS->>UDB: Load admin and target user
-    AS->>MFA: requireMfaIfEnabled(admin,mfaCode,admin_role_change)
+    AS->>MFA: Require password step-up and MFA/passkey proof
     AS->>AS: Enforce last-active-admin guard
     AS->>UDB: Persist role
     AS->>AUD: ADMIN_ACTION target=changed user
@@ -1191,11 +1217,14 @@ sequenceDiagram
     A->>I: POST/PATCH/DELETE /api/v1/admin/oauth-clients
     AF->>AC: ROLE_ADMIN confirmed
     AC->>AS: client management command
-    AS->>MFA: requireMfaIfEnabled(admin,mfaCode,admin_oauth_client_*)
+    AS->>MFA: Require password step-up and MFA/passkey proof
     AS->>AS: Validate HTTPS redirect URIs, scopes, PKCE policy
     alt Create confidential client
-        AS->>CDB: Store client secret SHA-256 hash only
+        AS->>CDB: Store slow hash of client secret only
         AS-->>A: Raw client secret returned once
+    else Rotate confidential client secret
+        AS->>CDB: Store new slow secret hash
+        AS-->>A: New raw client secret returned once
     else Update or disable client
         AS->>CDB: Persist metadata or disabled_at
         AS-->>A: Updated client metadata, no secret
@@ -1207,7 +1236,7 @@ sequenceDiagram
 
 `GET /.well-known/jwks.json`
 
-Infrastructure role: this public endpoint publishes the active RSA public key and key id so downstream services can validate AuthKit JWTs statelessly without calling AuthKit on every request.
+Infrastructure role: this public endpoint publishes the active RSA public key plus configured retiring public keys, excluding emergency-revoked key IDs. Downstream services use the `kid` header to select a key during rotation and must reject revoked or unknown keys.
 
 ```mermaid
 sequenceDiagram
@@ -1215,19 +1244,19 @@ sequenceDiagram
     participant C as Downstream service or client
     participant I as Shared ingress filters
     participant JC as JwksController
-    participant CFG as JwtConfig/AuthProperties
+    participant CFG as JwtKeyService/AuthProperties
 
     C->>I: GET /.well-known/jwks.json
     I->>JC: Public endpoint after origin/rate checks
-    JC->>CFG: getPublicKey() and authkit.auth.jwt.key-id
-    JC-->>C: JWK Set with RSA public key, kid, use=sig, alg=RS256
+    JC->>CFG: Build active + retiring public JWK set
+    JC-->>C: JWK Set with non-revoked RSA public keys, kid, use=sig, alg=RS256
 ```
 
 ## 22. Background Email Delivery Flow
 
 This flow is not a direct controller endpoint, but it is part of registration, password recovery, and password reset completion.
 
-Infrastructure role: request handlers only enqueue messages in PostgreSQL; the scheduler claims due rows in batches and publishes them to RabbitMQ; the listener sends through Resend outside the user transaction. Publish failures update the outbox row and increment infrastructure-failure metrics.
+Infrastructure role: request handlers only enqueue messages in PostgreSQL; the scheduler claims due rows in batches and publishes them to RabbitMQ. A successful publish now moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance from Resend and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages.
 
 ```mermaid
 sequenceDiagram
@@ -1248,9 +1277,15 @@ sequenceDiagram
     loop Each claimed message
         OP->>MQ: publish EmailPayload
         alt Rabbit publish succeeds
-            OP->>DB: markSent(messageId)
+            OP->>DB: markQueued(messageId, delivery ack timeout)
             MQ->>EL: Deliver message
-            EL->>EP: Send email
+            EL->>EP: Send email with HTTP timeouts and idempotency key
+            alt Provider accepted
+                EL->>DB: markSent(messageId, providerMessageId)
+            else Provider failed
+                EL->>MET: security.infrastructure.failure component=resend
+                EL->>DB: markFailed(messageId,error)
+            end
         else Rabbit publish fails
             OP->>MET: security.infrastructure.failure component=email_outbox
             OP->>DB: markFailed(messageId,error)
@@ -1302,26 +1337,29 @@ The current architecture is intentionally stateless for access-token verificatio
 Production strengths visible in the current implementation:
 
 - Reverse-proxy trust boundary is enforced in Kubernetes and in application filters.
-- Volumetric protection happens before JSON parsing and password hashing.
+- Volumetric protection happens before JSON parsing and password hashing, with route-specific abuse throttles on high-risk auth and account-management endpoints.
 - Password hashing work is concurrency-bounded to reduce hashing DoS risk.
+- Password policy rejects weak, common, identity-derived, current, and recent-history passwords.
 - Refresh tokens are HttpOnly cookies, server-side hashed in Redis, rotated atomically with O(1) family pointers, and family reuse is audited as critical.
 - MFA login challenges are one-time Redis entries; TOTP secrets are encrypted at rest with versioned AES-GCM envelopes and PBKDF2-derived keys; backup codes are stored as keyed hashes and consumed atomically.
-- Passkey/WebAuthn ceremonies are verified by Yubico `webauthn-server-core`; authenticator user verification is required, only public credential material is persisted, registration/disablement require password step-up plus MFA when enabled, short-lived challenges are one-time database rows, and passkey login emits `amr=["webauthn"]`.
-- OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, slow-hashed confidential client secrets, exact redirect URI validation, JWKS-backed RS256 token signing, and admin-managed client registration.
-- The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, MFA step-up for sensitive writes when enabled, one-time OAuth client secret return, and high-severity durable audit events.
+- Passkey/WebAuthn ceremonies are verified by Yubico `webauthn-server-core`; authenticator user verification is required, only public credential material is persisted, registration/disablement require password step-up plus MFA when enabled, short-lived challenges are one-time database rows, passkey login emits `amr=["webauthn"]`, and passkeys are the preferred admin MFA method.
+- OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, slow-hashed confidential client secrets with rotation, exact redirect URI validation, revocation, introspection, userinfo, JWKS-backed RS256 token signing, and admin-managed client registration.
+- JWT signing supports active and retiring public keys in JWKS plus emergency key-id revocation.
+- The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, password step-up plus MFA/passkey proof for sensitive writes, one-time OAuth client secret return, and high-severity durable audit events.
 - Authenticated routes rehydrate live authorities instead of trusting stale JWT roles indefinitely.
-- Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend.
+- Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend; `SENT` means provider acceptance, not merely queue publish.
 - Security and consent events are durable, privacy-safe, metric-backed, and alertable.
 - Account export/deletion require current-password step-up and MFA proof when MFA is enabled; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration also require MFA proof when MFA is enabled.
 - MFA failures are split into generic challenge, login, and step-up metrics so account-takeover attempts can be distinguished from sensitive-operation abuse without exposing user identifiers as metric labels.
 
 Operational caveats to keep in mind before production:
 
-- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges and must require authentication; rate limiting and lockout have local fallback, but token flows do not.
+- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges and must require authentication; rate limiting and lockout have local fallback. High-risk endpoint abuse throttles degrade to stricter local limits and emit critical metrics when Redis is unavailable.
 - The Kubernetes service is intended to sit behind an ingress controller; real client IP handling depends on trusted ingress/proxy headers and the configured `network.proxy-depth`.
+- CORS is enforced in-app from explicit configured origins; production startup rejects wildcard-with-credentials and non-HTTPS origins.
 - No frontend is included in this repository; browser storage, XSS controls, and redirect UX must be validated in the consuming application.
-- `/actuator/prometheus` requires the internal worker token. Production scraping should inject `X-Worker-Token` from a secret through Prometheus, a scrape proxy, or ingress-level header injection, and still constrain source networks with NetworkPolicy.
+- `/actuator/prometheus` requires a trusted source network plus the internal worker token. Production scraping should inject `X-Worker-Token` from a secret through Prometheus, a scrape proxy, or ingress-level header injection, rotate through the previous-token window, and still constrain source networks with NetworkPolicy.
 - NetworkPolicy cannot restrict Resend egress by FQDN; production clusters should use an egress gateway, DNS policy, or cloud firewall where available.
-- Downstream services must validate JWT issuer, audience, expiration, signature, and `kid`, and should not call AuthKit per request unless they need a live revocation/authorization decision beyond token TTL.
+- Downstream services must validate JWT issuer, audience, expiration, signature algorithm, `kid`, tenant, scopes/authorities, and JWKS rotation behavior. They should refresh JWKS on unknown `kid` and should not call AuthKit per request unless they need a live revocation/authorization decision beyond token TTL.
 - OAuth2/OIDC support currently implements the provider role; social-login relying-party federation is intentionally not part of this service role and should be added as a separate integration if needed.
 - Admin tenant management reflects AuthKit's current one-tenant-per-user model. Broader organization/team tenancy should introduce first-class tenant membership tables before using AuthKit as a multi-user SaaS tenant authority.

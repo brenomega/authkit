@@ -38,6 +38,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
@@ -56,6 +57,7 @@ class AuthServiceTest {
     private AuthProperties authProperties;
     private SecurityEventService securityEventService;
     private MfaService mfaService;
+    private AbuseThrottleService abuseThrottleService;
     private AuthService authService;
 
     @BeforeEach
@@ -70,8 +72,9 @@ class AuthServiceTest {
         authProperties = new AuthProperties();
         securityEventService = mock(SecurityEventService.class);
         mfaService = mock(MfaService.class);
+        abuseThrottleService = mock(AbuseThrottleService.class);
         when(mfaService.isMfaEnabled(any(User.class))).thenReturn(false);
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService);
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService, abuseThrottleService);
     }
 
     /**

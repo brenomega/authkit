@@ -23,6 +23,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
@@ -56,6 +58,8 @@ public class PasswordRecoveryService {
     private final AuthProperties authProperties;
     private final Argon2ConcurrencyLimiter argon2Limiter;
     private final SecurityEventService securityEventService;
+    private final AbuseThrottleService abuseThrottleService;
+    private final PasswordPolicyService passwordPolicyService;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
@@ -65,7 +69,9 @@ public class PasswordRecoveryService {
             AccountLockoutService lockoutService,
             AuthProperties authProperties,
             Argon2ConcurrencyLimiter argon2Limiter,
-            SecurityEventService securityEventService) {
+            SecurityEventService securityEventService,
+            AbuseThrottleService abuseThrottleService,
+            PasswordPolicyService passwordPolicyService) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailOutboxService = emailOutboxService;
@@ -74,6 +80,8 @@ public class PasswordRecoveryService {
         this.authProperties = authProperties;
         this.argon2Limiter = argon2Limiter;
         this.securityEventService = securityEventService;
+        this.abuseThrottleService = abuseThrottleService;
+        this.passwordPolicyService = passwordPolicyService;
     }
 
     /**
@@ -87,6 +95,8 @@ public class PasswordRecoveryService {
     @LogExecutionTime
     public void requestRecovery(String email) {
         String normalizedEmail = EmailNormalizer.normalize(email);
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RECOVERY_EMAIL_COOLDOWN, normalizedEmail);
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RECOVERY_EMAIL_DAILY, normalizedEmail);
 
         userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
                 user -> {
@@ -101,7 +111,7 @@ public class PasswordRecoveryService {
                     tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
                     
                     String resetLink = authProperties.getFrontend().getPasswordResetUrl()
-                            + "?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
+                            + "#token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
                             + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
                     EmailPayload emailPayload = new EmailPayload(
                             normalizedEmail,
@@ -135,6 +145,7 @@ public class PasswordRecoveryService {
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {
         String normalizedEmail = EmailNormalizer.normalize(email);
+        abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RESET_EMAIL, normalizedEmail);
 
         if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
             log.warn("Invalid or expired password recovery token.");
@@ -168,6 +179,8 @@ public class PasswordRecoveryService {
             throw new UserNotFoundException();
         }
 
+        passwordPolicyService.validateForUser(user, newPassword);
+        passwordPolicyService.recordCurrentPassword(user);
         user.setPassword(encodeWithCapacity(newPassword));
         userRepository.save(user);
 

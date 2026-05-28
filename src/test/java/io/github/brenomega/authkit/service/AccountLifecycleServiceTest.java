@@ -35,6 +35,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
@@ -57,6 +58,7 @@ class AccountLifecycleServiceTest {
     private MfaService mfaService;
     private AccountLockoutService lockoutService;
     private EmailOutboxService emailOutboxService;
+    private AbuseThrottleService abuseThrottleService;
     private AccountLifecycleService service;
 
     @BeforeEach
@@ -72,6 +74,7 @@ class AccountLifecycleServiceTest {
         mfaService = mock(MfaService.class);
         lockoutService = mock(AccountLockoutService.class);
         emailOutboxService = mock(EmailOutboxService.class);
+        abuseThrottleService = mock(AbuseThrottleService.class);
         authProperties = new AuthProperties();
         var argon2Limiter = new Argon2ConcurrencyLimiter();
         service = new AccountLifecycleService(
@@ -87,8 +90,9 @@ class AccountLifecycleServiceTest {
                 argon2Limiter,
                 userAuthoritiesFilter,
                 mfaService,
-                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService),
-                emailOutboxService);
+                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService, abuseThrottleService),
+                emailOutboxService,
+                abuseThrottleService);
     }
 
     @SuppressWarnings("null")

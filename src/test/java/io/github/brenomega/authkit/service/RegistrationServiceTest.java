@@ -30,6 +30,7 @@ import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
 
@@ -49,6 +50,8 @@ class RegistrationServiceTest {
     private AuthProperties authProperties;
     private SecurityEventService securityEventService;
     private ConsentEventService consentEventService;
+    private AbuseThrottleService abuseThrottleService;
+    private PasswordPolicyService passwordPolicyService;
 
     @BeforeEach
     void setUp() {
@@ -58,13 +61,17 @@ class RegistrationServiceTest {
         authProperties.getCompliance().setPrivacyPolicyVersion("privacy-2026");
         securityEventService = org.mockito.Mockito.mock(SecurityEventService.class);
         consentEventService = org.mockito.Mockito.mock(ConsentEventService.class);
+        abuseThrottleService = org.mockito.Mockito.mock(AbuseThrottleService.class);
+        passwordPolicyService = org.mockito.Mockito.mock(PasswordPolicyService.class);
         service = new RegistrationService(
                 userRepository,
                 passwordEncoder,
                 emailOutboxService,
                 authProperties,
                 securityEventService,
-                consentEventService);
+                consentEventService,
+                abuseThrottleService,
+                passwordPolicyService);
     }
 
     @SuppressWarnings("null")

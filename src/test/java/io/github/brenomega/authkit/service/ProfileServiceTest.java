@@ -31,6 +31,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -48,6 +49,8 @@ class ProfileServiceTest {
     private AccountLockoutService lockoutService;
     private SecurityEventService securityEventService;
     private MfaService mfaService;
+    private AbuseThrottleService abuseThrottleService;
+    private PasswordPolicyService passwordPolicyService;
     private ProfileService profileService;
 
     @BeforeEach
@@ -58,6 +61,8 @@ class ProfileServiceTest {
         lockoutService = mock(AccountLockoutService.class);
         securityEventService = mock(SecurityEventService.class);
         mfaService = mock(MfaService.class);
+        abuseThrottleService = mock(AbuseThrottleService.class);
+        passwordPolicyService = mock(PasswordPolicyService.class);
         var argon2Limiter = new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter();
         profileService = new ProfileService(
                 userRepository,
@@ -67,7 +72,9 @@ class ProfileServiceTest {
                 argon2Limiter,
                 securityEventService,
                 mfaService,
-                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService));
+                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService, abuseThrottleService),
+                abuseThrottleService,
+                passwordPolicyService);
     }
 
     @AfterEach

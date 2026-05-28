@@ -40,6 +40,8 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_JWT_ISSUER`: Expected JWT issuer value. Must match the issuer used by downstream services validating AuthKit access tokens.
 * `AUTH_JWT_AUDIENCE`: Expected JWT audience value. Downstream services should reject tokens not issued for this audience.
 * `AUTH_JWT_KEY_ID`: Public key identifier published in JWKS and embedded in issued JWT headers.
+* `AUTH_JWT_RETIRING_PUBLIC_KEYS`: Optional semicolon-separated retiring public keys, formatted as `kid=classpath:/key.pub`, `kid=file:/path/key.pub`, or `kid=-----BEGIN PUBLIC KEY-----...`. Use during signing-key rotation while old tokens are still valid.
+* `AUTH_JWT_REVOKED_KEY_IDS`: Optional comma-separated key IDs to reject and hide from JWKS during emergency key revocation.
 * `AUTH_ACCESS_TOKEN_TTL_SECONDS`: Access token lifetime in seconds. Default: `900`.
 * `AUTH_REFRESH_TOKEN_TTL_DAYS`: Refresh-token-backed session lifetime in days. Default: `7`.
 * `AUTH_RECOVERY_TOKEN_TTL_MINUTES`: Password recovery token lifetime in minutes. Default: `15`.
@@ -80,6 +82,20 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
 * `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
 * `AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS`: Time before an abandoned `PROCESSING` email is eligible for retry. Default: `300`.
+* `AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS`: Time a published `QUEUED` email may wait for provider acceptance before becoming claimable again. Default: `600`.
+* `AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS`: Resend HTTP connect timeout. Default: `2000`.
+* `AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS`: Resend HTTP read timeout. Default: `5000`.
+* `AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS`: Resend send attempts per queue delivery. Default: `3`.
+* `AUTH_EMAIL_PROVIDER_RETRY_BACKOFF_MS`: Local backoff between Resend attempts. Default: `250`.
+* `AUTH_EMAIL_PROVIDER_FROM`: Sender identity used for Resend payloads.
+* `AUTH_CORS_ENABLED`: Enables application-level CORS. Default: `true`.
+* `AUTH_CORS_ALLOWED_ORIGINS`: Comma-separated explicit HTTPS browser origins allowed to call AuthKit. Required in production.
+* `AUTH_CORS_ALLOWED_METHODS`: Allowed CORS methods. Default: `GET,POST,PATCH,DELETE,OPTIONS`.
+* `AUTH_CORS_ALLOWED_HEADERS`: Allowed CORS headers. Default: `Authorization,Content-Type,X-XSRF-TOKEN,X-Worker-Token`.
+* `AUTH_CORS_EXPOSED_HEADERS`: Exposed response headers. Default: `Location`.
+* `AUTH_CORS_ALLOW_CREDENTIALS`: Whether browser credentials are allowed. Default: `true`; do not combine with wildcard origins.
+* `AUTH_CORS_MAX_AGE_SECONDS`: Browser preflight cache duration. Default: `3600`.
+* `AUTH_ABUSE_CONTROL_CAPACITY_MULTIPLIER`: Multiplier for endpoint/account throttle capacities. Production must keep this `1`; higher values are only for test suites or controlled non-production load exercises.
 * `AUTH_TERMS_VERSION`: Current Terms of Use version recorded at registration.
 * `AUTH_PRIVACY_POLICY_VERSION`: Current Privacy Policy version recorded at registration.
 * `AUTH_LAWFUL_BASIS`: Lawful basis for account data processing. Allowed values include `consent`, `contract`, `legal_obligation`, `vital_interests`, `public_task`, and `legitimate_interests`.
@@ -96,6 +112,8 @@ When deploying to a container orchestration service (e.g., Kubernetes, AWS ECS, 
 * `AUTH_AUDIT_WRITER_QUEUE_CAPACITY`: Bounded in-memory queue for security-event writes. Default: `5000`.
 * `AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS`: Graceful shutdown wait for queued security events. Default: `10`.
 * `AUTH_AUDIT_SYNC_ON_OVERLOAD`: Persists security events synchronously if the queue is saturated. Default: `true`.
+* `WORKER_TOKEN`: Current shared internal worker token for `/actuator/prometheus` and `/api/v1/internal/**`.
+* `WORKER_PREVIOUS_TOKENS`: Optional comma-separated previous worker tokens accepted during rotation.
 
 #### External Integrations
 * `RESEND_API_KEY`: API Token for the Resend email service.
@@ -129,6 +147,8 @@ JWT_PRIVATE_KEY=file:/etc/authkit/keys/app.key
 AUTH_JWT_ISSUER=https://auth.example.com
 AUTH_JWT_AUDIENCE=https://api.example.com
 AUTH_JWT_KEY_ID=authkit-prod-key-1
+AUTH_JWT_RETIRING_PUBLIC_KEYS=
+AUTH_JWT_REVOKED_KEY_IDS=
 AUTH_ACCESS_TOKEN_TTL_SECONDS=900
 AUTH_REFRESH_TOKEN_TTL_DAYS=7
 AUTH_RECOVERY_TOKEN_TTL_MINUTES=15
@@ -169,6 +189,20 @@ AUTH_EMAIL_OUTBOX_ENABLED=true
 AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
 AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
 AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS=300
+AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS=600
+AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS=2000
+AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS=5000
+AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS=3
+AUTH_EMAIL_PROVIDER_RETRY_BACKOFF_MS=250
+AUTH_EMAIL_PROVIDER_FROM="AuthKit Account <security@example.com>"
+AUTH_CORS_ENABLED=true
+AUTH_CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+AUTH_CORS_ALLOWED_METHODS=GET,POST,PATCH,DELETE,OPTIONS
+AUTH_CORS_ALLOWED_HEADERS=Authorization,Content-Type,X-XSRF-TOKEN
+AUTH_CORS_EXPOSED_HEADERS=Location
+AUTH_CORS_ALLOW_CREDENTIALS=true
+AUTH_CORS_MAX_AGE_SECONDS=3600
+AUTH_ABUSE_CONTROL_CAPACITY_MULTIPLIER=1
 AUTH_TERMS_VERSION=terms-v1
 AUTH_PRIVACY_POLICY_VERSION=privacy-v1
 AUTH_LAWFUL_BASIS=consent
@@ -185,6 +219,8 @@ AUTH_AUDIT_WRITER_MAX_POOL_SIZE=4
 AUTH_AUDIT_WRITER_QUEUE_CAPACITY=5000
 AUTH_AUDIT_WRITER_SHUTDOWN_TIMEOUT_SECONDS=10
 AUTH_AUDIT_SYNC_ON_OVERLOAD=true
+WORKER_TOKEN=replace-with-secret-random-worker-token-at-least-32-chars
+WORKER_PREVIOUS_TOKENS=
 AUTH_FRONTEND_ACTIVATION_URL=https://app.example.com/activate
 AUTH_FRONTEND_PASSWORD_RESET_URL=https://app.example.com/reset-password
 RESEND_API_KEY=re_123456789
@@ -209,24 +245,66 @@ volumeMounts:
 ## 3. Horizontal Scalability and State
 
 * **Statelessness:** Security tokens are stateless JWTs validated dynamically. There is no active session `HttpSession` replicating across instances.
-* **Distributed Caching:** Rate limiting, refresh-token state, and one-time MFA login challenges rely on centralized **Redis with authentication enabled**. Refresh-token family pointers are stored separately from per-user session hashes so reuse detection is O(1) and does not scan all user sessions. Per-request authority snapshots and MFA-enabled status use deliberately short local Caffeine caches; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` or `AUTH_MFA_STATUS_CACHE_TTL_SECONDS` if revocation freshness requirements are stricter.
+* **Distributed Caching:** Rate limiting, endpoint abuse throttles, refresh-token state, OAuth token revocation, and one-time MFA login challenges rely on centralized **Redis with authentication enabled**. Refresh-token family pointers are stored separately from per-user session hashes so reuse detection is O(1) and does not scan all user sessions. Per-request authority snapshots and MFA-enabled status use deliberately short local Caffeine caches; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` or `AUTH_MFA_STATUS_CACHE_TTL_SECONDS` if revocation freshness requirements are stricter. If Redis is unavailable, high-risk abuse throttles and lockout degrade to stricter per-node local enforcement and emit critical metrics; token storage flows do not have a safe local substitute.
 * **Database Concurrency:** All migrations run via Flyway at application startup. Tune Hikari pool limits per replica so total connections stay below PostgreSQL capacity. JDBC batching is enabled for small write bursts such as MFA backup-code generation.
-* **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and retries failed messages with backoff, so RabbitMQ latency does not hold user database transactions open.
+* **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. The scheduler publishes due rows to RabbitMQ after commit and marks them `QUEUED`; the Rabbit listener marks them `SENT` only after Resend returns provider acceptance and a provider message id. Queue publish failures, provider failures, and delivery-ack timeouts are retried with backoff, and poison messages can dead-letter to `authkit.email.dlq`, so RabbitMQ latency does not hold user database transactions open.
 * **Durable Security Events:** Authentication and account lifecycle flows enqueue privacy-safe rows to `security_events` through a bounded writer. Events store masked identifiers and keyed HMAC identifiers, never raw passwords, tokens, or request bodies. If the writer queue saturates and `AUTH_AUDIT_SYNC_ON_OVERLOAD=true`, events fall back to synchronous persistence to preserve forensic coverage under load.
 * **MFA Baseline:** TOTP enrollment requires current-password step-up, stores encrypted secrets in versioned AES-GCM envelopes with PBKDF2-derived keys and key IDs, and returns raw setup material only during enrollment. Enabling or disabling TOTP revokes refresh sessions. Backup codes are generated once, stored only as keyed hashes, consumed atomically, and audited on use. Password change, account export, account deletion, logout-all, individual session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled for the account. Regular profile reads/updates and session listing do not require MFA to avoid unnecessary user friction.
-* **Passkeys/WebAuthn:** WebAuthn registration and assertion are verified by Yubico `webauthn-server-core` with authenticator user verification required. Configure `AUTH_PASSKEY_RP_ID` and `AUTH_PASSKEY_ORIGINS` to exactly match production browser origins before enabling passkeys. Production startup rejects `AUTH_PASSKEY_ALLOW_ORIGIN_PORT=true`. Registration and disablement require current-password step-up and, when enrolled, MFA proof. AuthKit stores credential IDs, COSE public keys, signature counters, transports, discoverability, and timestamps; private key material never leaves the authenticator.
-* **OAuth2/OIDC Provider:** AuthKit implements the provider role for authorization-code + PKCE. Client applications are created through `/api/v1/admin/oauth-clients`; confidential client secrets are returned once and stored only with the configured slow password hash. Authorization requires explicit user consent unless an active `oauth_consents` row already covers the requested client scopes. Authorization codes are stored as SHA-256 hashes, consumed atomically, and exchanged for RS256 access/ID tokens published through JWKS. Social-login relying-party federation is not enabled by default and should be introduced as a separate provider-linking design if required.
+* **Passkeys/WebAuthn:** WebAuthn registration and assertion are verified by Yubico `webauthn-server-core` with authenticator user verification required. Configure `AUTH_PASSKEY_RP_ID` and `AUTH_PASSKEY_ORIGINS` to exactly match production browser origins before enabling passkeys. Production startup rejects `AUTH_PASSKEY_ALLOW_ORIGIN_PORT=true`. Registration and disablement require current-password step-up and, when enrolled, MFA proof. AuthKit stores credential IDs, COSE public keys, signature counters, transports, discoverability, and timestamps; private key material never leaves the authenticator. For administrators, passkeys should be the preferred MFA method; TOTP remains a supported fallback but is not phishing resistant.
+* **OAuth2/OIDC Provider:** AuthKit implements the provider role for authorization-code + PKCE. Client applications are created through `/api/v1/admin/oauth-clients`; confidential client secrets are returned once at creation or rotation and stored only with the configured slow password hash. Authorization requires explicit user consent unless an active `oauth_consents` row already covers the requested client scopes. Authorization codes are stored as SHA-256 hashes, consumed atomically, and exchanged for RS256 access/ID tokens published through JWKS. Revocation, introspection, userinfo, complete discovery metadata, and client-scoped throttles are implemented. Social-login relying-party federation is not enabled by default and should be introduced as a separate provider-linking design if required.
+* **JWT Key Rotation:** `AUTH_JWT_KEY_ID` identifies the active signing key. During planned rotation, publish old public keys through `AUTH_JWT_RETIRING_PUBLIC_KEYS` until every token signed by the old key has expired, then remove them. During emergency compromise, add the compromised key id to `AUTH_JWT_REVOKED_KEY_IDS`, roll the active private key, restart pods, and force downstream JWKS refresh. Downstream services must validate issuer, audience, expiry, algorithm, `kid`, tenant, and scopes/authorities.
+* **Password Recovery and Password Policy:** Password reset email links place the recovery token in the URL fragment, not in a query string, and the API consumes reset tokens from the request body. AuthKit sends `Referrer-Policy: no-referrer`, consumes recovery tokens atomically, enforces short TTL/one-time use, rejects weak/common/identity-derived/reused passwords, and records password history.
 * **Admin and Policy Plane:** `/api/v1/admin/**` requires `ROLE_ADMIN` from a live authority snapshot. The path is not treated as a secret; security comes from server-side RBAC, MFA step-up on writes, last-admin demotion protection, rate limits, audit events, and network controls.
-* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `security_mfa_challenge_failed_total`, `security_mfa_login_failed_total`, `security_mfa_step_up_failed_total`, `security_mfa_backup_code_used_total`, `rate_limit_dropped_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, MFA failures, MFA login/step-up failures, backup-code use, token reuse, event drops, rate-limit drops, and infrastructure failures. `/actuator/prometheus` requires the internal worker token via `X-Worker-Token`; configure Prometheus, an in-cluster scrape proxy, or the ingress controller to inject that header only from the monitoring namespace.
+* **Incident Metrics:** Prometheus metrics include `security_login_failed_total`, `security_account_locked_total`, `security_password_reset_failed_total`, `security_refresh_token_reuse_total`, `security_mfa_challenge_failed_total`, `security_mfa_login_failed_total`, `security_mfa_step_up_failed_total`, `security_mfa_backup_code_used_total`, `rate_limit_dropped_total`, `security_abuse_control_blocked_total`, `security_abuse_control_degraded_total`, `security_lockout_degraded_total`, `security_events_overloaded_total`, `security_events_dropped_total`, and `security_infrastructure_failure_total`. The sample `k8s/06-prometheus-rules.yaml` alerts on abuse spikes, MFA failures, MFA login/step-up failures, backup-code use, token reuse, event drops, rate-limit drops, degraded abuse controls, degraded lockout, and infrastructure failures. `/actuator/prometheus` requires a trusted source network plus the internal worker token via `X-Worker-Token`; configure Prometheus, an in-cluster scrape proxy, or the ingress controller to inject that header only from the monitoring namespace.
 * **Data Governance:** Account export is available at `POST /api/v1/users/me/export` with the current password as step-up proof, plus `mfaCode` when MFA is enabled. Consent snapshot is available at `GET /api/v1/users/me/consent`, and account deletion/anonymization is available at `DELETE /api/v1/users/me` with the same password-plus-MFA-if-enabled step-up. Registration records append-only consent history in `consent_events`; OAuth authorization consent is stored in `oauth_consents`; exports include the current consent snapshot, historical consent events, OAuth client consents, and bounded security events. Deletion immediately anonymizes direct PII, evicts the per-user authority cache, then revokes refresh sessions and emits lifecycle events after the database commit. Retention purges expired security events, deleted-account tombstones, passkey challenges, and OAuth authorization codes in bounded batches according to configured windows.
 * **Registration Enumeration:** Public deployments must keep `AUTH_REGISTRATION_STEALTH_CONFLICTS=true`, which makes `/api/v1/auth/register` return a generic acknowledgement without exposing whether an email is already registered. Development and trusted internal integrations may disable it if they require explicit conflict responses.
 * **Tenant Strategy:** AuthKit currently models one tenant identifier per user and emits only the canonical JWT claim `tenant_id`. Hibernate tenant filtering is enabled from authenticated service calls when a valid UUID tenant claim is present, and profile/session operations also perform object-level tenant checks. New tenant-owned tables must add equivalent service tests before production use.
 * **CSRF:** Refresh and logout are cookie-backed, so clients must echo the readable CSRF cookie in the configured CSRF header. This is stateless double-submit protection and does not introduce server sessions.
+* **CORS:** Application-level CORS must list explicit HTTPS origins. Production startup rejects missing origins, wildcard-with-credentials, and non-HTTPS origins. Keep CORS and gateway policy aligned so browser access is predictable.
 * **Reverse Proxy:** Production traffic must terminate TLS before reaching AuthKit and forward `X-Forwarded-Proto`. The application uses forwarded headers so HSTS is emitted for HTTPS requests behind a proxy.
 * **Image Pinning:** Production manifests should reference immutable image digests. The sample Kubernetes deployment uses a digest placeholder that must be replaced by the release artifact digest generated by the build pipeline.
 * **NetworkPolicy HTTPS Egress:** The sample Kubernetes NetworkPolicy allows external HTTPS because standard NetworkPolicy cannot restrict by FQDN. Enforce provider-specific FQDN egress allow-lists at the gateway/firewall layer for Resend and image/security-update endpoints.
 
-## 4. Build-Time Supply Chain Verification
+## 4. Prompt 2 Operational Runbooks
+
+### Redis Abuse-Control or Lockout Degradation
+
+Trigger: `AuthKitAbuseControlDegraded` or `AuthKitLockoutDegraded`.
+
+Immediate response:
+1. Confirm Redis cluster health, authentication, DNS, network policy, and client connection errors.
+2. Treat public auth endpoints as under-restricted until distributed Redis enforcement is restored; keep WAF/ingress rate limits conservative during the incident.
+3. Watch `security_abuse_control_blocked_total`, login failures, MFA failures, and password recovery volume for attack pressure.
+4. After Redis recovers, verify the degraded metrics stop increasing and run a smoke test for login, refresh, recovery, and MFA login.
+
+### JWT Signing-Key Rotation
+
+Planned rotation:
+1. Generate a new RSA key pair and set it as `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, and a new `AUTH_JWT_KEY_ID`.
+2. Add the previous public key to `AUTH_JWT_RETIRING_PUBLIC_KEYS`.
+3. Deploy all AuthKit pods, then keep the retiring key published longer than the maximum access-token lifetime plus downstream JWKS cache TTL.
+4. Remove the retiring key once old tokens are guaranteed expired.
+
+Emergency compromise:
+1. Add the compromised `kid` to `AUTH_JWT_REVOKED_KEY_IDS`.
+2. Rotate the active key pair and restart AuthKit pods.
+3. Force downstream JWKS refresh or restart resource servers.
+4. Revoke affected refresh sessions if token theft is suspected.
+
+### Worker Token Rotation
+
+1. Put the old token in `WORKER_PREVIOUS_TOKENS` and deploy AuthKit with the new `WORKER_TOKEN`.
+2. Update Prometheus, scrape proxies, and internal workers to send the new token.
+3. Confirm successful scrapes from trusted networks.
+4. Remove the old token from `WORKER_PREVIOUS_TOKENS` after all clients are updated.
+
+### Email Delivery Failure
+
+Trigger: `security_infrastructure_failure_total{component="email_outbox"}` or `{component="resend"}`.
+
+Response: inspect `email_outbox` rows in `FAILED` or long-lived `QUEUED` state, check RabbitMQ queue/DLQ depth, confirm Resend API health and API key validity, then allow the outbox processor to retry. Do not manually mark rows `SENT` unless provider acceptance and `provider_message_id` are independently confirmed.
+
+## 5. Build-Time Supply Chain Verification
 
 The normal Maven `verify` lifecycle is deterministic and does not require live NVD access. CI runs the Java build/tests, generates a CycloneDX SBOM, runs pinned CodeQL Java SAST with `security-extended` and `security-and-quality` queries, and uses Trivy for filesystem dependency-manifest scanning plus container-image scanning.
 

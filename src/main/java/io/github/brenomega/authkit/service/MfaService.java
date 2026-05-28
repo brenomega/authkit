@@ -36,6 +36,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
 import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
@@ -64,6 +66,7 @@ public class MfaService {
     private final TokenStorage tokenStorage;
     private final MfaStatusCache mfaStatusCache;
     private final StepUpService stepUpService;
+    private final AbuseThrottleService abuseThrottleService;
     private final TotpGenerator totpGenerator = new TotpGenerator();
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -76,7 +79,8 @@ public class MfaService {
                       AuditDigestService auditDigestService,
                       TokenStorage tokenStorage,
                       MfaStatusCache mfaStatusCache,
-                      StepUpService stepUpService) {
+                      StepUpService stepUpService,
+                      AbuseThrottleService abuseThrottleService) {
         this.userRepository = userRepository;
         this.totpRepository = totpRepository;
         this.backupCodeRepository = backupCodeRepository;
@@ -87,6 +91,7 @@ public class MfaService {
         this.tokenStorage = tokenStorage;
         this.mfaStatusCache = mfaStatusCache;
         this.stepUpService = stepUpService;
+        this.abuseThrottleService = abuseThrottleService;
     }
 
     @Transactional(readOnly = true)
@@ -108,6 +113,7 @@ public class MfaService {
     @Transactional
     public MfaTotpEnrollmentResponse startTotpEnrollment(String userId, StepUpRequest request) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request == null ? null : request.currentPassword(),
                 SecurityEventType.MFA_CHANGED, "mfa_enrollment_step_up_failed");
 
@@ -142,6 +148,7 @@ public class MfaService {
     @Transactional
     public MfaBackupCodesResponse confirmTotp(String userId, MfaTotpConfirmRequest request) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request.currentPassword(),
                 SecurityEventType.MFA_CHANGED, "mfa_confirmation_step_up_failed");
 
@@ -183,6 +190,7 @@ public class MfaService {
     @Transactional
     public void disableTotp(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request.currentPassword(),
                 SecurityEventType.MFA_CHANGED, "mfa_disable_password_step_up_failed");
         requireMfaIfEnabled(user, request.code(), "mfa_disable");
@@ -205,6 +213,7 @@ public class MfaService {
     @Transactional
     public MfaBackupCodesResponse regenerateBackupCodes(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request.currentPassword(),
                 SecurityEventType.MFA_BACKUP_CODES_REGENERATED,
                 "backup_code_regeneration_password_step_up_failed");
@@ -271,6 +280,7 @@ public class MfaService {
             return;
         }
         stepUpService.requireNotLocked(user, SecurityEventType.MFA_CHALLENGE_FAILED, reason + "_mfa");
+        stepUpService.checkMfaStepUp(user);
         if (code == null || code.isBlank()) {
             stepUpService.recordFailedStepUp(
                     user,

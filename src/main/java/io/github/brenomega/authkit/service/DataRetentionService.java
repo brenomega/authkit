@@ -26,6 +26,7 @@ import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
 /**
@@ -45,6 +46,7 @@ public class DataRetentionService {
     private final MfaBackupCodeRepository mfaBackupCodeRepository;
     private final PasskeyCredentialRepository passkeyCredentialRepository;
     private final OAuthConsentRepository oauthConsentRepository;
+    private final PasswordHistoryRepository passwordHistoryRepository;
     private final ConsentEventRepository consentEventRepository;
     private final EmailOutboxService emailOutboxService;
     private final AuthProperties authProperties;
@@ -59,6 +61,7 @@ public class DataRetentionService {
                                 MfaBackupCodeRepository mfaBackupCodeRepository,
                                 PasskeyCredentialRepository passkeyCredentialRepository,
                                 OAuthConsentRepository oauthConsentRepository,
+                                PasswordHistoryRepository passwordHistoryRepository,
                                 ConsentEventRepository consentEventRepository,
                                 EmailOutboxService emailOutboxService,
                                 AuthProperties authProperties,
@@ -72,6 +75,7 @@ public class DataRetentionService {
         this.mfaBackupCodeRepository = mfaBackupCodeRepository;
         this.passkeyCredentialRepository = passkeyCredentialRepository;
         this.oauthConsentRepository = oauthConsentRepository;
+        this.passwordHistoryRepository = passwordHistoryRepository;
         this.consentEventRepository = consentEventRepository;
         this.emailOutboxService = emailOutboxService;
         this.authProperties = authProperties;
@@ -178,6 +182,7 @@ public class DataRetentionService {
         passkeyCredentialRepository.deleteByUserIdIn(ids);
         mfaBackupCodeRepository.deleteByUserIdIn(ids);
         mfaTotpCredentialRepository.deleteByUserIdIn(ids);
+        ids.forEach(passwordHistoryRepository::deleteByUserId);
         securityEventRepository.purgeByUserReferences(ids);
         consentEventRepository.deleteByUserIdIn(ids);
         emailOutboxService.deleteByRecipients(emails);

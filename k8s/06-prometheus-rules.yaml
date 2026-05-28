@@ -78,6 +78,30 @@ spec:
           annotations:
             summary: AuthKit rate-limit drops increased
             description: Application-layer rate limiting is dropping a high volume of requests.
+        - alert: AuthKitAbuseControlDegraded
+          expr: increase(security_abuse_control_degraded_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: AuthKit abuse controls degraded
+            description: Endpoint/account abuse throttles lost distributed Redis enforcement and are running with strict local fallback only.
+        - alert: AuthKitEndpointAbuseBlocked
+          expr: increase(security_abuse_control_blocked_total[5m]) > 50
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: AuthKit endpoint abuse throttles blocking traffic
+            description: High-risk endpoint/account throttles are blocking an elevated volume of requests.
+        - alert: AuthKitLockoutDegraded
+          expr: increase(security_lockout_degraded_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: AuthKit account lockout degraded
+            description: Account lockout lost distributed Redis enforcement and is relying on per-node local state.
         - alert: AuthKitInfrastructureFailure
           expr: increase(security_infrastructure_failure_total[5m]) > 0
           for: 5m

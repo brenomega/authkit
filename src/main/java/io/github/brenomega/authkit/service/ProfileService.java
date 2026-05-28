@@ -14,6 +14,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
+import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
+import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
@@ -58,13 +60,17 @@ public class ProfileService {
     private final SecurityEventService securityEventService;
     private final MfaService mfaService;
     private final StepUpService stepUpService;
+    private final AbuseThrottleService abuseThrottleService;
+    private final PasswordPolicyService passwordPolicyService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
                           Argon2ConcurrencyLimiter argon2Limiter,
                           SecurityEventService securityEventService,
                           MfaService mfaService,
-                          StepUpService stepUpService) {
+                          StepUpService stepUpService,
+                          AbuseThrottleService abuseThrottleService,
+                          PasswordPolicyService passwordPolicyService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
@@ -73,6 +79,8 @@ public class ProfileService {
         this.securityEventService = securityEventService;
         this.mfaService = mfaService;
         this.stepUpService = stepUpService;
+        this.abuseThrottleService = abuseThrottleService;
+        this.passwordPolicyService = passwordPolicyService;
     }
 
     /**
@@ -120,6 +128,7 @@ public class ProfileService {
         requireTenantAccess(user);
         requireActive(user);
         user.requireEmailConfirmed();
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
         // Update conditionally
         if (request.name() != null) {
@@ -156,6 +165,7 @@ public class ProfileService {
 
         requireTenantAccess(user);
         requireActive(user);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
         // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
@@ -176,6 +186,7 @@ public class ProfileService {
                 SecurityEventType.PASSWORD_CHANGED,
                 "password_change_current_password_invalid");
         mfaService.requireMfaIfEnabled(user, request.mfaCode(), "password_change");
+        passwordPolicyService.validateForUser(user, request.newPassword());
 
         boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
@@ -184,6 +195,7 @@ public class ProfileService {
 
         try {
             // Bound Argon2 encode work to prevent authenticated hashing DoS.
+            passwordPolicyService.recordCurrentPassword(user);
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
         } finally {
@@ -234,6 +246,7 @@ public class ProfileService {
 
         requireTenantAccess(user);
         requireActive(user);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
         // DT 3.2.23: Block session management while account is locked
         if (lockoutService.isLocked(user.getEmail())) {

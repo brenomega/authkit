@@ -5,8 +5,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
+import io.github.brenomega.authkit.infrastructure.email.EmailDeliveryResult;
 import io.github.brenomega.authkit.infrastructure.email.ResendEmailClient;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.service.dto.EmailPayload;
 
 /**
@@ -24,12 +27,18 @@ public class RabbitMqEmailListener {
     private static final Logger log = LoggerFactory.getLogger(RabbitMqEmailListener.class);
 
     private final ResendEmailClient resendClient;
+    private final EmailOutboxService outboxService;
+    private final MeterRegistry meterRegistry;
 
     /**
      * @param resendClient the HTTP integration client
      */
-    public RabbitMqEmailListener(ResendEmailClient resendClient) {
+    public RabbitMqEmailListener(ResendEmailClient resendClient,
+                                 EmailOutboxService outboxService,
+                                 MeterRegistry meterRegistry) {
         this.resendClient = resendClient;
+        this.outboxService = outboxService;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -44,6 +53,18 @@ public class RabbitMqEmailListener {
     @RabbitListener(queues = RabbitMqConfig.QUEUE_EMAIL)
     public void processEmail(EmailPayload payload) {
         log.debug("Received EmailPayload from queue for: {}", EmailMasker.mask(payload.to()));
-        resendClient.sendEmail(payload);
+        try {
+            EmailDeliveryResult result = resendClient.sendEmail(payload);
+            if (payload.messageId() != null) {
+                outboxService.markSent(payload.messageId(), result.providerMessageId());
+            }
+        } catch (RuntimeException ex) {
+            meterRegistry.counter("security.infrastructure.failure", "component", "resend").increment();
+            if (payload.messageId() != null) {
+                outboxService.markFailed(payload.messageId(), ex.getMessage());
+                return;
+            }
+            throw ex;
+        }
     }
 }

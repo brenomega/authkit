@@ -33,7 +33,7 @@ public class EmailOutboxService {
         Instant staleBefore = now.minus(lockTtl);
 
         List<EmailOutboxMessage> messages = repository.findClaimable(
-                List.of(EmailOutboxStatus.PENDING, EmailOutboxStatus.FAILED),
+                List.of(EmailOutboxStatus.PENDING, EmailOutboxStatus.FAILED, EmailOutboxStatus.QUEUED),
                 EmailOutboxStatus.PROCESSING,
                 now,
                 staleBefore,
@@ -45,8 +45,16 @@ public class EmailOutboxService {
 
     @SuppressWarnings("null")
     @Transactional
-    public void markSent(UUID messageId) {
-        repository.findById(messageId).ifPresent(EmailOutboxMessage::markSent);
+    public void markQueued(UUID messageId, Duration deliveryTimeout) {
+        repository.findById(messageId)
+                .ifPresent(message -> message.markQueued(Instant.now(), deliveryTimeout));
+    }
+
+    @SuppressWarnings("null")
+    @Transactional
+    public void markSent(UUID messageId, String providerMessageId) {
+        repository.findById(messageId)
+                .ifPresent(message -> message.markSent(providerMessageId, Instant.now()));
     }
 
     @SuppressWarnings("null")

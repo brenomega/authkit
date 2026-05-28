@@ -11,6 +11,7 @@ public record AdminOAuthClientUpdateRequest(
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 512) String> redirectUris,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 80) String> scopes,
         boolean requirePkce,
+        boolean rotateSecret,
         @Size(max = 128) String currentPassword,
         @Size(max = 32) String mfaCode
 ) {
@@ -19,6 +20,6 @@ public record AdminOAuthClientUpdateRequest(
                                          Set<String> scopes,
                                          boolean requirePkce,
                                          String mfaCode) {
-        this(displayName, redirectUris, scopes, requirePkce, null, mfaCode);
+        this(displayName, redirectUris, scopes, requirePkce, false, null, mfaCode);
     }
 }

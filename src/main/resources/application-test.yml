@@ -125,6 +125,8 @@ authkit:
       max-size: 10000
     request:
       max-body-bytes: 65536
+    abuse-control:
+      capacity-multiplier: 1000
     email-outbox:
       enabled: false
       batch-size: 50
@@ -170,6 +172,14 @@ authkit:
       provider-enabled: true
       authorization-code-ttl-minutes: 5
       id-token-ttl-seconds: 900
+    cors:
+      enabled: true
+      allowed-origins: http://localhost:3000
+      allowed-methods: GET,POST,PATCH,DELETE,OPTIONS
+      allowed-headers: Authorization,Content-Type,X-XSRF-TOKEN,X-Worker-Token
+      exposed-headers: Location
+      allow-credentials: true
+      max-age-seconds: 3600
 
 # =============================================================================
 # Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)

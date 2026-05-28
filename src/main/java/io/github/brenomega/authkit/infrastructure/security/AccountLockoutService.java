@@ -94,7 +94,8 @@ public class AccountLockoutService {
         if (this.proxyManager != null) {
             log.info("AccountLockoutService initialized with distributed Layer 2 (Redis) and progressive multi-bandwidth policy (DT 3.2.23).");
         } else {
-            log.warn("AccountLockoutService initialized with Layer 1 only. Redis client unavailable (DT 3.1.18 fail-open).");
+            log.warn("AccountLockoutService initialized with Layer 1 only. Redis client unavailable; lockout degrades to per-node local enforcement.");
+            meterRegistry.counter("security.lockout.degraded", "reason", "startup_no_redis").increment();
         }
     }
 
@@ -119,7 +120,8 @@ public class AccountLockoutService {
             log.debug("Failed attempt recorded for account: {}", EmailMasker.mask(email));
         } catch (Exception e) {
             meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
-            log.debug("Error recording failed attempt. Fail-open fallback engaged. Error: {}", e.getMessage());
+            meterRegistry.counter("security.lockout.degraded", "reason", "redis_runtime_failure").increment();
+            log.error("Redis unavailable while recording lockout state. Per-node local lockout remains active.");
         }
     }
 
@@ -148,7 +150,8 @@ public class AccountLockoutService {
             }
         } catch (Exception e) {
             meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
-            log.debug("Redis unavailable for lockout check. Falling back to local cache. Error: {}", e.getMessage());
+            meterRegistry.counter("security.lockout.degraded", "reason", "redis_runtime_failure").increment();
+            log.error("Redis unavailable for lockout check. Falling back to per-node local lockout.");
             Bucket localBucket = localBuckets.getIfPresent(email);
             return localBucket != null && localBucket.getAvailableTokens() == 0;
         }
@@ -174,7 +177,8 @@ public class AccountLockoutService {
                 proxyManager.removeProxy(email.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             } catch (Exception e) {
                 meterRegistry.counter("security.infrastructure.failure", "component", "lockout_redis").increment();
-                log.debug("Redis unavailable for lockout clearing. Local cache cleared. Error: {}", e.getMessage());
+                meterRegistry.counter("security.lockout.degraded", "reason", "redis_runtime_failure").increment();
+                log.error("Redis unavailable for lockout clearing. Local cache cleared; distributed lockout state may persist.");
             }
         }
 
