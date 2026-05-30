@@ -33,6 +33,8 @@
 		<!-- Override versions to fix CVEs -->
 		<netty.version>4.1.134.Final</netty.version>
 		<tomcat.version>10.1.55</tomcat.version>
+		<!-- Pin Jackson BOM to prevent Yubico's version ranges [2.13.2.1,3) from resolving to SNAPSHOTs -->
+		<jackson-bom.version>2.21.2</jackson-bom.version>
 	</properties>
 	<dependencies>
 		<!-- Web Layer (DT 3.1.13) -->
