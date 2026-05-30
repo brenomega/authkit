@@ -9,10 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Map;
 import java.util.Set;
 
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientCreateRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientCreateRequest;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;

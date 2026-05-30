@@ -31,6 +31,7 @@ public class OAuthTokenRevocationService {
                 .build();
     }
 
+    @SuppressWarnings("null")
     public void revoke(String jti, Instant expiresAt) {
         if (jti == null || jti.isBlank() || expiresAt == null) {
             return;

@@ -14,9 +14,9 @@ import org.slf4j.LoggerFactory;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.mfa.util.MfaChallengeCodec;
 import io.github.brenomega.authkit.domain.mfa.util.MfaChallengeCodec.IssuedMfaChallenge;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;

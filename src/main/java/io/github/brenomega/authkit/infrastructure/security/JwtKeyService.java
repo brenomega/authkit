@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
@@ -122,7 +123,13 @@ public class JwtKeyService {
     private String loadKeyMaterial(String keyMaterial) throws IOException {
         if (keyMaterial.startsWith("classpath:") || keyMaterial.startsWith("file:")) {
             Resource resource = resourceLoader.getResource(keyMaterial);
-            return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
+            final Charset utf_82 = StandardCharsets.UTF_8;
+            if (utf_82 != null) {
+                return StreamUtils.copyToString(resource.getInputStream(), utf_82);
+            } else {
+                // TODO handle null value
+                return null;
+            }
         }
         return keyMaterial;
     }

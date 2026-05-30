@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.domain.user.dto;
+package io.github.brenomega.authkit.domain.passkey.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;

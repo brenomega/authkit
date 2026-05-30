@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationFinishRequest;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationFinishRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;

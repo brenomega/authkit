@@ -30,12 +30,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
-import io.github.brenomega.authkit.domain.user.dto.OAuthAuthorizeRequest;
-import io.github.brenomega.authkit.domain.user.dto.OAuthAuthorizeResponse;
-import io.github.brenomega.authkit.domain.user.dto.OAuthTokenResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
@@ -247,6 +247,7 @@ public class OAuthProviderService {
                 .ifPresent(jwt -> tokenRevocationService.revoke(jwt.getId(), jwt.getExpiresAt()));
     }
 
+    @SuppressWarnings("null")
     @Transactional(readOnly = true)
     public Map<String, Object> introspect(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
@@ -280,6 +281,7 @@ public class OAuthProviderService {
         Jwt jwt = decodeOAuthToken(bearerToken)
                 .filter(token -> hasScope(token, "openid"))
                 .orElseThrow(InvalidOAuthRequestException::new);
+        @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(jwt.getSubject()))
                 .filter(existing -> !existing.isDeleted())
                 .orElseThrow(InvalidOAuthRequestException::new);

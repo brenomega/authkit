@@ -17,8 +17,8 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
-import io.github.brenomega.authkit.domain.user.dto.OAuthAuthorizeRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;

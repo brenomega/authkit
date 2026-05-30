@@ -32,11 +32,11 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.github.brenomega.authkit.domain.mfa.dto.MfaTotpConfirmRequest;
 import io.github.brenomega.authkit.domain.mfa.entity.MfaBackupCode;
 import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 import io.github.brenomega.authkit.domain.mfa.util.Base32;
 import io.github.brenomega.authkit.domain.mfa.util.TotpGenerator;
-import io.github.brenomega.authkit.domain.user.dto.MfaTotpConfirmRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;

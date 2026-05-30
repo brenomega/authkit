@@ -17,12 +17,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientCreateRequest;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientResponse;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientUpdateRequest;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaOptionalVerificationRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientCreateRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUserResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
 import io.github.brenomega.authkit.domain.user.dto.TenantSummaryResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AdminService;

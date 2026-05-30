@@ -25,9 +25,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 
+import io.github.brenomega.authkit.domain.mfa.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.mfa.util.MfaChallengeCodec;
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.exception.EmailNotConfirmedException;

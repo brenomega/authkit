@@ -14,8 +14,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 class EmailOutboxProcessorTest {

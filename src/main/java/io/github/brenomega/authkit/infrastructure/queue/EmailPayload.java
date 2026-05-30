@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.service.dto;
+package io.github.brenomega.authkit.infrastructure.queue;
 
 import java.util.UUID;
 

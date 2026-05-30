@@ -18,9 +18,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import jakarta.servlet.http.Cookie;
 

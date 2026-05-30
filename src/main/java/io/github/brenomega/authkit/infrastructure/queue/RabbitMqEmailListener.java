@@ -10,7 +10,6 @@ import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.infrastructure.email.EmailDeliveryResult;
 import io.github.brenomega.authkit.infrastructure.email.ResendEmailClient;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
 
 /**
  * Worker thread that consumes {@link EmailPayload} messages from RabbitMQ.

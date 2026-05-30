@@ -20,12 +20,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.brenomega.authkit.domain.user.dto.LoginRequest;
 import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaLoginVerificationRequest;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaOptionalVerificationRequest;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionFinishRequest;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionOptionsRequest;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.EmailConfirmationResendRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaLoginVerificationRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionFinishRequest;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsRequest;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyAssertionOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.PasswordRecoveryRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordResetRequest;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;

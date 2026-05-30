@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
-import io.github.brenomega.authkit.service.dto.EmailPayload;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

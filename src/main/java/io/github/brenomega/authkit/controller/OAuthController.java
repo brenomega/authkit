@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.brenomega.authkit.domain.user.dto.OAuthAuthorizeRequest;
-import io.github.brenomega.authkit.domain.user.dto.OAuthAuthorizeResponse;
-import io.github.brenomega.authkit.domain.user.dto.OAuthTokenResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.response.ApiResponse;

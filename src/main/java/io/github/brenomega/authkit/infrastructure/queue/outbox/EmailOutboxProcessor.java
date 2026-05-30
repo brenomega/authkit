@@ -9,8 +9,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 @Component

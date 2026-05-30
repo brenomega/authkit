@@ -22,12 +22,12 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
-import io.github.brenomega.authkit.service.dto.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 
 /**

@@ -1,17 +1,17 @@
 package io.github.brenomega.authkit.controller;
 
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaBackupCodesResponse;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaOptionalVerificationRequest;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaStatusResponse;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaTotpConfirmRequest;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaTotpEnrollmentResponse;
+import io.github.brenomega.authkit.domain.mfa.dto.MfaVerificationRequest;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyCredentialResponse;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationFinishRequest;
+import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaBackupCodesResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaOptionalVerificationRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaStatusResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaTotpConfirmRequest;
-import io.github.brenomega.authkit.domain.user.dto.MfaTotpEnrollmentResponse;
-import io.github.brenomega.authkit.domain.user.dto.MfaVerificationRequest;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyCredentialResponse;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationFinishRequest;
-import io.github.brenomega.authkit.domain.user.dto.PasskeyRegistrationOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;

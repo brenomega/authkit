@@ -15,10 +15,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientCreateRequest;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientCreateRequest;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientResponse;
-import io.github.brenomega.authkit.domain.user.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUserResponse;
 import io.github.brenomega.authkit.domain.user.dto.TenantSummaryResponse;

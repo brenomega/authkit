@@ -1,4 +1,4 @@
-package io.github.brenomega.authkit.domain.user.dto;
+package io.github.brenomega.authkit.domain.mfa.dto;
 
 import java.time.Instant;
 

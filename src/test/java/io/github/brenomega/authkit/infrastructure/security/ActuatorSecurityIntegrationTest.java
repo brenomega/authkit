@@ -3,7 +3,7 @@ package io.github.brenomega.authkit.infrastructure.security;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import io.github.brenomega.authkit.service.dto.EmailPayload;
+import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

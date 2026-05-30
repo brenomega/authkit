@@ -29,7 +29,7 @@ Prompt 1 closed the original production blockers: live session-bound access toke
 
 Prompt 2 materially improved abuse resistance and operational hardening: endpoint/account throttles now cover high-risk auth flows with strict local fallback on Redis failure, recovery and confirmation emails have cooldown/daily caps, password reset links no longer place token material in query strings, password policy/history prevents weak and reused passwords, JWT key rotation/revocation is implemented, CORS is explicit and production-validated, worker-token access is network-bound and rotatable, RabbitMQ/Resend email delivery now has DLQ/retry/idempotency/provider-state tracking, and OAuth/OIDC now includes client secret rotation, revocation, introspection, userinfo, discovery metadata, and tests.
 
-Remaining risks are now mostly proof and operations risks: no production load test evidence, limited chaos/failover testing, scheduled jobs still lack distributed coordination across replicas, frontend token/XSS posture remains outside this repo, supply-chain release hardening is incomplete, and SIEM/PagerDuty/dashboard wiring is still documentation-level rather than proven in a live environment.
+Remaining risks split into two buckets: **Prompt 2.5 (implementable now)** — token-type API boundaries, distributed scheduler locks, audit fail-closed policy, session-list caps, OpenAPI/integrator docs, alert rules as code, optional HIBP/fail-closed abuse flag; **Prompt 3 (proof)** — load/chaos evidence, live SIEM, signed releases, frontend audit, and hardware-tuned performance.
 
 Reassessed scores:
 
@@ -58,7 +58,7 @@ Reassessed scores:
 | Dependency and supply chain | 6.8 | Conditionally production-ready | SBOM publication, image signing, stricter CVE gates remain | Medium |
 | Observability, auditability, IR | 7.3 | Conditionally production-ready | SIEM/PagerDuty wiring and audit-failure policy remain | High |
 | Performance and scalability | 7.1 | Conditionally production-ready | No load evidence for Argon2, Redis, DB pools, queues, and auth hot paths | High |
-| Reliability and readiness | 7.2 | Conditionally production-ready | Chaos tests and distributed scheduled-job coordination remain | High |
+| Reliability and readiness | 7.2 | Conditionally production-ready | Chaos tests remain; scheduled jobs need distributed coordination (Prompt 2.5) | High |
 | Testing and verification | 7.5 | Conditionally production-ready | Load, Redis-failure, CORS/gateway, OAuth/passkey E2E, and real Postgres CI breadth remain | High |
 | Developer experience | 7.8 | Conditionally production-ready | Security docs improved; OpenAPI/integrator docs still need completion | Medium |
 | Compliance/privacy | 7.0 | Conditionally production-ready | DSAR/export governance and retention proof in real production processes remain | High |
@@ -106,13 +106,11 @@ Reassessed scores:
 
 ## Critical Blocking Issues
 
-No original critical authentication bypass or token-lifecycle blocker remains open after Prompt 2. The following still block broad, high-assurance public production without compensating controls:
+No original critical authentication bypass or token-lifecycle blocker remains open after Prompt 2.
 
-- Production load, soak, and burst testing has not proven Argon2, Redis, PostgreSQL, servlet threads, RabbitMQ, and Resend behavior under attack-like traffic.
-- Scheduled outbox and retention jobs still need distributed locking or explicit idempotent coordination across multiple replicas.
-- The consuming frontend is not present in this repository, so XSS, token storage, auth-state hydration, CSRF assumptions, and redirect handling remain unaudited.
-- SIEM/PagerDuty/dashboard wiring and incident drills are not proven in a live environment.
-- Container signing, SBOM publication gates, release versioning, and strict supply-chain promotion remain incomplete.
+**Address in Prompt 2.5 before multi-replica production:** distributed job coordination, OAuth-vs-first-party token enforcement on user APIs, audit durability policy, integrator contracts (OpenAPI), and observability artifacts (alert rules).
+
+**Address in Prompt 3 before broad/medium SaaS marketing:** load/soak/burst proof, chaos tests, live SIEM/drills, signed images, frontend audit (out of repo), and Argon2/pool tuning from measured hardware.
 
 ## High-Risk Issues
 
@@ -148,7 +146,17 @@ No original critical authentication bypass or token-lifecycle blocker remains op
 - Misconfigured CORS/proxy headers: production validators reject unsafe CORS; gateway/ingress behavior still needs deployment validation.
 - Secret leakage/dependency compromise: production validators and CI scans help, but key rotation drills, signed artifacts, and stricter supply-chain gates remain.
 
-## Three-Step Remediation Roadmap
+## Product Target (Post Prompt 3)
+
+AuthKit should be the **primary auth boundary** for **small SaaS** (hundreds of users) and scale horizontally to **medium SaaS** (tens of thousands), deployable as:
+
+1. **Standalone auth API** in an existing production mesh.
+2. **Embedded module** in a monolith sharing Postgres/Redis.
+3. **Monolithic SaaS core** with AuthKit packages/controllers co-located.
+
+Prompt 2.5 closes implementable gaps before expensive proof work. Prompt 3 supplies **evidence** (load, chaos, live ops) to reach **8+ production readiness** for controlled and medium-scale production.
+
+## Four-Step Remediation Roadmap
 
 ### Prompt 1: Close Production Blockers in Auth, Admin, Tenancy, OAuth, Retention, and Deployment
 
@@ -162,28 +170,76 @@ Status: complete on `auth-abuse-recovery-key-hardening`.
 
 Checklist: see "Prompt 2 Completion Status" above.
 
+### Prompt 2.5: Pre-Proof Hardening — Implementable Gaps Before Load/Ops Evidence
+
+**Goal:** Reach **~7.9–8.2 production readiness** and **~8.0–8.3 security** in code/docs/CI without full load suites or live SIEM. Single implementation pass; defer proof-only work to Prompt 3.
+
+**Branch suggestion:** `auth-preproof-hardening`
+
+#### A. Token model and API boundaries (security correctness)
+
+- [ ] Enforce **two token classes** in `UserAuthoritiesFilter` (or dedicated filter): AuthKit session-bound access tokens (`aud` = `AUTH_JWT_AUDIENCE`) require `tokenStorage.isSessionActive`; **OAuth client-audience** tokens must not call `/api/v1/users/**` or other first-party user APIs (reject with 401/403, not silent session miss).
+- [ ] Document in `INTEGRATOR.md`: first-party vs OAuth token usage, claims (`tenant_id`, `amr`, `mfa`, `client_id`, `scope`), cookie+CSRF for refresh, fragment-based reset flow.
+- [ ] Add integration tests: OAuth-issued token rejected on `/api/v1/users/me`; session-bound token rejected after `logout-all` / password reset / session revoke.
+
+#### B. Reliability on multiple replicas (small/medium SaaS baseline)
+
+- [ ] Add **distributed locks** (ShedLock + JDBC/Redis) for `EmailOutboxProcessor` and `DataRetentionService` scheduled jobs; document single-replica fallback for dev.
+- [ ] Make retention/outbox processing **idempotent** under duplicate lock loss (safe replays, no double-send email).
+- [ ] Cap or paginate `tokenStorage.listSessions` (avoid unbounded `HKEYS` on large session sets); add test for many-session user.
+
+#### C. Audit and observability as code (not live SIEM yet)
+
+- [ ] Implement **audit durability policy**: critical events (login failure lockout, admin actions, refresh reuse, MFA disable, account delete) **fail closed** or queue with synchronous fallback when DB audit write fails; non-critical events degrade with `security.audit.dropped` metric + `SECURITY_ALERT`.
+- [ ] Add `observability/prometheus-alerts.yml` (or equivalent) for: Redis abuse/lockout degraded, refresh family reuse, worker auth denied, email outbox failures, Argon2 capacity exceeded, audit drops.
+- [ ] Add `observability/grafana-dashboard.json` skeleton or documented panel list matching DEPLOYMENT runbooks.
+
+#### D. Abuse controls — close Prompt 2 partials
+
+- [ ] Add optional `AUTH_ABUSE_FAIL_CLOSED_HIGH_RISK` (default `false`): when Redis Layer 2 unavailable, return 503 on login/MFA verify/recovery/register/OAuth token instead of only strict local limits (document tradeoff).
+- [ ] Optional **HIBP k-anonymity** breached-password check behind `AUTH_PASSWORD_HIBP_ENABLED` (fail open on API timeout).
+- [ ] Expand OAuth/passkey **negative** integration tests (wrong `aud`, expired code, introspection inactive token); no full external conformance suite yet.
+
+#### E. Integrator and deployment contracts (DX for standalone / embedded / monolith)
+
+- [ ] Publish **OpenAPI 3** for public `/api/v1/**`, auth, and OAuth endpoints; link from README.
+- [ ] Add `docs/DEPLOYMENT_MODES.md`: standalone (2+ pods + Redis + Postgres + Rabbit), embedded (shared infra), monolith (disable origin firewall / adjust pools).
+- [ ] Add **sizing defaults** in DEPLOYMENT for ~500, ~5k, ~50k users (replicas, Hikari, Redis memory, Argon2 concurrency).
+- [ ] Add **resource-server checklist** (JWKS refresh, `kid` revocation, audience, tenant claim) with minimal Java/Spring example or pseudo-config.
+
+#### F. CI and supply-chain prep (lightweight, pre–Prompt 3)
+
+- [ ] CI: upload CycloneDX SBOM artifact from existing plugin; fail on new CRITICAL unfixed CVEs (Trivy already runs).
+- [ ] CI: run `PostgresMigrationTest` / Testcontainers when Docker available (separate job, not blocking sandbox).
+- [ ] Introduce **release version** discipline (`pom.xml` version + `CHANGELOG.md` template); keep SNAPSHOT for dev only.
+- [ ] Fix audit doc drift: scorecard reliability row, Prompt 2 “mTLS where possible” → **network-bound worker token** (mTLS remains Prompt 3 stretch).
+
+#### Explicitly out of scope for Prompt 2.5 (Prompt 3)
+
+- k6/Gatling load and soak reports; Argon2 tuning from measured hardware.
+- Live SIEM/PagerDuty wiring and incident drills.
+- Container image signing (cosign) and promotion gates.
+- Full OIDC conformance with external clients.
+- Frontend XSS/token-storage audit (separate repo).
+- Worker **mTLS** / SPIFFE (optional Prompt 3 if mesh exists).
+
+**Expected scores after Prompt 2.5 (strict):** production **7.9–8.2**, security **8.0–8.3**, performance **7.2–7.4** (prep only), reference model **7.2–7.5**.
+
 ### Prompt 3: Prove Scale, Reliability, Observability, Compliance, Supply Chain, and Frontend Safety
 
-Turn the hardened implementation into a production-operable system with load evidence, runbooks, alerts, and consumer-facing contracts.
+Turn the hardened implementation into a **production-operable** system with measured SLOs and live ops proof. Target: **8.2–8.5 production readiness** for small/medium SaaS as main auth entry.
 
-- [ ] Load-test login, refresh, MFA verify, passkey verify, OAuth token exchange, admin writes, and profile reads/writes at expected and burst traffic levels.
-- [ ] Measure p50/p95/p99 latency, DB pool usage, Redis latency, CPU, memory, GC, Argon2 queueing, and error rates.
-- [ ] Tune Argon2 memory/iterations/parallelism against target hardware and document the chosen threat/performance tradeoff.
-- [ ] Validate Hikari pool size, Redis pool/client behavior, servlet thread limits, request body limits, RabbitMQ listener concurrency, and Resend failure behavior under attack-like load.
-- [ ] Profile `UserAuthoritiesFilter` and authority-cache behavior under high request volume.
-- [ ] Replace expensive Redis/session enumeration patterns if needed for high session counts.
-- [ ] Add distributed locks or idempotent coordination for scheduled retention and outbox jobs across replicas.
-- [ ] Add chaos tests for Redis down, DB partial outage, RabbitMQ down, email provider down, clock skew, expired keys, and rolling deploys during key rotation.
-- [ ] Expand tests to include real PostgreSQL/Flyway migrations in Docker-enabled CI, Redis failure, endpoint rate limits, CORS, ingress/proxy headers, OAuth/passkey E2E, and negative permission cases.
-- [ ] Wire security events and `SECURITY_ALERT` logs to SIEM/PagerDuty or equivalent alerting.
-- [ ] Define audit durability policy: when audit persistence fails, decide which flows fail closed and which continue with degraded alerting.
-- [ ] Add dashboards for login failures, lockouts, MFA failures, reset requests, OAuth code failures, refresh reuse, admin actions, Redis degradation, audit drops, email failures, and latency SLOs.
-- [ ] Publish SBOM artifacts, sign container images, enforce dependency scanning for HIGH/CRITICAL issues, and run OWASP dependency-check in CI with a stricter threshold.
-- [ ] Add release/versioning discipline instead of relying on `0.0.1-SNAPSHOT` for production artifacts.
-- [ ] Document backup/restore, key recovery, Redis data loss behavior, DB migration rollback/forward policy, and incident response.
-- [ ] Complete privacy governance: DSAR export, account deletion proof, retention schedule, PII minimization, audit trail integrity, and legal basis documentation.
-- [ ] Audit the consuming frontend separately for XSS, token storage, redirect safety, CSRF assumptions, auth-state hydration, route protection, dependency risk, and secure UX.
-- [ ] Produce OpenAPI/security documentation for integrators, including token claims, cookie behavior, CORS expectations, OAuth/OIDC support boundaries, and operational limits.
+- [ ] Load-test login, refresh, MFA verify, passkey verify, OAuth token exchange, admin writes, profile reads/writes at expected and **burst** traffic (document scenarios for ~500 and ~50k user bases).
+- [ ] Measure p50/p95/p99 latency, DB pool, Redis, CPU, memory, GC, Argon2 queueing, error rates; tune `SECURITY_ARGON2_*`, Hikari, listener concurrency from results.
+- [ ] Profile `UserAuthoritiesFilter`, session binding, and authority cache under sustained authenticated RPS.
+- [ ] Chaos tests: Redis down, DB read-only, RabbitMQ down, Resend 5xx/timeout, clock skew, key rotation during rolling deploy, duplicate email provider callbacks.
+- [ ] Expand CI: mandatory Postgres/Flyway job with Docker; Redis-failure and fail-closed abuse tests; CORS/gateway smoke; OAuth/passkey E2E where feasible.
+- [ ] Wire `SECURITY_ALERT` + security metrics to SIEM/PagerDuty; run one tabletop drill using DEPLOYMENT runbooks.
+- [ ] Sign container images; enforce SBOM + dependency-check gates on release tags.
+- [ ] Document backup/restore, Redis data-loss behavior, migration rollback policy, DR for keys and sessions.
+- [ ] Privacy/ops proof: DSAR export drill, deletion + retention verification in staging, legal-basis doc pack.
+- [ ] **Frontend security audit** (consumer app): XSS, token storage, redirects, CSRF header echo, route guards.
+- [ ] Optional: worker mTLS in Kubernetes; external OIDC conformance log.
 
 ## Reference Authentication Model Assessment
 
@@ -200,4 +256,8 @@ AuthKit is now substantially closer to a reference-grade architecture: it has st
 
 Prompt 2 was effective and materially improved AuthKit from "approved only with compensating controls for limited exposure" to "conditionally production-ready for controlled production."
 
-Final strict recommendation: approved only with compensating controls. Do not launch as a broad public auth platform or present it as a reference authentication model until Prompt 3 is complete and verified in CI/live-like environments.
+**After Prompt 2.5:** approved for **small/medium SaaS** as primary auth API with edge compensating controls (WAF, network policies) and documented integrator contracts.
+
+**After Prompt 3:** approved for **medium-scale horizontal production** (target **8.2–8.5** production readiness) as standalone service, embedded module, or monolith auth core — still not “reference-grade 9+” without frontend proof and operational track record.
+
+Current strict recommendation: approved only with compensating controls until Prompt 2.5 completes; Prompt 3 required for measured-scale confidence.
