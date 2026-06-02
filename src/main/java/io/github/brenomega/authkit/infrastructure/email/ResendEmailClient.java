@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -23,7 +24,8 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
  * main request thread are not kept open awaiting this API.</p>
  */
 @Component
-public class ResendEmailClient {
+@ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "resend", matchIfMissing = true)
+public class ResendEmailClient implements EmailProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ResendEmailClient.class);
 
@@ -45,7 +47,8 @@ public class ResendEmailClient {
      * @param payload the target email definition
      */
     @SuppressWarnings("null")
-    public EmailDeliveryResult sendEmail(EmailPayload payload) {
+    @Override
+    public EmailDeliveryResult send(EmailPayload payload) {
         Map<String, Object> requestBody = Map.of(
                 "from", authProperties.getEmailProvider().getFrom(),
                 "to", List.of(payload.to()),

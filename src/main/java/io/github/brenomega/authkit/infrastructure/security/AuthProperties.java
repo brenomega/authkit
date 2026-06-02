@@ -618,6 +618,10 @@ public class AuthProperties {
 
     public static class EmailProvider {
 
+        @NotBlank
+        @Pattern(regexp = "resend|logging")
+        private String type = "resend";
+
         @Min(100)
         private int connectTimeoutMs = 2000;
 
@@ -633,6 +637,14 @@ public class AuthProperties {
 
         @NotBlank
         private String from = "AuthKit Account <onboarding@resend.dev>";
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
+        }
 
         public int getConnectTimeoutMs() {
             return connectTimeoutMs;

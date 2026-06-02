@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.infrastructure.email.EmailDeliveryResult;
-import io.github.brenomega.authkit.infrastructure.email.ResendEmailClient;
+import io.github.brenomega.authkit.infrastructure.email.EmailProvider;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 
 /**
@@ -25,17 +25,17 @@ public class RabbitMqEmailListener {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitMqEmailListener.class);
 
-    private final ResendEmailClient resendClient;
+    private final EmailProvider emailProvider;
     private final EmailOutboxService outboxService;
     private final MeterRegistry meterRegistry;
 
     /**
-     * @param resendClient the HTTP integration client
+     * @param emailProvider the configured email provider
      */
-    public RabbitMqEmailListener(ResendEmailClient resendClient,
+    public RabbitMqEmailListener(EmailProvider emailProvider,
                                  EmailOutboxService outboxService,
                                  MeterRegistry meterRegistry) {
-        this.resendClient = resendClient;
+        this.emailProvider = emailProvider;
         this.outboxService = outboxService;
         this.meterRegistry = meterRegistry;
     }
@@ -53,7 +53,7 @@ public class RabbitMqEmailListener {
     public void processEmail(EmailPayload payload) {
         log.debug("Received EmailPayload from queue for: {}", EmailMasker.mask(payload.to()));
         try {
-            EmailDeliveryResult result = resendClient.sendEmail(payload);
+            EmailDeliveryResult result = emailProvider.send(payload);
             if (payload.messageId() != null) {
                 outboxService.markSent(payload.messageId(), result.providerMessageId());
             }

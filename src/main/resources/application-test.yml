@@ -132,6 +132,8 @@ authkit:
       batch-size: 50
       poll-delay-ms: 5000
       lock-ttl-seconds: 300
+    email-provider:
+      type: resend
     compliance:
       terms-version: terms-v1
       privacy-policy-version: privacy-v1

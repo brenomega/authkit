@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.email;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -12,6 +13,7 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
  * Configuration for the Resend API HTTP client.
  */
 @Configuration
+@ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "resend", matchIfMissing = true)
 public class ResendConfig {
 
     private final String resendApiKey;

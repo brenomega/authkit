@@ -49,7 +49,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
         validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
-        validateCredential("resend.api.key", "mock-key", "test-resend-key", "CHANGE-ME-RESEND-API-KEY");
+        validateEmailProvider();
         validateCredential("authkit.auth.jwt.issuer", "authkit");
         validateCredential("authkit.auth.jwt.audience", "authkit-api");
         validateCredential("authkit.auth.jwt.key-id");
@@ -162,6 +162,18 @@ public class ProductionConfigValidator implements ApplicationRunner {
         } catch (NumberFormatException ex) {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
         }
+    }
+
+    private void validateEmailProvider() {
+        String provider = environment.getProperty("authkit.auth.email-provider.type", "resend");
+        if ("resend".equals(provider)) {
+            validateCredential("resend.api.key", "mock-key", "test-resend-key", "CHANGE-ME-RESEND-API-KEY");
+            return;
+        }
+        if ("logging".equals(provider)) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Logging email provider cannot be used in production. Startup aborted.");
+        }
+        throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email provider '" + provider + "'. Startup aborted.");
     }
 
     private void validateOptionalKeyRotationList(@NonNull String propertyKey) {

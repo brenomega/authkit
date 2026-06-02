@@ -35,6 +35,15 @@ class ProductionConfigValidatorTest {
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
+    @Test
+    @DisplayName("Production validation rejects logging email provider")
+    void run_loggingEmailProvider_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.email-provider.type", "logging");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
     private MockEnvironment productionEnvironment() {
         return new MockEnvironment()
                 .withProperty("spring.datasource.username", "authkit")
@@ -70,6 +79,7 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.csrf.header-name", "X-XSRF-TOKEN")
                 .withProperty("authkit.auth.registration.stealth-conflicts", "true")
                 .withProperty("authkit.auth.passkey.allow-origin-port", "false")
+                .withProperty("authkit.auth.email-provider.type", "resend")
                 .withProperty("authkit.auth.email-provider.connect-timeout-ms", "2000")
                 .withProperty("authkit.auth.email-provider.read-timeout-ms", "5000")
                 .withProperty("authkit.auth.email-provider.max-attempts", "3")

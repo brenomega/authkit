@@ -140,6 +140,7 @@ authkit:
       lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}
       delivery-ack-timeout-seconds: ${AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS:600}
     email-provider:
+      type: ${AUTH_EMAIL_PROVIDER_TYPE:resend}
       connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}
       read-timeout-ms: ${AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS:5000}
       max-attempts: ${AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS:3}
