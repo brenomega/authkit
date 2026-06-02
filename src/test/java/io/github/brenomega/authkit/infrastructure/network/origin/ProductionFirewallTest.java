@@ -15,7 +15,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.github.brenomega.authkit.util.RsaKeyGenerator;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import java.security.KeyPair;

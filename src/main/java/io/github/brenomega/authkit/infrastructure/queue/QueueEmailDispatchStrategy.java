@@ -9,6 +9,7 @@ import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailDispatchStra
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxMessage;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 @Component

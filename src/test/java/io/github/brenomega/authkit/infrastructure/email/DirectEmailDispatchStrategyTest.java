@@ -12,9 +12,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxMessage;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 class DirectEmailDispatchStrategyTest {
 

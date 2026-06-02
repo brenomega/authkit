@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxMessage;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 class QueueEmailDispatchStrategyTest {

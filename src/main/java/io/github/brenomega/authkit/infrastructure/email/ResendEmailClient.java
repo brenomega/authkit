@@ -11,8 +11,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 /**
  * Dispatches an email to the external Resend API via HTTP POST.

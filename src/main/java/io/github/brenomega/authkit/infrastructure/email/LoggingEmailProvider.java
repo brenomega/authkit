@@ -8,7 +8,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 /**
  * Local-only email provider that records safe delivery metadata without exposing tokens.

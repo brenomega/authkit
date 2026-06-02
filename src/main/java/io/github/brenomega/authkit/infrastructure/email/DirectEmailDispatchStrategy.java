@@ -9,6 +9,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailDispatchStrategy;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxMessage;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "direct")

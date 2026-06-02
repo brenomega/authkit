@@ -10,6 +10,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+
 /**
  * Unit tests for {@link RabbitMqEmailPublisher}.
  */

@@ -13,7 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.brenomega.authkit.infrastructure.email.DirectEmailDispatchStrategy;
-import io.github.brenomega.authkit.infrastructure.email.EmailProvider;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 import io.github.brenomega.authkit.infrastructure.queue.QueueEmailDispatchStrategy;
 import io.github.brenomega.authkit.infrastructure.queue.RabbitMqConfig;
 import io.github.brenomega.authkit.infrastructure.queue.RabbitMqEmailListener;

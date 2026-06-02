@@ -8,9 +8,10 @@ import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
-import io.github.brenomega.authkit.infrastructure.email.EmailDeliveryResult;
-import io.github.brenomega.authkit.infrastructure.email.EmailProvider;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 /**
  * Worker thread that consumes {@link EmailPayload} messages from RabbitMQ.

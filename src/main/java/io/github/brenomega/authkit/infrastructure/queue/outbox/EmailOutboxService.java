@@ -10,7 +10,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 @Service
 public class EmailOutboxService {

@@ -11,8 +11,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.github.brenomega.authkit.infrastructure.email.EmailDeliveryResult;
-import io.github.brenomega.authkit.infrastructure.email.EmailProvider;
+import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailProvider;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 
 class RabbitMqEmailListenerTest {

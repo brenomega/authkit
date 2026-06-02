@@ -26,7 +26,7 @@ import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.RegistrationService;
