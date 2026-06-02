@@ -60,7 +60,7 @@ spring:
   # RabbitMQ — Asynchronous message broker (DT 3.1.15)
   # ---------------------------------------------------------------------------
   rabbitmq:
-    host: ${RABBIT_HOST}
+    host: ${RABBIT_HOST:localhost}
     port: ${RABBIT_PORT:5672}
     username: ${RABBIT_USERNAME:guest}
     password: ${RABBIT_PASSWORD:guest}
@@ -135,6 +135,7 @@ authkit:
       capacity-multiplier: ${AUTH_ABUSE_CONTROL_CAPACITY_MULTIPLIER:1}
     email-outbox:
       enabled: ${AUTH_EMAIL_OUTBOX_ENABLED:true}
+      dispatch-mode: ${AUTH_EMAIL_OUTBOX_DISPATCH_MODE:queue}
       batch-size: ${AUTH_EMAIL_OUTBOX_BATCH_SIZE:50}
       poll-delay-ms: ${AUTH_EMAIL_OUTBOX_POLL_DELAY_MS:5000}
       lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}

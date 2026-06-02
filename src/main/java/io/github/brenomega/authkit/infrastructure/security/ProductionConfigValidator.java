@@ -46,8 +46,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("spring.datasource.username", "postgres", "CHANGE-ME-DB-USER");
         validateCredential("spring.datasource.password", "secretpassword", "CHANGE-ME-DB-PASSWORD");
         validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
-        validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
-        validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
+        validateEmailDispatchMode();
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
         validateEmailProvider();
         validateCredential("authkit.auth.jwt.issuer", "authkit");
@@ -174,6 +173,19 @@ public class ProductionConfigValidator implements ApplicationRunner {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Logging email provider cannot be used in production. Startup aborted.");
         }
         throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email provider '" + provider + "'. Startup aborted.");
+    }
+
+    private void validateEmailDispatchMode() {
+        String dispatchMode = environment.getProperty("authkit.auth.email-outbox.dispatch-mode", "queue");
+        if ("queue".equals(dispatchMode)) {
+            validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
+            validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
+            return;
+        }
+        if ("direct".equals(dispatchMode)) {
+            return;
+        }
+        throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email outbox dispatch mode '" + dispatchMode + "'. Startup aborted.");
     }
 
     private void validateOptionalKeyRotationList(@NonNull String propertyKey) {

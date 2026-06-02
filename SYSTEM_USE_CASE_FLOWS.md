@@ -9,7 +9,7 @@ Source surface reviewed:
 - `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/oauth2/revoke`, `/oauth2/introspect`, `/oauth2/userinfo`, `/.well-known/openid-configuration`
 - `AdminController`: `/api/v1/admin/**`
 - `JwksController`: `/.well-known/jwks.json`
-- Shared infrastructure: Kubernetes manifests, Spring Security filter chain (CORS, security headers), network/rate-limit filters, `AbuseThrottleService` (endpoint filter + service-layer account/email/tenant/client dimensions), Redis token storage and session binding, Caffeine authority/MFA-status/rate-limit caches, JWT key rotation and revocation validators, PostgreSQL/Flyway schema, RabbitMQ email queue and DLQ, Resend email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
+- Shared infrastructure: Kubernetes manifests, Spring Security filter chain (CORS, security headers), network/rate-limit filters, `AbuseThrottleService` (endpoint filter + service-layer account/email/tenant/client dimensions), Redis token storage and session binding, Caffeine authority/MFA-status/rate-limit caches, JWT key rotation and revocation validators, PostgreSQL/Flyway schema, email outbox with queue or direct dispatch, configurable email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
 
 ## Shared Infrastructure Path
 
@@ -142,10 +142,10 @@ Authenticated first-party routes depend on JWT validation **and** `UserAuthoriti
 | `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | Endpoint throttles, CSRF double-submit cookie, Redis Lua rotation, audit DB |
 | `POST /api/v1/auth/logout` | Refresh cookie + CSRF | Redis refresh token session | CSRF double-submit cookie, Redis revocation, audit DB |
 | `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | Redis all sessions | JWT + Redis session `jti`, authority cache, MFA step-up, Redis revocation |
-| `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Endpoint/email throttles, password policy/history, Argon2, consent event DB, outbox, RabbitMQ, Resend |
+| `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Endpoint/email throttles, password policy/history, Argon2, consent event DB, outbox, email dispatch/provider |
 | `POST /api/v1/auth/email-confirmation/confirm` | Public | PostgreSQL user token hash | Audit DB |
 | `POST /api/v1/auth/email-confirmation/resend` | Public | PostgreSQL user token hash, email outbox | Endpoint/email cooldown and daily caps, token rotation, outbox |
-| `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, endpoint/email cooldown and daily caps, outbox, RabbitMQ, Resend, audit DB |
+| `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, endpoint/email cooldown and daily caps, outbox, email dispatch/provider, audit DB |
 | `POST /api/v1/auth/password-recovery/reset` | Public | Redis recovery token, PostgreSQL password | Endpoint/email throttles, password policy/history, Argon2 limiter, Redis session revoke, outbox, audit DB |
 | `GET /api/v1/users/me` | Bearer JWT | PostgreSQL user | JWT + Redis session `jti`, authority cache, tenant check |
 | `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | JWT + Redis session `jti`, authority cache, tenant check |
@@ -467,7 +467,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/register`
 
-Infrastructure role: request size and rate limits are enforced before Argon2 hashing; user and consent state are stored transactionally in PostgreSQL; activation email is written to the email outbox and later delivered through RabbitMQ and Resend outside the request transaction; duplicate behavior depends on `authkit.auth.registration.stealth-conflicts`.
+Infrastructure role: request size and rate limits are enforced before Argon2 hashing; user and consent state are stored transactionally in PostgreSQL; activation email is written to the email outbox and later delivered through the configured dispatch mode and email provider outside the request transaction; duplicate behavior depends on `authkit.auth.registration.stealth-conflicts`.
 
 ```mermaid
 sequenceDiagram
@@ -481,9 +481,9 @@ sequenceDiagram
     participant CE as ConsentEventService
     participant OB as EmailOutboxService
     participant OP as EmailOutboxProcessor
-    participant MQ as RabbitMQ
-    participant EL as RabbitMqEmailListener
-    participant EP as ResendEmailClient
+    participant DS as EmailDispatchStrategy
+    participant MQ as RabbitMQ optional
+    participant EP as EmailProvider
 
     C->>I: POST /api/v1/auth/register {email,password,terms,privacy}
     I->>AC: Public endpoint after origin/rate/body checks
@@ -509,10 +509,15 @@ sequenceDiagram
             OB->>DB: Insert email_outbox PENDING in transaction
             AC-->>C: 201 RegisterResponse or 202 stealth response
             OP->>DB: Claim due outbox messages
-            OP->>MQ: Publish EmailPayload
-            OP->>DB: markSent or markFailed
-            MQ->>EL: Deliver email job
-            EL->>EP: Send activation email
+            OP->>DS: Dispatch EmailPayload
+            alt queue mode
+                DS->>MQ: Publish EmailPayload
+                DS->>DB: markQueued
+                MQ->>EP: Listener sends activation email
+            else direct mode
+                DS->>EP: Send activation email
+                DS->>DB: markSent or markFailed
+            end
         end
     end
 ```
@@ -568,8 +573,8 @@ sequenceDiagram
     participant TS as RedisTokenStorage
     participant OB as EmailOutboxService
     participant OP as EmailOutboxProcessor
-    participant MQ as RabbitMQ
-    participant EP as ResendEmailClient
+    participant DS as EmailDispatchStrategy
+    participant EP as EmailProvider
     participant AUD as SecurityEventService
 
     C->>I: POST /api/v1/auth/password-recovery/request {email}
@@ -582,8 +587,8 @@ sequenceDiagram
         PR->>TS: storeRecoveryToken(email, token hash, ttl)
         PR->>OB: enqueue reset email with token in URL fragment
         OB->>DB: Insert email_outbox PENDING
-        OP->>MQ: Publish due email job
-        MQ->>EP: Listener sends via Resend
+        OP->>DS: Dispatch due email
+        DS->>EP: Send via configured provider
     else Unknown user
         PR->>AUD: PASSWORD_RESET_REQUESTED stealth email hash
     end
@@ -1292,7 +1297,7 @@ sequenceDiagram
 
 This flow is not a direct controller endpoint, but it is part of registration, password recovery, and password reset completion.
 
-Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` scheduler claims due rows in batches on each instance (no distributed lock yet—use a single active scheduler replica in production or accept duplicate claims guarded by row locking). A successful publish moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance from Resend and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages.
+Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` scheduler claims due rows in batches on each instance (no distributed lock yet—use a single active scheduler replica in production or accept duplicate claims guarded by row locking). In `queue` mode, a successful publish moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages. In `direct` mode, the scheduler calls the configured `EmailProvider` directly and moves rows from `PROCESSING` to `SENT` or `FAILED` without RabbitMQ.
 
 ```mermaid
 sequenceDiagram
@@ -1301,9 +1306,10 @@ sequenceDiagram
     participant OB as EmailOutboxService
     participant DB as PostgreSQL email_outbox
     participant OP as EmailOutboxProcessor scheduler
+    participant DS as EmailDispatchStrategy
     participant MQ as RabbitMQ exchange/queue
     participant EL as RabbitMqEmailListener
-    participant EP as ResendEmailClient
+    participant EP as EmailProvider
     participant MET as MeterRegistry
 
     S->>OB: enqueue(EmailPayload)
@@ -1311,20 +1317,31 @@ sequenceDiagram
     OP->>DB: claimDueMessages(batchSize, lockTtl)
     DB-->>OP: Mark claimable rows PROCESSING
     loop Each claimed message
-        OP->>MQ: publish EmailPayload
-        alt Rabbit publish succeeds
-            OP->>DB: markQueued(messageId, delivery ack timeout)
-            MQ->>EL: Deliver message
-            EL->>EP: Send email with HTTP timeouts and idempotency key
-            alt Provider accepted
-                EL->>DB: markSent(messageId, providerMessageId)
-            else Provider failed
-                EL->>MET: security.infrastructure.failure component=resend
-                EL->>DB: markFailed(messageId,error)
+        OP->>DS: dispatch(message)
+        alt queue mode
+            DS->>MQ: publish EmailPayload
+            alt Rabbit publish succeeds
+                DS->>DB: markQueued(messageId, delivery ack timeout)
+                MQ->>EL: Deliver message
+                EL->>EP: Send email with HTTP timeouts and idempotency key
+                alt Provider accepted
+                    EL->>DB: markSent(messageId, providerMessageId)
+                else Provider failed
+                    EL->>MET: security.infrastructure.failure component=email_provider
+                    EL->>DB: markFailed(messageId,error)
+                end
+            else Rabbit publish fails
+                OP->>MET: security.infrastructure.failure component=email_outbox
+                OP->>DB: markFailed(messageId,error)
             end
-        else Rabbit publish fails
-            OP->>MET: security.infrastructure.failure component=email_outbox
-            OP->>DB: markFailed(messageId,error)
+        else direct mode
+            DS->>EP: Send email with provider idempotency when available
+            alt Provider accepted
+                DS->>DB: markSent(messageId, providerMessageId)
+            else Provider failed
+                DS->>MET: security.infrastructure.failure component=email_provider
+                DS->>DB: markFailed(messageId,error)
+            end
         end
     end
 ```
@@ -1385,7 +1402,7 @@ Production strengths visible in the current implementation:
 - JWT signing supports active and retiring public keys in JWKS plus emergency key-id revocation; the resource-server decoder also rejects revoked token `jti` values and emergency revoked `kid` values before controller logic runs.
 - The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, password step-up plus MFA/passkey proof for sensitive writes, one-time OAuth client secret return, and high-severity durable audit events.
 - Authenticated first-party routes rehydrate live authorities and enforce active Redis session binding instead of trusting stale JWT roles or revoked refresh sessions indefinitely.
-- Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or Resend; `SENT` means provider acceptance, not merely queue publish.
+- Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or the configured provider; `SENT` means provider acceptance, not merely queue publish.
 - Security and consent events are durable, privacy-safe, metric-backed, and alertable.
 - Account export/deletion require current-password step-up and MFA proof when MFA is enabled; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration also require MFA proof when MFA is enabled.
 - MFA failures are split into generic challenge, login, and step-up metrics so account-takeover attempts can be distinguished from sensitive-operation abuse without exposing user identifiers as metric labels.

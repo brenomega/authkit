@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.DisplayName;
@@ -44,13 +45,36 @@ class ProductionConfigValidatorTest {
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
+    @Test
+    @DisplayName("Production validation allows direct email dispatch without RabbitMQ credentials")
+    void run_directEmailDispatchWithoutRabbitCredentials_allowsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct");
+
+        assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects unsupported email dispatch mode")
+    void run_unsupportedEmailDispatchMode_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "unsupported");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
     private MockEnvironment productionEnvironment() {
+        return productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "queue")
+                .withProperty("spring.rabbitmq.username", "authkit")
+                .withProperty("spring.rabbitmq.password", "rabbit-prod-secret");
+    }
+
+    private MockEnvironment productionEnvironmentBase() {
         return new MockEnvironment()
                 .withProperty("spring.datasource.username", "authkit")
                 .withProperty("spring.datasource.password", "db-prod-secret")
                 .withProperty("spring.data.redis.password", "redis-prod-secret")
-                .withProperty("spring.rabbitmq.username", "authkit")
-                .withProperty("spring.rabbitmq.password", "rabbit-prod-secret")
                 .withProperty("app.security.worker-token", "worker-prod-secret")
                 .withProperty("resend.api.key", "re_prod_secret")
                 .withProperty("authkit.auth.jwt.issuer", "https://auth.example.com")

@@ -19,7 +19,7 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
  *
  * <p><strong>Performance Rule:</strong> Because network I/O is slow and
  * potentially blocky, this client should <em>only</em> be invoked
- * from independent worker threads (e.g. from a RabbitMQ listener),
+ * from independent worker threads (e.g. from a RabbitMQ listener or outbox scheduler),
  * to guarantee that database connections or transactions from the
  * main request thread are not kept open awaiting this API.</p>
  */

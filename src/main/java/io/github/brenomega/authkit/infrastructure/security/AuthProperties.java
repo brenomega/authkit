@@ -562,6 +562,10 @@ public class AuthProperties {
 
         private boolean enabled = true;
 
+        @NotBlank
+        @Pattern(regexp = "queue|direct")
+        private String dispatchMode = "queue";
+
         @Min(1)
         @Max(500)
         private int batchSize = 50;
@@ -581,6 +585,14 @@ public class AuthProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public String getDispatchMode() {
+            return dispatchMode;
+        }
+
+        public void setDispatchMode(String dispatchMode) {
+            this.dispatchMode = dispatchMode;
         }
 
         public int getBatchSize() {

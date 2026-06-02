@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.infrastructure.queue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -17,10 +18,11 @@ import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxServic
  * <p><strong>Transaction/Performance Requirement:</strong> Because this class
  * executes in the RabbitMQ Listener Container background thread, it operates
  * completely independently of the HTTP request thread and its database
- * transaction. This ensures the slow external call to Resend never holds
+ * transaction. This ensures the slow external provider call never holds
  * a JPA database connection open.</p>
  */
 @Component
+@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
 public class RabbitMqEmailListener {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitMqEmailListener.class);
@@ -43,7 +45,7 @@ public class RabbitMqEmailListener {
     /**
      * Consumes email messages from the queue and triggers delivery.
      *
-     * <p>If this method throws an exception (e.g. Resend is down), RabbitMQ
+     * <p>If this method throws an exception (e.g. the provider is down), RabbitMQ
      * will log the error and, depending on configuration, either requeue
      * or drop the message.</p>
      *
@@ -58,7 +60,7 @@ public class RabbitMqEmailListener {
                 outboxService.markSent(payload.messageId(), result.providerMessageId());
             }
         } catch (RuntimeException ex) {
-            meterRegistry.counter("security.infrastructure.failure", "component", "resend").increment();
+            meterRegistry.counter("security.infrastructure.failure", "component", "email_provider").increment();
             if (payload.messageId() != null) {
                 outboxService.markFailed(payload.messageId(), ex.getMessage());
                 return;

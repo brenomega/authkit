@@ -6,6 +6,7 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.lang.NonNull;
@@ -19,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * Queue, and Binding) for asynchronous email notifications.</p>
  */
 @Configuration
+@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
 public class RabbitMqConfig {
 
     public static final String EXCHANGE_API = "authkit.api.exchange";

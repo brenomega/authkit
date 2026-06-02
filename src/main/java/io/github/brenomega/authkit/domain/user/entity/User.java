@@ -102,7 +102,7 @@ public class User {
     @Column(name = "email_confirmed", nullable = false)
     private boolean emailConfirmed;
 
-    /** Generated token sent asymptotically via RabbitMQ / Resend. */
+    /** Generated token sent asynchronously through the email outbox. */
     @Column(name = "email_confirmation_token", length = 100)
     private String emailConfirmationToken;
 

@@ -9,9 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
-import io.github.brenomega.authkit.infrastructure.queue.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
-import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -20,17 +18,17 @@ public class EmailOutboxProcessor {
     private static final Logger log = LoggerFactory.getLogger(EmailOutboxProcessor.class);
 
     private final EmailOutboxService outboxService;
-    private final QueuePublisher<EmailPayload> emailPublisher;
+    private final EmailDispatchStrategy emailDispatchStrategy;
     private final AuthProperties authProperties;
     private final MeterRegistry meterRegistry;
 
     public EmailOutboxProcessor(
             EmailOutboxService outboxService,
-            QueuePublisher<EmailPayload> emailPublisher,
+            EmailDispatchStrategy emailDispatchStrategy,
             AuthProperties authProperties,
             MeterRegistry meterRegistry) {
         this.outboxService = outboxService;
-        this.emailPublisher = emailPublisher;
+        this.emailDispatchStrategy = emailDispatchStrategy;
         this.authProperties = authProperties;
         this.meterRegistry = meterRegistry;
     }
@@ -44,12 +42,9 @@ public class EmailOutboxProcessor {
 
         for (EmailOutboxMessage message : messages) {
             try {
-                emailPublisher.publish(message.toPayload());
-                outboxService.markQueued(
-                        message.getId(),
-                        Duration.ofSeconds(properties.getDeliveryAckTimeoutSeconds()));
+                emailDispatchStrategy.dispatch(message);
             } catch (RuntimeException ex) {
-                log.warn("Email outbox publish failed for message {}.", message.getId());
+                log.warn("Email outbox dispatch failed for message {}.", message.getId());
                 meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
                 outboxService.markFailed(message.getId(), ex.getMessage());
             }
