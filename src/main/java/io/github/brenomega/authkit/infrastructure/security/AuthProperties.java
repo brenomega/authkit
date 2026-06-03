@@ -599,6 +599,8 @@ public class AuthProperties {
         @Max(10000)
         private int directQueueCapacity = 100;
 
+        private boolean preserveRabbitObservability;
+
         @AssertTrue(message = "Direct email executor max pool size must be greater than or equal to core pool size")
         public boolean isDirectExecutorPoolValid() {
             return directMaxPoolSize >= directCorePoolSize;
@@ -690,6 +692,14 @@ public class AuthProperties {
 
         public void setDirectQueueCapacity(int directQueueCapacity) {
             this.directQueueCapacity = directQueueCapacity;
+        }
+
+        public boolean isPreserveRabbitObservability() {
+            return preserveRabbitObservability;
+        }
+
+        public void setPreserveRabbitObservability(boolean preserveRabbitObservability) {
+            this.preserveRabbitObservability = preserveRabbitObservability;
         }
     }
 

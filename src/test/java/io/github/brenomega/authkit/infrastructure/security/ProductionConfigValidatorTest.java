@@ -64,6 +64,16 @@ class ProductionConfigValidatorTest {
     }
 
     @Test
+    @DisplayName("Production validation requires Rabbit credentials when direct mode preserves Rabbit observability")
+    void run_directEmailDispatchPreservingRabbitObservabilityWithoutRabbitCredentials_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.email-outbox.preserve-rabbit-observability", "true");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
     @DisplayName("Production validation rejects direct email timeout below provider retry budget")
     void run_directEmailDeliveryTimeoutBelowProviderBudget_rejectsStartup() {
         MockEnvironment environment = productionEnvironmentBase()

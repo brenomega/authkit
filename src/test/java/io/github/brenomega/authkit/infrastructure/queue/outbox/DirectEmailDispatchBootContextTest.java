@@ -30,12 +30,15 @@ class DirectEmailDispatchBootContextTest {
     private ApplicationContext context;
 
     @Test
-    @DisplayName("Direct mode starts without AuthKit Rabbit email artifacts and preserves host Rabbit beans")
-    void directMode_startsWithoutAuthKitRabbitArtifactsAndPreservesHostRabbitBeans() {
+    @DisplayName("Direct mode preserves host Rabbit beans without Rabbit health or metrics dependencies")
+    void directMode_preservesHostRabbitBeansWithoutRabbitHealthOrMetricsDependencies() {
         assertThat(context.getBeanNamesForType(DirectEmailDispatchStrategy.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(RabbitMqEmailListener.class)).isEmpty();
         assertThat(context.getBeanNamesForType(RabbitMqEmailPublisher.class)).isEmpty();
         assertThat(context.getBeanNamesForType(RabbitTemplate.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(ConnectionFactory.class)).hasSize(1);
+        assertThat(context.containsBean("rabbitHealthContributor")).isFalse();
+        assertThat(context.containsBean("rabbitHealthIndicator")).isFalse();
+        assertThat(context.containsBean("rabbitConnectionFactoryMetricsPostProcessor")).isFalse();
     }
 }

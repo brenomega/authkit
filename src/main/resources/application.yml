@@ -145,6 +145,7 @@ authkit:
       direct-core-pool-size: ${AUTH_EMAIL_OUTBOX_DIRECT_CORE_POOL_SIZE:2}
       direct-max-pool-size: ${AUTH_EMAIL_OUTBOX_DIRECT_MAX_POOL_SIZE:4}
       direct-queue-capacity: ${AUTH_EMAIL_OUTBOX_DIRECT_QUEUE_CAPACITY:100}
+      preserve-rabbit-observability: ${AUTH_EMAIL_OUTBOX_PRESERVE_RABBIT_OBSERVABILITY:false}
     email-provider:
       type: ${AUTH_EMAIL_PROVIDER_TYPE:resend}
       connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}

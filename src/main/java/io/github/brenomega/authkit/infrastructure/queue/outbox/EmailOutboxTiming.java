@@ -25,10 +25,9 @@ public final class EmailOutboxTiming {
         AuthProperties.EmailOutbox outbox = authProperties.getEmailOutbox();
         Duration configuredLockTimeout = Duration.ofSeconds(outbox.getLockTtlSeconds());
         Duration executorWaitTimeout = directExecutorWaitTimeout(authProperties);
-        Duration computedLockTimeout = executorWaitTimeout.plus(deliveryAckTimeout(authProperties));
-        return configuredLockTimeout.compareTo(computedLockTimeout) >= 0
+        return configuredLockTimeout.compareTo(executorWaitTimeout) >= 0
                 ? configuredLockTimeout
-                : computedLockTimeout;
+                : executorWaitTimeout;
     }
 
     public static Duration directExecutorWaitTimeout(AuthProperties authProperties) {

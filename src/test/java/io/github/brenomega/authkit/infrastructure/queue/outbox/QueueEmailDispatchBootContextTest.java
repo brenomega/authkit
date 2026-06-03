@@ -30,5 +30,7 @@ class QueueEmailDispatchBootContextTest {
         assertThat(context.getBeanNamesForType(RabbitMqEmailPublisher.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(RabbitTemplate.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(ConnectionFactory.class)).hasSize(1);
+        assertThat(context.containsBean("rabbitHealthContributor")).isTrue();
+        assertThat(context.containsBean("rabbitConnectionFactoryMetricsPostProcessor")).isTrue();
     }
 }

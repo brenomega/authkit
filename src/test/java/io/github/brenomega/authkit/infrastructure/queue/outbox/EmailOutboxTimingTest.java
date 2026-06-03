@@ -21,6 +21,6 @@ class EmailOutboxTimingTest {
         assertThat(EmailOutboxTiming.directExecutorWaitTimeout(authProperties))
                 .isEqualTo(Duration.ofSeconds(1_075));
         assertThat(EmailOutboxTiming.directProcessingLockTimeout(authProperties))
-                .isEqualTo(Duration.ofSeconds(1_675));
+                .isEqualTo(Duration.ofSeconds(1_075));
     }
 }

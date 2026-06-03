@@ -139,6 +139,7 @@ authkit:
       direct-core-pool-size: 1
       direct-max-pool-size: 2
       direct-queue-capacity: 10
+      preserve-rabbit-observability: false
     email-provider:
       type: resend
     compliance:

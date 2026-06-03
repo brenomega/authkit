@@ -186,10 +186,20 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if ("direct".equals(dispatchMode)) {
+            if (preserveRabbitObservability()) {
+                validateCredential("spring.rabbitmq.username", "guest", "CHANGE-ME-RABBIT-USER");
+                validateCredential("spring.rabbitmq.password", "guest", "CHANGE-ME-RABBIT-PASSWORD");
+            }
             validateDirectEmailDeliveryTimeout();
             return;
         }
         throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email outbox dispatch mode '" + dispatchMode + "'. Startup aborted.");
+    }
+
+    private boolean preserveRabbitObservability() {
+        return Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-outbox.preserve-rabbit-observability",
+                "false"));
     }
 
     private void validateDirectEmailDeliveryTimeout() {
