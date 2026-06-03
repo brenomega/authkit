@@ -8,8 +8,11 @@ import org.springframework.core.env.Environment;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 
 /**
  * Validates production environment configurations to prevent deployment with 
@@ -190,21 +193,48 @@ public class ProductionConfigValidator implements ApplicationRunner {
     }
 
     private void validateDirectEmailDeliveryTimeout() {
-        long attempts = getLongProperty("authkit.auth.email-provider.max-attempts", 3);
-        long connectTimeoutMs = getLongProperty("authkit.auth.email-provider.connect-timeout-ms", 2000);
-        long readTimeoutMs = getLongProperty("authkit.auth.email-provider.read-timeout-ms", 5000);
-        long retryBackoffMs = getLongProperty("authkit.auth.email-provider.retry-backoff-ms", 250);
-        long deliveryAckTimeoutMs = getLongProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", 600) * 1000;
+        AuthProperties timingProperties = directEmailTimingProperties();
+        Duration deliveryAckTimeout = EmailOutboxTiming.deliveryAckTimeout(timingProperties);
+        Duration providerBudget = EmailOutboxTiming.providerRetryBudget(timingProperties);
+        Duration directProcessingLockTimeout = EmailOutboxTiming.directProcessingLockTimeout(timingProperties);
+        Duration executorWaitTimeout = EmailOutboxTiming.directExecutorWaitTimeout(timingProperties);
 
-        long providerBudgetMs = attempts * (connectTimeoutMs + readTimeoutMs)
-                + Math.max(0, attempts - 1) * retryBackoffMs;
-        if (deliveryAckTimeoutMs <= providerBudgetMs) {
+        if (deliveryAckTimeout.compareTo(providerBudget) <= 0) {
             log.error(
                     "CRITICAL SECURITY ERROR: Direct email delivery timeout must exceed provider retry budget. timeoutMs={}, providerBudgetMs={}",
-                    deliveryAckTimeoutMs,
-                    providerBudgetMs);
+                    deliveryAckTimeout.toMillis(),
+                    providerBudget.toMillis());
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Direct email delivery timeout is below the provider retry budget. Startup aborted.");
         }
+        log.info(
+                "Direct email timeout checks passed. deliveryAckTimeoutMs={}, providerBudgetMs={}, executorWaitBudgetMs={}, effectiveProcessingLockMs={}",
+                deliveryAckTimeout.toMillis(),
+                providerBudget.toMillis(),
+                executorWaitTimeout.toMillis(),
+                directProcessingLockTimeout.toMillis());
+    }
+
+    private AuthProperties directEmailTimingProperties() {
+        AuthProperties properties = new AuthProperties();
+        AuthProperties.EmailProvider provider = properties.getEmailProvider();
+        AuthProperties.EmailOutbox outbox = properties.getEmailOutbox();
+
+        provider.setMaxAttempts((int) getLongProperty("authkit.auth.email-provider.max-attempts", provider.getMaxAttempts()));
+        provider.setConnectTimeoutMs((int) getLongProperty("authkit.auth.email-provider.connect-timeout-ms", provider.getConnectTimeoutMs()));
+        provider.setReadTimeoutMs((int) getLongProperty("authkit.auth.email-provider.read-timeout-ms", provider.getReadTimeoutMs()));
+        provider.setRetryBackoffMs(getLongProperty("authkit.auth.email-provider.retry-backoff-ms", provider.getRetryBackoffMs()));
+
+        outbox.setDeliveryAckTimeoutSeconds(getLongProperty(
+                "authkit.auth.email-outbox.delivery-ack-timeout-seconds",
+                outbox.getDeliveryAckTimeoutSeconds()));
+        outbox.setLockTtlSeconds(getLongProperty("authkit.auth.email-outbox.lock-ttl-seconds", outbox.getLockTtlSeconds()));
+        outbox.setDirectCorePoolSize((int) getLongProperty(
+                "authkit.auth.email-outbox.direct-core-pool-size",
+                outbox.getDirectCorePoolSize()));
+        outbox.setDirectQueueCapacity((int) getLongProperty(
+                "authkit.auth.email-outbox.direct-queue-capacity",
+                outbox.getDirectQueueCapacity()));
+        return properties;
     }
 
     private long getLongProperty(@NonNull String propertyKey, long defaultValue) {

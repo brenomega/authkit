@@ -40,7 +40,7 @@ public class EmailOutboxProcessor {
         var properties = authProperties.getEmailOutbox();
         var messages = outboxService.claimDueMessages(
                 batchSize(properties),
-                Duration.ofSeconds(properties.getLockTtlSeconds()));
+                lockTimeout(properties));
 
         for (EmailOutboxMessage message : messages) {
             try {
@@ -57,5 +57,11 @@ public class EmailOutboxProcessor {
         return "direct".equals(properties.getDispatchMode())
                 ? properties.getDirectBatchSize()
                 : properties.getBatchSize();
+    }
+
+    private Duration lockTimeout(AuthProperties.EmailOutbox properties) {
+        return "direct".equals(properties.getDispatchMode())
+                ? EmailOutboxTiming.directProcessingLockTimeout(authProperties)
+                : Duration.ofSeconds(properties.getLockTtlSeconds());
     }
 }

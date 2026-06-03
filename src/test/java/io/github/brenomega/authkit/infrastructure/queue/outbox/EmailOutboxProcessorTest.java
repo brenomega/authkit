@@ -38,7 +38,7 @@ class EmailOutboxProcessorTest {
 
     @Test
     @DisplayName("Outbox processor dispatches direct-mode batch through active strategy")
-    void publishDueMessages_directModeUsesDirectBatchSize() {
+    void publishDueMessages_directModeUsesDirectBatchSizeAndEffectiveLockTimeout() {
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         EmailDispatchStrategy dispatchStrategy = mock(EmailDispatchStrategy.class);
         AuthProperties authProperties = new AuthProperties();
@@ -46,7 +46,10 @@ class EmailOutboxProcessorTest {
         authProperties.getEmailOutbox().setDirectBatchSize(5);
         EmailOutboxMessage message = mock(EmailOutboxMessage.class);
 
-        when(outboxService.claimDueMessages(eq(5), any(Duration.class))).thenReturn(List.of(message));
+        when(outboxService.claimDueMessages(
+                eq(5),
+                eq(EmailOutboxTiming.directProcessingLockTimeout(authProperties))))
+                .thenReturn(List.of(message));
 
         EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
         processor.publishDueMessages();

@@ -30,7 +30,7 @@ import io.github.brenomega.authkit.service.spi.EmailProvider;
 class DirectEmailDispatchStrategyTest {
 
     @Test
-    @DisplayName("Direct strategy does not call provider until async task executes")
+    @DisplayName("Direct strategy does not mark queued or call provider until async task executes")
     void dispatch_capturesProviderCallForAsyncExecution() {
         EmailProvider emailProvider = mock(EmailProvider.class);
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
@@ -46,11 +46,12 @@ class DirectEmailDispatchStrategyTest {
 
         strategy.dispatch(message);
 
-        verify(outboxService).markQueued(eq(messageId), eq(Duration.ofSeconds(600)));
+        verify(outboxService, never()).markQueued(any(), any());
         verify(emailProvider, never()).send(any());
 
         executor.runCapturedTask();
 
+        verify(outboxService).markQueued(eq(messageId), eq(Duration.ofSeconds(600)));
         verify(outboxService).markSent(messageId, "provider-123");
     }
 
@@ -97,7 +98,10 @@ class DirectEmailDispatchStrategyTest {
         strategy.dispatch(message);
         executor.runCapturedTask();
 
-        verify(outboxService).markFailed(messageId, "provider down");
+        InOrder inOrder = inOrder(outboxService, emailProvider);
+        inOrder.verify(outboxService).markQueued(messageId, Duration.ofSeconds(600));
+        inOrder.verify(emailProvider).send(payload);
+        inOrder.verify(outboxService).markFailed(messageId, "provider down");
         assertThat(meterRegistry.counter("security.infrastructure.failure", "component", "email_provider").count())
                 .isEqualTo(1.0);
     }
@@ -117,9 +121,8 @@ class DirectEmailDispatchStrategyTest {
 
         strategy.dispatch(message);
 
-        InOrder inOrder = inOrder(outboxService);
-        inOrder.verify(outboxService).markQueued(messageId, Duration.ofSeconds(600));
-        inOrder.verify(outboxService).markFailed(eq(messageId), any(String.class));
+        verify(outboxService, never()).markQueued(any(), any());
+        verify(outboxService).markFailed(eq(messageId), any(String.class));
         verify(emailProvider, never()).send(any());
         assertThat(meterRegistry.counter("security.infrastructure.failure", "component", "email_provider").count())
                 .isEqualTo(1.0);

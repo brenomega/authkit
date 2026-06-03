@@ -14,12 +14,10 @@ import io.github.brenomega.authkit.service.spi.QueuePublisher;
 /**
  * Integration test for messaging flow.
  *
- * <p>Under the {@code test} profile, RabbitMQ AutoConfiguration is disabled.
- * However, since we defined custom exchanges and JSON converters, resolving
- * the {@link QueuePublisher} bean and asserting the context loads proves
- * the architecture is valid. Actual JSON conversion can be verified via Mockito
- * but since we are mocking at the connection layer, establishing Spring Container
- * is sufficient.</p>
+ * <p>Under the {@code test} profile, RabbitMQ listener startup is disabled.
+ * Since we define custom exchanges and JSON converters, resolving the
+ * {@link QueuePublisher} bean and asserting the context loads proves the
+ * architecture is valid without sending messages to a broker.</p>
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -31,9 +29,7 @@ class MessagingIntegrationTest {
     @Test
     @DisplayName("Publisher is configured and registered in Spring context")
     void publisherLoads() {
-        // In the test profile, RabbitMQ auto-configuration is disabled.
-        // Therefore, we shouldn't attempt to send real messages here without Mockito
-        // or a Testcontainers instance. This test validates our bean structure.
+        // Listener startup is disabled in tests; this validates bean structure only.
         assertDoesNotThrow(() -> {
             org.junit.jupiter.api.Assertions.assertNotNull(emailPublisher);
         }, "Should evaluate publisher safely");

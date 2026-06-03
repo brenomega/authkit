@@ -40,8 +40,8 @@ class EmailDispatchModeContextTest {
                     RabbitMqEmailPublisher.class);
 
     @Test
-    @DisplayName("Direct dispatch mode loads direct strategy without RabbitMQ beans")
-    void directMode_loadsDirectStrategyWithoutRabbitBeans() {
+    @DisplayName("Direct dispatch mode loads direct strategy without AuthKit RabbitMQ email beans")
+    void directMode_loadsDirectStrategyWithoutAuthKitRabbitBeans() {
         contextRunner
                 .withPropertyValues("authkit.auth.email-outbox.dispatch-mode=direct")
                 .run(context -> {

@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.infrastructure.email;
 
-import java.time.Duration;
 import java.util.concurrent.Executor;
 
 import org.slf4j.Logger;
@@ -11,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailDispatchStrategy;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxMessage;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -44,9 +44,7 @@ public class DirectEmailDispatchStrategy implements EmailDispatchStrategy {
 
     @Override
     public void dispatch(EmailOutboxMessage message) {
-        Duration deliveryTimeout = Duration.ofSeconds(authProperties.getEmailOutbox().getDeliveryAckTimeoutSeconds());
         try {
-            outboxService.markQueued(message.getId(), deliveryTimeout);
             directEmailDispatchExecutor.execute(() -> deliver(message));
         } catch (RuntimeException ex) {
             log.warn("Direct email dispatch scheduling failed for message {}.", message.getId());
@@ -57,6 +55,7 @@ public class DirectEmailDispatchStrategy implements EmailDispatchStrategy {
 
     private void deliver(EmailOutboxMessage message) {
         try {
+            outboxService.markQueued(message.getId(), EmailOutboxTiming.deliveryAckTimeout(authProperties));
             EmailDeliveryResult result = emailProvider.send(message.toPayload());
             outboxService.markSent(message.getId(), result.providerMessageId());
         } catch (RuntimeException ex) {
