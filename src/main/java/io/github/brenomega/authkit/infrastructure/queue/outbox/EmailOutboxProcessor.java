@@ -33,11 +33,13 @@ public class EmailOutboxProcessor {
         this.meterRegistry = meterRegistry;
     }
 
-    @Scheduled(fixedDelayString = "${authkit.auth.email-outbox.poll-delay-ms:5000}")
+    @Scheduled(
+            fixedDelayString = "${authkit.auth.email-outbox.poll-delay-ms:5000}",
+            scheduler = "emailOutboxTaskScheduler")
     public void publishDueMessages() {
         var properties = authProperties.getEmailOutbox();
         var messages = outboxService.claimDueMessages(
-                properties.getBatchSize(),
+                batchSize(properties),
                 Duration.ofSeconds(properties.getLockTtlSeconds()));
 
         for (EmailOutboxMessage message : messages) {
@@ -49,5 +51,11 @@ public class EmailOutboxProcessor {
                 outboxService.markFailed(message.getId(), ex.getMessage());
             }
         }
+    }
+
+    private int batchSize(AuthProperties.EmailOutbox properties) {
+        return "direct".equals(properties.getDispatchMode())
+                ? properties.getDirectBatchSize()
+                : properties.getBatchSize();
     }
 }

@@ -131,8 +131,14 @@ authkit:
       enabled: false
       dispatch-mode: queue
       batch-size: 50
+      direct-batch-size: 5
       poll-delay-ms: 5000
       lock-ttl-seconds: 300
+      delivery-ack-timeout-seconds: 600
+      scheduler-pool-size: 1
+      direct-core-pool-size: 1
+      direct-max-pool-size: 2
+      direct-queue-capacity: 10
     email-provider:
       type: resend
     compliance:

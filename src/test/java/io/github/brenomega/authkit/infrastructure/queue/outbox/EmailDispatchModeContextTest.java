@@ -3,6 +3,8 @@ package io.github.brenomega.authkit.infrastructure.queue.outbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import java.util.concurrent.Executor;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -29,6 +31,7 @@ class EmailDispatchModeContextTest {
             .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
             .withBean(ObjectMapper.class, ObjectMapper::new)
             .withBean(RabbitTemplate.class, () -> mock(RabbitTemplate.class))
+            .withBean("directEmailDispatchExecutor", Executor.class, () -> command -> { })
             .withUserConfiguration(
                     DirectEmailDispatchStrategy.class,
                     QueueEmailDispatchStrategy.class,

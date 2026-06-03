@@ -570,6 +570,10 @@ public class AuthProperties {
         @Max(500)
         private int batchSize = 50;
 
+        @Min(1)
+        @Max(100)
+        private int directBatchSize = 5;
+
         @Min(1000)
         private long pollDelayMs = 5000;
 
@@ -578,6 +582,27 @@ public class AuthProperties {
 
         @Min(1)
         private long deliveryAckTimeoutSeconds = 600;
+
+        @Min(1)
+        @Max(16)
+        private int schedulerPoolSize = 1;
+
+        @Min(1)
+        @Max(64)
+        private int directCorePoolSize = 2;
+
+        @Min(1)
+        @Max(64)
+        private int directMaxPoolSize = 4;
+
+        @Min(0)
+        @Max(10000)
+        private int directQueueCapacity = 100;
+
+        @AssertTrue(message = "Direct email executor max pool size must be greater than or equal to core pool size")
+        public boolean isDirectExecutorPoolValid() {
+            return directMaxPoolSize >= directCorePoolSize;
+        }
 
         public boolean isEnabled() {
             return enabled;
@@ -603,6 +628,14 @@ public class AuthProperties {
             this.batchSize = batchSize;
         }
 
+        public int getDirectBatchSize() {
+            return directBatchSize;
+        }
+
+        public void setDirectBatchSize(int directBatchSize) {
+            this.directBatchSize = directBatchSize;
+        }
+
         public long getPollDelayMs() {
             return pollDelayMs;
         }
@@ -625,6 +658,38 @@ public class AuthProperties {
 
         public void setDeliveryAckTimeoutSeconds(long deliveryAckTimeoutSeconds) {
             this.deliveryAckTimeoutSeconds = deliveryAckTimeoutSeconds;
+        }
+
+        public int getSchedulerPoolSize() {
+            return schedulerPoolSize;
+        }
+
+        public void setSchedulerPoolSize(int schedulerPoolSize) {
+            this.schedulerPoolSize = schedulerPoolSize;
+        }
+
+        public int getDirectCorePoolSize() {
+            return directCorePoolSize;
+        }
+
+        public void setDirectCorePoolSize(int directCorePoolSize) {
+            this.directCorePoolSize = directCorePoolSize;
+        }
+
+        public int getDirectMaxPoolSize() {
+            return directMaxPoolSize;
+        }
+
+        public void setDirectMaxPoolSize(int directMaxPoolSize) {
+            this.directMaxPoolSize = directMaxPoolSize;
+        }
+
+        public int getDirectQueueCapacity() {
+            return directQueueCapacity;
+        }
+
+        public void setDirectQueueCapacity(int directQueueCapacity) {
+            this.directQueueCapacity = directQueueCapacity;
         }
     }
 

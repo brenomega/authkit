@@ -63,6 +63,16 @@ class ProductionConfigValidatorTest {
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
+    @Test
+    @DisplayName("Production validation rejects direct email timeout below provider retry budget")
+    void run_directEmailDeliveryTimeoutBelowProviderBudget_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", "10");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
     private MockEnvironment productionEnvironment() {
         return productionEnvironmentBase()
                 .withProperty("authkit.auth.email-outbox.dispatch-mode", "queue")
@@ -107,6 +117,8 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.email-provider.connect-timeout-ms", "2000")
                 .withProperty("authkit.auth.email-provider.read-timeout-ms", "5000")
                 .withProperty("authkit.auth.email-provider.max-attempts", "3")
+                .withProperty("authkit.auth.email-provider.retry-backoff-ms", "250")
+                .withProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", "600")
                 .withProperty("security.argon2.memory", "32768")
                 .withProperty("security.argon2.iterations", "2")
                 .withProperty("security.argon2.parallelism", "2");

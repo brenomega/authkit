@@ -137,9 +137,14 @@ authkit:
       enabled: ${AUTH_EMAIL_OUTBOX_ENABLED:true}
       dispatch-mode: ${AUTH_EMAIL_OUTBOX_DISPATCH_MODE:queue}
       batch-size: ${AUTH_EMAIL_OUTBOX_BATCH_SIZE:50}
+      direct-batch-size: ${AUTH_EMAIL_OUTBOX_DIRECT_BATCH_SIZE:5}
       poll-delay-ms: ${AUTH_EMAIL_OUTBOX_POLL_DELAY_MS:5000}
       lock-ttl-seconds: ${AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS:300}
       delivery-ack-timeout-seconds: ${AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS:600}
+      scheduler-pool-size: ${AUTH_EMAIL_OUTBOX_SCHEDULER_POOL_SIZE:1}
+      direct-core-pool-size: ${AUTH_EMAIL_OUTBOX_DIRECT_CORE_POOL_SIZE:2}
+      direct-max-pool-size: ${AUTH_EMAIL_OUTBOX_DIRECT_MAX_POOL_SIZE:4}
+      direct-queue-capacity: ${AUTH_EMAIL_OUTBOX_DIRECT_QUEUE_CAPACITY:100}
     email-provider:
       type: ${AUTH_EMAIL_PROVIDER_TYPE:resend}
       connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}

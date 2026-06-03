@@ -81,11 +81,16 @@ Required only when `AUTH_EMAIL_OUTBOX_DISPATCH_MODE=queue`, which is the default
 * `AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES`: TTL for one-time authorization codes. Default: `5`.
 * `AUTH_OAUTH_ID_TOKEN_TTL_SECONDS`: ID token lifetime. Default: `900`.
 * `AUTH_EMAIL_OUTBOX_ENABLED`: Enables the durable email outbox dispatcher. Default: `true`.
-* `AUTH_EMAIL_OUTBOX_DISPATCH_MODE`: Email outbox dispatch mode. `queue` publishes through RabbitMQ before provider delivery; `direct` sends from the outbox processor through the configured provider. Default: `queue`.
-* `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum email outbox messages claimed per poll. Default: `50`.
+* `AUTH_EMAIL_OUTBOX_DISPATCH_MODE`: Email outbox dispatch mode. `queue` publishes through RabbitMQ before provider delivery; `direct` sends through a bounded direct provider worker pool. Default: `queue`.
+* `AUTH_EMAIL_OUTBOX_BATCH_SIZE`: Maximum queue-mode email outbox messages claimed per poll. Default: `50`.
+* `AUTH_EMAIL_OUTBOX_DIRECT_BATCH_SIZE`: Maximum direct-mode email outbox messages claimed per poll. Default: `5`.
 * `AUTH_EMAIL_OUTBOX_POLL_DELAY_MS`: Dispatcher polling interval. Default: `5000`.
 * `AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS`: Time before an abandoned `PROCESSING` email is eligible for retry. Default: `300`.
-* `AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS`: Time a published `QUEUED` email may wait for provider acceptance before becoming claimable again. Default: `600`.
+* `AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS`: Time a `QUEUED` external delivery may wait for provider acceptance before becoming claimable again. In queue mode this covers Rabbit listener acknowledgment; in direct mode this covers the async provider worker. Default: `600`.
+* `AUTH_EMAIL_OUTBOX_SCHEDULER_POOL_SIZE`: Dedicated email outbox scheduler pool size. Default: `1`.
+* `AUTH_EMAIL_OUTBOX_DIRECT_CORE_POOL_SIZE`: Core threads for direct provider dispatch workers. Default: `2`.
+* `AUTH_EMAIL_OUTBOX_DIRECT_MAX_POOL_SIZE`: Maximum threads for direct provider dispatch workers. Default: `4`.
+* `AUTH_EMAIL_OUTBOX_DIRECT_QUEUE_CAPACITY`: Bounded queue capacity for direct provider dispatch workers. Default: `100`.
 * `AUTH_EMAIL_PROVIDER_TYPE`: Email provider implementation. Supported values: `resend`, `logging`. `logging` is intended for dev/test and is rejected in production. Default: `resend`.
 * `AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS`: Resend HTTP connect timeout. Default: `2000`.
 * `AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS`: Resend HTTP read timeout. Default: `5000`.
@@ -192,9 +197,14 @@ AUTH_OAUTH_ID_TOKEN_TTL_SECONDS=900
 AUTH_EMAIL_OUTBOX_ENABLED=true
 AUTH_EMAIL_OUTBOX_DISPATCH_MODE=queue
 AUTH_EMAIL_OUTBOX_BATCH_SIZE=50
+AUTH_EMAIL_OUTBOX_DIRECT_BATCH_SIZE=5
 AUTH_EMAIL_OUTBOX_POLL_DELAY_MS=5000
 AUTH_EMAIL_OUTBOX_LOCK_TTL_SECONDS=300
 AUTH_EMAIL_OUTBOX_DELIVERY_ACK_TIMEOUT_SECONDS=600
+AUTH_EMAIL_OUTBOX_SCHEDULER_POOL_SIZE=1
+AUTH_EMAIL_OUTBOX_DIRECT_CORE_POOL_SIZE=2
+AUTH_EMAIL_OUTBOX_DIRECT_MAX_POOL_SIZE=4
+AUTH_EMAIL_OUTBOX_DIRECT_QUEUE_CAPACITY=100
 AUTH_EMAIL_PROVIDER_TYPE=resend
 AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS=2000
 AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS=5000
@@ -253,7 +263,7 @@ volumeMounts:
 * **Statelessness:** Security tokens are stateless JWTs validated dynamically. There is no active session `HttpSession` replicating across instances.
 * **Distributed Caching:** Rate limiting, endpoint abuse throttles, refresh-token state, OAuth token revocation, and one-time MFA login challenges rely on centralized **Redis with authentication enabled**. Refresh-token family pointers are stored separately from per-user session hashes so reuse detection is O(1) and does not scan all user sessions. Per-request authority snapshots and MFA-enabled status use deliberately short local Caffeine caches; reduce `AUTH_AUTHORITY_CACHE_TTL_SECONDS` or `AUTH_MFA_STATUS_CACHE_TTL_SECONDS` if revocation freshness requirements are stricter. If Redis is unavailable, high-risk abuse throttles and lockout degrade to stricter per-node local enforcement and emit critical metrics; token storage flows do not have a safe local substitute.
 * **Database Concurrency:** All migrations run via Flyway at application startup. Tune Hikari pool limits per replica so total connections stay below PostgreSQL capacity. JDBC batching is enabled for small write bursts such as MFA backup-code generation.
-* **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. In `queue` mode, the scheduler publishes due rows to RabbitMQ after commit and marks them `QUEUED`; the Rabbit listener marks them `SENT` only after the configured provider returns acceptance and a provider message id. Queue publish failures, provider failures, and delivery-ack timeouts are retried with backoff, and poison messages can dead-letter to `authkit.email.dlq`, so RabbitMQ latency does not hold user database transactions open. In `direct` mode, the scheduler calls the configured provider from the outbox processor and moves rows directly from `PROCESSING` to `SENT` or `FAILED`; RabbitMQ credentials are not required in this mode.
+* **Email Delivery:** Registration, recovery, and password-change emails are first written into the transactional `email_outbox` table. In `queue` mode, the dedicated email scheduler publishes due rows to RabbitMQ after commit and marks them `QUEUED`; the Rabbit listener marks them `SENT` only after the configured provider returns acceptance and a provider message id. Queue publish failures, provider failures, and delivery-ack timeouts are retried with backoff, and poison messages can dead-letter to `authkit.email.dlq`, so RabbitMQ latency does not hold user database transactions open. In `direct` mode, the scheduler claims only `AUTH_EMAIL_OUTBOX_DIRECT_BATCH_SIZE` rows, marks each row `QUEUED` as external delivery in-flight, and submits provider calls to the bounded direct dispatch worker pool; worker success marks `SENT` and worker failure marks `FAILED`. RabbitMQ credentials and Rabbit health/metrics artifacts are not required in this mode.
 * **Durable Security Events:** Authentication and account lifecycle flows enqueue privacy-safe rows to `security_events` through a bounded writer. Events store masked identifiers and keyed HMAC identifiers, never raw passwords, tokens, or request bodies. If the writer queue saturates and `AUTH_AUDIT_SYNC_ON_OVERLOAD=true`, events fall back to synchronous persistence to preserve forensic coverage under load.
 * **MFA Baseline:** TOTP enrollment requires current-password step-up, stores encrypted secrets in versioned AES-GCM envelopes with PBKDF2-derived keys and key IDs, and returns raw setup material only during enrollment. Enabling or disabling TOTP revokes refresh sessions. Backup codes are generated once, stored only as keyed hashes, consumed atomically, and audited on use. Password change, account export, account deletion, logout-all, individual session revocation, MFA disablement, and backup-code regeneration require MFA proof when MFA is enabled for the account. Regular profile reads/updates and session listing do not require MFA to avoid unnecessary user friction.
 * **Passkeys/WebAuthn:** WebAuthn registration and assertion are verified by Yubico `webauthn-server-core` with authenticator user verification required. Configure `AUTH_PASSKEY_RP_ID` and `AUTH_PASSKEY_ORIGINS` to exactly match production browser origins before enabling passkeys. Production startup rejects `AUTH_PASSKEY_ALLOW_ORIGIN_PORT=true`. Registration and disablement require current-password step-up and, when enrolled, MFA proof. AuthKit stores credential IDs, COSE public keys, signature counters, transports, discoverability, and timestamps; private key material never leaves the authenticator. For administrators, passkeys should be the preferred MFA method; TOTP remains a supported fallback but is not phishing resistant.

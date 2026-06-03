@@ -20,14 +20,33 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 class EmailOutboxProcessorTest {
 
     @Test
-    @DisplayName("Outbox processor dispatches claimed emails through active strategy")
-    void publishDueMessages_success() {
+    @DisplayName("Outbox processor dispatches queue-mode batch through active strategy")
+    void publishDueMessages_queueModeUsesQueueBatchSize() {
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         EmailDispatchStrategy dispatchStrategy = mock(EmailDispatchStrategy.class);
         AuthProperties authProperties = new AuthProperties();
+        authProperties.getEmailOutbox().setDispatchMode("queue");
         EmailOutboxMessage message = mock(EmailOutboxMessage.class);
 
         when(outboxService.claimDueMessages(eq(50), any(Duration.class))).thenReturn(List.of(message));
+
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
+        processor.publishDueMessages();
+
+        verify(dispatchStrategy).dispatch(message);
+    }
+
+    @Test
+    @DisplayName("Outbox processor dispatches direct-mode batch through active strategy")
+    void publishDueMessages_directModeUsesDirectBatchSize() {
+        EmailOutboxService outboxService = mock(EmailOutboxService.class);
+        EmailDispatchStrategy dispatchStrategy = mock(EmailDispatchStrategy.class);
+        AuthProperties authProperties = new AuthProperties();
+        authProperties.getEmailOutbox().setDispatchMode("direct");
+        authProperties.getEmailOutbox().setDirectBatchSize(5);
+        EmailOutboxMessage message = mock(EmailOutboxMessage.class);
+
+        when(outboxService.claimDueMessages(eq(5), any(Duration.class))).thenReturn(List.of(message));
 
         EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
         processor.publishDueMessages();

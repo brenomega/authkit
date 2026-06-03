@@ -183,9 +183,40 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if ("direct".equals(dispatchMode)) {
+            validateDirectEmailDeliveryTimeout();
             return;
         }
         throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email outbox dispatch mode '" + dispatchMode + "'. Startup aborted.");
+    }
+
+    private void validateDirectEmailDeliveryTimeout() {
+        long attempts = getLongProperty("authkit.auth.email-provider.max-attempts", 3);
+        long connectTimeoutMs = getLongProperty("authkit.auth.email-provider.connect-timeout-ms", 2000);
+        long readTimeoutMs = getLongProperty("authkit.auth.email-provider.read-timeout-ms", 5000);
+        long retryBackoffMs = getLongProperty("authkit.auth.email-provider.retry-backoff-ms", 250);
+        long deliveryAckTimeoutMs = getLongProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", 600) * 1000;
+
+        long providerBudgetMs = attempts * (connectTimeoutMs + readTimeoutMs)
+                + Math.max(0, attempts - 1) * retryBackoffMs;
+        if (deliveryAckTimeoutMs <= providerBudgetMs) {
+            log.error(
+                    "CRITICAL SECURITY ERROR: Direct email delivery timeout must exceed provider retry budget. timeoutMs={}, providerBudgetMs={}",
+                    deliveryAckTimeoutMs,
+                    providerBudgetMs);
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Direct email delivery timeout is below the provider retry budget. Startup aborted.");
+        }
+    }
+
+    private long getLongProperty(@NonNull String propertyKey, long defaultValue) {
+        String value = environment.getProperty(propertyKey);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+        }
     }
 
     private void validateOptionalKeyRotationList(@NonNull String propertyKey) {

@@ -1297,7 +1297,7 @@ sequenceDiagram
 
 This flow is not a direct controller endpoint, but it is part of registration, password recovery, and password reset completion.
 
-Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` scheduler claims due rows in batches on each instance (no distributed lock yet—use a single active scheduler replica in production or accept duplicate claims guarded by row locking). In `queue` mode, a successful publish moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages. In `direct` mode, the scheduler calls the configured `EmailProvider` directly and moves rows from `PROCESSING` to `SENT` or `FAILED` without RabbitMQ.
+Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` runs on a dedicated scheduler and claims due rows in batches on each instance (no distributed lock yet—use a single active scheduler replica in production or accept duplicate claims guarded by row locking). In `queue` mode, a successful publish moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages. In `direct` mode, the scheduler claims a smaller batch, marks each row `QUEUED` as external delivery in-flight, and submits provider calls to a bounded direct dispatch worker pool; worker success marks `SENT` and worker failure marks `FAILED` without RabbitMQ.
 
 ```mermaid
 sequenceDiagram
@@ -1335,7 +1335,9 @@ sequenceDiagram
                 OP->>DB: markFailed(messageId,error)
             end
         else direct mode
-            DS->>EP: Send email with provider idempotency when available
+            DS->>DB: markQueued(messageId, delivery ack timeout)
+            DS-->>OP: Provider work submitted to bounded executor
+            DS->>EP: Worker sends email with provider idempotency when available
             alt Provider accepted
                 DS->>DB: markSent(messageId, providerMessageId)
             else Provider failed
