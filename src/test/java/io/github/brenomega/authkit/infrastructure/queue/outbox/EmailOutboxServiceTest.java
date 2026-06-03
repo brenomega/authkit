@@ -29,6 +29,7 @@ class EmailOutboxServiceTest {
         service = new EmailOutboxService(repository);
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Queued direct delivery is retried only after its delivery timeout")
     void queuedDelivery_claimDueMessagesHonorsDeliveryTimeout() {
