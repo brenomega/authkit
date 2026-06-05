@@ -41,6 +41,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
     private final UserRepository userRepository;
     private final TokenStorage tokenStorage;
     private final ObjectMapper objectMapper;
+    private final String apiAudience;
     private final Cache<UUID, Optional<CachedUserAuthorities>> authorityCache;
 
     public UserAuthoritiesFilter(
@@ -52,6 +53,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.objectMapper = objectMapper;
+        this.apiAudience = authProperties.getJwt().getAudience();
         this.authorityCache = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofSeconds(authProperties.getAuthorityCache().getTtlSeconds()))
                 .maximumSize(authProperties.getAuthorityCache().getMaxSize())
@@ -69,6 +71,11 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
 
         // Evaluate instances that have passed through BearerTokenAuthenticationFilter
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
+            if (!JwtTokenUse.isFirstPartyAccess(jwtAuth.getToken(), apiAudience)) {
+                SecurityContextHolder.clearContext();
+                reject(response);
+                return;
+            }
             UUID userId;
             try {
                 userId = UUID.fromString(jwtAuth.getName()); // Resolves to 'sub' claim

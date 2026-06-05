@@ -43,7 +43,7 @@ public interface TokenStorage {
     /**
      * Lists all active session identifiers (JTIs) for a user.
      */
-    java.util.List<String> listSessions(String userId);
+    SessionPage listSessions(String userId, int limit, String cursor);
 
     /**
      * Revokes a specific session by its JTI.

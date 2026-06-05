@@ -41,6 +41,52 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage,
 
     Optional<EmailOutboxMessage> findTopByRecipientOrderByCreatedAtDesc(String recipient);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update EmailOutboxMessage message
+            set message.status = :queued,
+                message.lockedAt = null,
+                message.lastError = null,
+                message.nextAttemptAt = :nextAttemptAt
+            where message.id = :id and message.status in :queueEligible
+            """)
+    int markQueued(@Param("id") UUID id,
+                   @Param("queueEligible") Collection<EmailOutboxStatus> queueEligible,
+                   @Param("queued") EmailOutboxStatus queued,
+                   @Param("nextAttemptAt") Instant nextAttemptAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update EmailOutboxMessage message
+            set message.status = :sent,
+                message.lockedAt = null,
+                message.lastError = null,
+                message.providerMessageId = coalesce(message.providerMessageId, :providerMessageId),
+                message.deliveredAt = coalesce(message.deliveredAt, :deliveredAt)
+            where message.id = :id and message.status <> :sent
+            """)
+    int markSent(@Param("id") UUID id,
+                 @Param("sent") EmailOutboxStatus sent,
+                 @Param("providerMessageId") String providerMessageId,
+                 @Param("deliveredAt") Instant deliveredAt);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update EmailOutboxMessage message
+            set message.status = case when message.attempts >= :maxAttempts then :dead else :failed end,
+                message.lockedAt = null,
+                message.lastError = :error,
+                message.nextAttemptAt = :nextAttemptAt
+            where message.id = :id and message.status in :failureEligible
+            """)
+    int markFailed(@Param("id") UUID id,
+                   @Param("failureEligible") Collection<EmailOutboxStatus> failureEligible,
+                   @Param("failed") EmailOutboxStatus failed,
+                   @Param("dead") EmailOutboxStatus dead,
+                   @Param("maxAttempts") int maxAttempts,
+                   @Param("error") String error,
+                   @Param("nextAttemptAt") Instant nextAttemptAt);
+
     @Modifying
     long deleteByRecipientIn(Collection<String> recipients);
 }

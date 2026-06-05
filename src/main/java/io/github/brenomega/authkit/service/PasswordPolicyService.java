@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import org.springframework.data.domain.PageRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededExcep
 import io.github.brenomega.authkit.exception.WeakPasswordException;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
+import io.github.brenomega.authkit.service.spi.CompromisedPasswordChecker;
 
 @Service
 public class PasswordPolicyService {
@@ -31,23 +33,35 @@ public class PasswordPolicyService {
     private final PasswordHistoryRepository passwordHistoryRepository;
     private final PasswordEncoder passwordEncoder;
     private final Argon2ConcurrencyLimiter argon2Limiter;
+    private final CompromisedPasswordChecker compromisedPasswordChecker;
 
     public PasswordPolicyService(PasswordHistoryRepository passwordHistoryRepository,
                                  PasswordEncoder passwordEncoder,
                                  Argon2ConcurrencyLimiter argon2Limiter) {
+        this(passwordHistoryRepository, passwordEncoder, argon2Limiter, ignored -> false);
+    }
+
+    @Autowired
+    public PasswordPolicyService(PasswordHistoryRepository passwordHistoryRepository,
+                                 PasswordEncoder passwordEncoder,
+                                 Argon2ConcurrencyLimiter argon2Limiter,
+                                 CompromisedPasswordChecker compromisedPasswordChecker) {
         this.passwordHistoryRepository = passwordHistoryRepository;
         this.passwordEncoder = passwordEncoder;
         this.argon2Limiter = argon2Limiter;
+        this.compromisedPasswordChecker = compromisedPasswordChecker;
     }
 
     @Transactional(readOnly = true)
     public void validateForRegistration(String email, String rawPassword) {
         validateComposition(email, null, rawPassword);
+        rejectIfCompromised(rawPassword);
     }
 
     @Transactional(readOnly = true)
     public void validateForUser(User user, String rawPassword) {
         validateComposition(user.getEmail(), user.getName(), rawPassword);
+        rejectIfCompromised(rawPassword);
         rejectIfMatches(rawPassword, user.getPassword());
         List<PasswordHistoryEntry> recent = passwordHistoryRepository.findByUserIdOrderByCreatedAtDesc(
                 user.getId(),
@@ -90,6 +104,12 @@ public class PasswordPolicyService {
             }
         } finally {
             argon2Limiter.release();
+        }
+    }
+
+    private void rejectIfCompromised(String rawPassword) {
+        if (compromisedPasswordChecker.isCompromised(rawPassword)) {
+            throw new WeakPasswordException();
         }
     }
 

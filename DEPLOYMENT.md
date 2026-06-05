@@ -336,3 +336,24 @@ export NVD_API_KEY=...
 ```
 
 CI or release automation should inject `NVD_API_KEY` from its secret store for this explicit profile and should not print the value in logs. If NVD rejects the key or rate-limits unauthenticated traffic, the default build still remains healthy while the explicit vulnerability-gate job fails visibly.
+
+## 6. Prompt 2.5 Runtime Controls
+
+| Variable | Default | Production guidance |
+| --- | --- | --- |
+| `AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED` | `true` | Required when email polling or retention is enabled; PostgreSQL database time is authoritative |
+| `AUTH_EMAIL_POLL_LOCK_AT_MOST` | `PT10M` | Must not exceed ten minutes |
+| `AUTH_RETENTION_LOCK_AT_MOST` | `PT2H` | Must not exceed two hours |
+| `AUTH_RETENTION_LOCK_AT_LEAST` | `PT1M` | Must be at least one minute |
+| `AUTH_EMAIL_OUTBOX_MAX_ATTEMPTS` | `10` | Terminal failures become `DEAD`; investigate before manual replay |
+| `AUTH_ABUSE_FAIL_CLOSED_HIGH_RISK` | `false` | Enable only when authentication should return 503 rather than lose distributed throttling during Redis failure |
+| `AUTH_PASSWORD_HIBP_ENABLED` | `false` | Opt in after confirming outbound HTTPS and privacy policy; provider failures remain fail-open |
+| `AUTH_PASSWORD_HIBP_CONNECT_TIMEOUT_MS` | `1000` | Keep short so signup/reset availability does not depend on HIBP |
+| `AUTH_PASSWORD_HIBP_READ_TIMEOUT_MS` | `2000` | Keep short and alert on degradation |
+| `AUTH_PASSWORD_HIBP_CACHE_TTL_SECONDS` | `86400` | Bounded prefix result cache lifetime |
+| `AUTH_PASSWORD_HIBP_CACHE_MAX_PREFIXES` | `10000` | Bounded local cache size |
+| `SECURITY_ARGON2_MAX_CONCURRENT` | `0` | Zero derives permits from CPU; set explicitly only from measured capacity |
+
+See [deployment modes](docs/DEPLOYMENT_MODES.md) for origin-firewall ownership, queue/direct email requirements, and conservative starting sizes. These values are unproven baselines until Prompt 3 load and chaos tests are complete.
+
+AuthKit pins Spring configuration loading, environment resolution, MVC request-body handling, and outbound `RestClient` body logging to `INFO`, and disables detailed request logging. These overrides prevent broad framework DEBUG settings from serializing resolved secrets, passwords, MFA proofs, reset links, or token-bearing payloads. Preserve them in centralized logging configuration.

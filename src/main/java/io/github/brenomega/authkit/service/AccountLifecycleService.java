@@ -191,6 +191,27 @@ public class AccountLifecycleService {
         user.anonymizeForDeletion(anonymizedEmail, anonymizedPassword, now);
         userRepository.save(user);
 
+        securityEventService.record(
+                SecurityEventType.ACCOUNT_DELETION_REQUESTED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                userUuid,
+                userUuid,
+                tenantId,
+                originalEmail,
+                "account_deletion_requested",
+                java.util.Map.of("policy", "immediate_anonymization"));
+        securityEventService.record(
+                SecurityEventType.ACCOUNT_ANONYMIZED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                userUuid,
+                userUuid,
+                tenantId,
+                originalEmail,
+                "account_anonymized",
+                java.util.Map.of("direct_pii", "email_name_phone"));
+
         afterCommit(() -> {
             userAuthoritiesFilter.evict(userUuid);
             try {
@@ -204,26 +225,6 @@ public class AccountLifecycleService {
                 meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
             }
 
-            securityEventService.record(
-                    SecurityEventType.ACCOUNT_DELETION_REQUESTED,
-                    SecurityEventOutcome.SUCCESS,
-                    SecurityEventSeverity.HIGH,
-                    userUuid,
-                    userUuid,
-                    tenantId,
-                    originalEmail,
-                    "account_deletion_requested",
-                    java.util.Map.of("policy", "immediate_anonymization"));
-            securityEventService.record(
-                    SecurityEventType.ACCOUNT_ANONYMIZED,
-                    SecurityEventOutcome.SUCCESS,
-                    SecurityEventSeverity.HIGH,
-                    userUuid,
-                    userUuid,
-                    tenantId,
-                    originalEmail,
-                    "account_anonymized",
-                    java.util.Map.of("direct_pii", "email_name_phone"));
         });
 
         return new AccountDeletionResponse(

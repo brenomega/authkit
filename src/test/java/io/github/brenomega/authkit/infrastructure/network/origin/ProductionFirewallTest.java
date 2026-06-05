@@ -54,6 +54,7 @@ import java.security.KeyPair;
     "authkit.auth.compliance.privacy-policy-version=privacy-2026",
     "authkit.auth.compliance.lawful-basis=consent",
     "authkit.auth.compliance.retention-job-enabled=false",
+    "authkit.auth.email-outbox.enabled=false",
     "authkit.auth.audit.hash-pepper=production-firewall-test-audit-pepper-32-chars",
     "authkit.auth.audit.async-enabled=false",
     "authkit.auth.mfa.secret-encryption-key=production-firewall-test-mfa-secret-key-32-chars",

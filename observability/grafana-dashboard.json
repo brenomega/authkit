@@ -1,0 +1,23 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {"type": "timeseries", "title": "HTTP request rate and latency", "targets": [{"expr": "sum(rate(http_server_requests_seconds_count{application=\"authkit\"}[5m])) by (method,status)"}, {"expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"authkit\"}[5m])) by (le))"}]},
+    {"type": "timeseries", "title": "Authentication security events", "targets": [{"expr": "sum(rate(security_events_total[5m])) by (type,outcome)"}]},
+    {"type": "timeseries", "title": "Refresh reuse and audit integrity", "targets": [{"expr": "increase(security_refresh_token_reuse_total[5m])"}, {"expr": "increase(security_audit_dropped_total[5m])"}, {"expr": "increase(security_audit_fail_closed_total[5m])"}]},
+    {"type": "timeseries", "title": "Redis and abuse-control degradation", "targets": [{"expr": "increase(security_abuse_control_degraded_total[5m])"}, {"expr": "increase(security_abuse_control_fail_closed_total[5m])"}, {"expr": "increase(security_lockout_degraded_total[5m])"}]},
+    {"type": "timeseries", "title": "Argon2 capacity and HIBP", "targets": [{"expr": "increase(security_argon2_capacity_exceeded_total[5m])"}, {"expr": "increase(security_password_hibp_degraded_total[5m])"}]},
+    {"type": "timeseries", "title": "Email outbox", "targets": [{"expr": "increase(security_email_outbox_retry_total[10m])"}, {"expr": "increase(security_email_outbox_dead_total[10m])"}]},
+    {"type": "timeseries", "title": "Scheduler failures", "targets": [{"expr": "increase(security_scheduler_failure_total[10m])"}]},
+    {"type": "timeseries", "title": "Hikari pool", "targets": [{"expr": "hikaricp_connections_active{application=\"authkit\"}"}, {"expr": "hikaricp_connections_pending{application=\"authkit\"}"}, {"expr": "hikaricp_connections_max{application=\"authkit\"}"}]},
+    {"type": "timeseries", "title": "JVM heap and GC", "targets": [{"expr": "jvm_memory_used_bytes{application=\"authkit\",area=\"heap\"}"}, {"expr": "rate(jvm_gc_pause_seconds_sum{application=\"authkit\"}[5m])"}]},
+    {"type": "timeseries", "title": "Dependency failures", "targets": [{"expr": "sum(increase(security_infrastructure_failure_total[5m])) by (component)"}]}
+  ],
+  "schemaVersion": 39,
+  "tags": ["authkit", "security"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "AuthKit Production Security",
+  "uid": "authkit-production-security",
+  "version": 1
+}

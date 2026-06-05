@@ -15,6 +15,7 @@ import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
+import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
@@ -115,8 +116,11 @@ public class UserController {
      * Lists active refresh token sessions (RF 2.1.8).
      */
     @GetMapping("/sessions")
-    public ApiResponse<List<SessionResponse>> getMySessions(@AuthenticationPrincipal Jwt jwt) {
-        List<SessionResponse> sessions = profileService.listSessions(jwt.getSubject());
+    public ApiResponse<SessionPageResponse> getMySessions(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(required = false) String cursor) {
+        SessionPageResponse sessions = profileService.listSessions(jwt.getSubject(), limit, cursor);
         return new ApiResponse<>(sessions, null, Instant.now());
     }
 

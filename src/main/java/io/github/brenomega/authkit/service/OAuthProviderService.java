@@ -51,6 +51,7 @@ import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.JwtKeyService;
+import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 import io.github.brenomega.authkit.infrastructure.security.OAuthTokenRevocationService;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
@@ -243,6 +244,7 @@ public class OAuthProviderService {
         abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, client.getClientId());
         validateClientAuthentication(client, clientSecret);
         decodeOAuthToken(token)
+                .filter(JwtTokenUse::isOAuthAccess)
                 .filter(jwt -> jwt.getAudience().contains(client.getClientId()))
                 .ifPresent(jwt -> tokenRevocationService.revoke(jwt.getId(), jwt.getExpiresAt()));
     }
@@ -255,6 +257,7 @@ public class OAuthProviderService {
         abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, client.getClientId());
         validateClientAuthentication(client, clientSecret);
         return decodeOAuthToken(token)
+                .filter(JwtTokenUse::isOAuthAccess)
                 .filter(jwt -> jwt.getExpiresAt() != null && jwt.getExpiresAt().isAfter(Instant.now()))
                 .filter(jwt -> jwt.getAudience().contains(client.getClientId()))
                 .map(jwt -> Map.<String, Object>ofEntries(
@@ -279,6 +282,7 @@ public class OAuthProviderService {
     public Map<String, Object> userInfo(String bearerToken) {
         ensureEnabled();
         Jwt jwt = decodeOAuthToken(bearerToken)
+                .filter(JwtTokenUse::isOAuthAccess)
                 .filter(token -> hasScope(token, "openid"))
                 .orElseThrow(InvalidOAuthRequestException::new);
         @SuppressWarnings("null")
@@ -411,6 +415,11 @@ public class OAuthProviderService {
         };
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 defaultValidator,
+                jwt -> JwtTokenUse.isOAuthAccess(jwt)
+                        ? org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success()
+                        : org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.failure(
+                                new org.springframework.security.oauth2.core.OAuth2Error(
+                                        "invalid_token", "Token is not an OAuth access token", null)),
                 keyRevocationValidator,
                 tokenRevocationValidator));
         return decoder;
@@ -426,6 +435,7 @@ public class OAuthProviderService {
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(authProperties.getToken().getAccessTokenTtlSeconds()))
                 .claim("tenant_id", user.getTenantId().toString())
+                .claim(JwtTokenUse.CLAIM, JwtTokenUse.OAUTH_ACCESS)
                 .claim("client_id", client.getClientId())
                 .claim("scope", String.join(" ", scopes))
                 .claim("amr", List.copyOf(amr))
@@ -439,9 +449,11 @@ public class OAuthProviderService {
                 .issuer(authProperties.getJwt().getIssuer())
                 .audience(List.of(client.getClientId()))
                 .subject(user.getId().toString())
+                .id(UUID.randomUUID().toString())
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(authProperties.getOauth().getIdTokenTtlSeconds()))
                 .claim("tenant_id", user.getTenantId().toString())
+                .claim(JwtTokenUse.CLAIM, JwtTokenUse.ID_TOKEN)
                 .claim("amr", List.copyOf(code.getAmr()));
         if (code.getNonce() != null && !code.getNonce().isBlank()) {
             claims.claim("nonce", code.getNonce());

@@ -21,6 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import io.github.brenomega.authkit.domain.user.dto.PasswordChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
+import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
+import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -218,16 +220,22 @@ public class ProfileService {
      * @param userId the authenticated user's ID
      * @return a list of active session identifiers (JTIs)
      */
-    public List<SessionResponse> listSessions(String userId) {
+    public SessionPageResponse listSessions(String userId, int limit, String cursor) {
+        if (limit < 1 || limit > 100) {
+            throw new InvalidSessionCursorException();
+        }
         @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
         requireActive(user);
+        abuseThrottleService.checkUser(AbuseRateLimitPolicy.SESSION_LIST_USER, user);
 
-        return tokenStorage.listSessions(userId).stream()
+        var page = tokenStorage.listSessions(userId, limit, cursor);
+        List<SessionResponse> sessions = page.items().stream()
                 .map(SessionResponse::new)
                 .toList();
+        return new SessionPageResponse(sessions, page.nextCursor());
     }
 
     /**

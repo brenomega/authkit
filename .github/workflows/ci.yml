@@ -51,6 +51,16 @@ jobs:
       - name: Run tests
         run: mvn clean verify -Dspring.profiles.active=test -B
 
+      - name: Upload CycloneDX SBOMs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: authkit-sbom-${{ github.sha }}
+          path: |
+            target/bom.json
+            target/bom.xml
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Scan dependency manifests
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -72,3 +82,20 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+
+  postgres-migration:
+    name: PostgreSQL Flyway Migration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Run PostgreSQL migration test
+        run: mvn -Dspring.profiles.active=test -Dtest=io.github.brenomega.authkit.infrastructure.persistence.PostgresMigrationTest test -B

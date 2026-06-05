@@ -8,6 +8,10 @@ spring:
   application:
     name: authkit
 
+  mvc:
+    # Framework DEBUG logs must never stringify authentication request bodies.
+    log-request-details: false
+
   # ---------------------------------------------------------------------------
   # PostgreSQL Datasource (DT 3.1.20)
   # ---------------------------------------------------------------------------
@@ -96,6 +100,11 @@ jwt:
 # =============================================================================
 authkit:
   auth:
+    scheduler:
+      distributed-lock-enabled: ${AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED:true}
+      email-poll-lock-at-most: ${AUTH_EMAIL_POLL_LOCK_AT_MOST:PT10M}
+      retention-lock-at-most: ${AUTH_RETENTION_LOCK_AT_MOST:PT2H}
+      retention-lock-at-least: ${AUTH_RETENTION_LOCK_AT_LEAST:PT1M}
     token:
       access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:900}
       refresh-token-ttl-days: ${AUTH_REFRESH_TOKEN_TTL_DAYS:7}
@@ -133,6 +142,13 @@ authkit:
       max-body-bytes: ${AUTH_MAX_REQUEST_BODY_BYTES:65536}
     abuse-control:
       capacity-multiplier: ${AUTH_ABUSE_CONTROL_CAPACITY_MULTIPLIER:1}
+      fail-closed-high-risk: ${AUTH_ABUSE_FAIL_CLOSED_HIGH_RISK:false}
+    password:
+      hibp-enabled: ${AUTH_PASSWORD_HIBP_ENABLED:false}
+      hibp-connect-timeout-ms: ${AUTH_PASSWORD_HIBP_CONNECT_TIMEOUT_MS:1000}
+      hibp-read-timeout-ms: ${AUTH_PASSWORD_HIBP_READ_TIMEOUT_MS:2000}
+      hibp-cache-ttl-seconds: ${AUTH_PASSWORD_HIBP_CACHE_TTL_SECONDS:86400}
+      hibp-cache-max-prefixes: ${AUTH_PASSWORD_HIBP_CACHE_MAX_PREFIXES:10000}
     email-outbox:
       enabled: ${AUTH_EMAIL_OUTBOX_ENABLED:true}
       dispatch-mode: ${AUTH_EMAIL_OUTBOX_DISPATCH_MODE:queue}
@@ -146,6 +162,7 @@ authkit:
       direct-max-pool-size: ${AUTH_EMAIL_OUTBOX_DIRECT_MAX_POOL_SIZE:4}
       direct-queue-capacity: ${AUTH_EMAIL_OUTBOX_DIRECT_QUEUE_CAPACITY:100}
       preserve-rabbit-observability: ${AUTH_EMAIL_OUTBOX_PRESERVE_RABBIT_OBSERVABILITY:false}
+      max-attempts: ${AUTH_EMAIL_OUTBOX_MAX_ATTEMPTS:10}
     email-provider:
       type: ${AUTH_EMAIL_PROVIDER_TYPE:resend}
       connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}
@@ -225,6 +242,7 @@ security:
     # level of security (superior to BCrypt/PBKDF2) against GPU/ASIC brute-forcing.
     memory: ${SECURITY_ARGON2_MEMORY:32768}
     iterations: ${SECURITY_ARGON2_ITERATIONS:2}
+    max-concurrent: ${SECURITY_ARGON2_MAX_CONCURRENT:0}
 
 # =============================================================================
 # Observability / Actuator (DT 3.4.4)
@@ -242,6 +260,16 @@ management:
       hikaricp: true
     tags:
       application: authkit
+
+logging:
+  level:
+    # Broad DEBUG logging in these packages can print resolved configuration,
+    # including environment-backed secrets, before application redaction applies.
+    org.springframework.boot.env: INFO
+    org.springframework.boot.context.config: INFO
+    org.springframework.core.env: INFO
+    org.springframework.web.servlet.mvc.method.annotation: INFO
+    org.springframework.web.client.DefaultRestClient: INFO
 
 # =============================================================================
 # Application Security

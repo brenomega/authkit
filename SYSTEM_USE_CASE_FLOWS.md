@@ -19,14 +19,14 @@ Current request order in the codebase is:
 2. Kubernetes `NetworkPolicy` only permits ingress-controller traffic to the AuthKit pods.
 3. `OriginFirewallFilter` rejects direct backend access unless the remote source is trusted.
 4. `RateLimitingFilter` resolves the real client IP, applies local Caffeine rate limiting first, then distributed Redis Bucket4j rate limiting.
-5. `EndpointAbuseRateLimitingFilter` applies route-specific IP and device/user-agent throttles through `AbuseThrottleService` (local bucket first, then Redis when available; stricter local limits and critical metrics when Redis is unavailable).
+5. `EndpointAbuseRateLimitingFilter` applies route-specific IP and device/user-agent throttles through `AbuseThrottleService` (local bucket first, then Redis when available). Redis loss normally uses stricter local limits; optional `AUTH_ABUSE_FAIL_CLOSED_HIGH_RISK=true` returns an opaque 503 for login, MFA login verification, registration, recovery/reset, and OAuth token exchange.
 6. `RequestBodySizeLimitFilter` rejects oversized POST/PUT/PATCH bodies before JSON parsing or password hashing.
 7. Spring Security CORS applies explicit allowed origins from `authkit.auth.cors` when enabled (production rejects wildcard-with-credentials and non-HTTPS origins).
-8. Spring OAuth2 resource-server JWT validation runs for authenticated routes: RS256 signature via JWKS, issuer and `AUTH_JWT_AUDIENCE` checks, revoked signing `kid` rejection, and revoked token `jti` lookup (`OAuthTokenRevocationService`).
+8. Spring OAuth2 resource-server JWT validation runs for authenticated routes: RS256 signature via JWKS, issuer and `AUTH_JWT_AUDIENCE` checks, `token_use=first_party_access`, revoked signing `kid` rejection, and revoked token `jti` lookup (`OAuthTokenRevocationService`). OAuth access and ID tokens are rejected before session or authority lookup.
 9. `WorkerAuthFilter` applies to `/api/v1/internal/**` and `/actuator/prometheus`; it requires a trusted network source plus the current or previous internal worker token.
 10. `UserAuthoritiesFilter` enforces **first-party API session binding**: for bearer requests it requires JWT `jti` to match an active refresh session in Redis (`TokenStorage.isSessionActive`), then refreshes authorities from a local Caffeine cache (on miss, loads the user snapshot from PostgreSQL). Inactive sessions, missing `jti`, disabled users, or stale roles yield 401.
 11. Controller/service logic executes; many flows apply additional `AbuseThrottleService` checks (per-email, per-user, per-tenant, per-client) beyond the endpoint filter.
-12. Durable security events are written through a bounded async writer, with synchronous fallback when configured.
+12. Critical security events (lockout creation, admin mutation, refresh-family reuse, TOTP disablement, deletion/anonymization) are synchronously flushed in the business transaction; failure returns opaque 503 and rolls back transactional mutations. Noncritical events use the bounded asynchronous writer and emit `security.audit.dropped` plus `SECURITY_ALERT` without failing user operations.
 13. Metrics are exposed at `/actuator/prometheus` only when the internal worker token is supplied; alerts are defined in `k8s/06-prometheus-rules.yaml`.
 
 In the per-endpoint diagrams below, **Shared authenticated ingress** (or **Shared ingress filters** on public routes) refers to this path. Diagrams abbreviate it as “JWT valid with active session and current authorities” unless a flow adds extra checks.
@@ -121,11 +121,11 @@ sequenceDiagram
 
 ## Access Token Classes
 
-| Token | Typical `aud` | Session in Redis | Use on AuthKit |
+| Token | `token_use` | Typical `aud` | Session in Redis | Use on AuthKit |
 |---|---|---|---|
-| First-party access (login, refresh, passkey, MFA login) | `AUTH_JWT_AUDIENCE` | Yes — JWT `jti` equals refresh-session JTI | `/api/v1/users/**`, `/api/v1/admin/**`, `/api/v1/oauth2/authorize` |
-| OAuth access (authorization code grant) | OAuth `client_id` | No — independent `jti`; revocation via `OAuthTokenRevocationService` | `/oauth2/userinfo` only (manual bearer decode in service); **not** first-party user/admin APIs |
-| OAuth ID token | `client_id` | N/A | Returned to client apps; verified by relying parties |
+| First-party access (login, refresh, passkey, MFA login) | `first_party_access` | `AUTH_JWT_AUDIENCE` | Yes — JWT `jti` equals refresh-session JTI | `/api/v1/users/**`, `/api/v1/admin/**`, `/api/v1/oauth2/authorize` |
+| OAuth access (authorization code grant) | `oauth_access` | OAuth `client_id` | No — independent `jti`; revocation via `OAuthTokenRevocationService` | `/oauth2/userinfo`, introspection, and revocation; **not** first-party user/admin APIs |
+| OAuth ID token | `id_token` | `client_id` | N/A | Returned to client apps; never accepted as an API bearer token |
 
 Downstream resource servers should validate issuer, audience, `kid`, algorithm, expiry, tenant, and scopes from JWKS without calling AuthKit on every request unless live revocation beyond token TTL is required.
 
@@ -152,7 +152,7 @@ Authenticated first-party routes depend on JWT validation **and** `UserAuthoriti
 | `POST /api/v1/users/me/export` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL user, consent events, security events | JWT + session `jti`, Argon2 limiter, MFA step-up, audit DB |
 | `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | JWT + session `jti`, user write throttle, authority cache, tenant check |
 | `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | JWT + session `jti`, user write throttle, password policy/history, Argon2 limiter, lockout check, MFA step-up, audit DB |
-| `GET /api/v1/users/me/sessions` | Bearer JWT | Redis refresh sessions | JWT + session `jti`, authority cache, Redis `HKEYS` session list |
+| `GET /api/v1/users/me/sessions?limit=50&cursor=...` | Bearer JWT | Redis refresh sessions and cursor state | JWT + session `jti`, per-user throttle, bounded Redis `HSCAN`, single-use user-bound cursor with five-minute TTL |
 | `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | JWT + session `jti`, authority cache, MFA status cache, tenant check |
 | `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | MFA change throttle, Argon2 limiter, encrypted secret storage, audit DB |
 | `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | MFA change throttle, TOTP verification, hashed backup codes, session revocation, audit DB |
@@ -467,7 +467,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/register`
 
-Infrastructure role: request size and rate limits are enforced before Argon2 hashing; user and consent state are stored transactionally in PostgreSQL; activation email is written to the email outbox and later delivered through the configured dispatch mode and email provider outside the request transaction; duplicate behavior depends on `authkit.auth.registration.stealth-conflicts`.
+Infrastructure role: request size and rate limits are enforced before Argon2 hashing; password composition/history checks optionally query HIBP through k-anonymity (only the five-character SHA-1 prefix, padded response, bounded cache, timeout fail-open metric); user and consent state are stored transactionally in PostgreSQL; activation email is written to the email outbox and later delivered outside the request transaction; duplicate behavior depends on `authkit.auth.registration.stealth-conflicts`.
 
 ```mermaid
 sequenceDiagram
@@ -599,7 +599,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/password-recovery/reset?email=...`
 
-Infrastructure role: recovery email links carry token material in the URL fragment, not the query string, so browsers do not send the token to the backend as a referrer during normal navigation. The reset API still receives the token in the request body and the email as request metadata. Recovery tokens are consumed atomically from Redis before password mutation; password policy rejects weak, identity-derived, common, current, and recent-history passwords; Argon2 encoding is concurrency-bounded; all refresh sessions are revoked; a password-change notification is outbox-backed; audit and lockout state are updated. The app also emits `Referrer-Policy: no-referrer`.
+Infrastructure role: recovery email links carry token material in the URL fragment, not the query string, so browsers do not send the token to the backend as a referrer during normal navigation. The reset API receives the token in the request body. Recovery tokens are consumed atomically from Redis before password mutation; password policy rejects weak, identity-derived, common, breached (when HIBP is enabled), current, and recent-history passwords; Argon2 encoding is concurrency-bounded; all refresh sessions are revoked; a password-change notification is outbox-backed; audit and lockout state are updated. The app also emits `Referrer-Policy: no-referrer`.
 
 ```mermaid
 sequenceDiagram
@@ -987,7 +987,7 @@ sequenceDiagram
 
 `DELETE /api/v1/users/me`
 
-Infrastructure role: deletion requires bearer auth, password step-up, and MFA proof when MFA is enabled; user PII is anonymized immediately in PostgreSQL; authority cache is evicted and Redis sessions are revoked only after commit; deletion and anonymization are durable security events; retention jobs later purge deleted-account tombstones according to configuration.
+Infrastructure role: deletion requires bearer auth, password step-up, and MFA proof when MFA is enabled; user PII is anonymized immediately in PostgreSQL; deletion and anonymization audit rows are synchronously flushed in the same transaction so audit failure rolls the mutation back; authority cache eviction, Redis session revocation, and outbox cleanup occur after commit; retention jobs later purge deleted-account tombstones according to configuration.
 
 ```mermaid
 sequenceDiagram
@@ -1297,7 +1297,7 @@ sequenceDiagram
 
 This flow is not a direct controller endpoint, but it is part of registration, password recovery, and password reset completion.
 
-Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` runs on a dedicated scheduler and claims due rows in batches on each instance (no distributed lock yet—use a single active scheduler replica in production or accept duplicate claims guarded by row locking). In `queue` mode, a successful publish moves the outbox row to `QUEUED`; the row becomes `SENT` only after the RabbitMQ listener receives provider acceptance and records the provider message id. Queue publish failures, provider failures, and delivery-ack timeouts move rows back into retryable state with bounded backoff. RabbitMQ also declares a DLQ for poison messages. In `direct` mode, the scheduler claims a smaller batch and submits provider calls to a bounded direct dispatch worker pool while rows remain protected by an effective `PROCESSING` lock; a worker marks `QUEUED` immediately before provider I/O, then marks `SENT` on provider acceptance or `FAILED` on provider failure without RabbitMQ. Direct mode does not load AuthKit Rabbit email listener/publisher beans and suppresses Rabbit health/metrics by default, while still allowing unrelated host-app Rabbit connection/template beans to coexist.
+Infrastructure role: request handlers only enqueue messages in PostgreSQL; the `EmailOutboxProcessor` is coordinated across replicas by ShedLock using PostgreSQL database time and a maximum ten-minute lock. Conditional state updates make duplicate/stale worker results idempotent: stale failures cannot overwrite `SENT`. The stable outbox UUID remains the Resend idempotency key. Retryable failures use bounded backoff and move to terminal `DEAD` after the configured maximum (default 10), keeping automatic retry behavior within Resend's 24-hour idempotency window. In `queue` mode, publish moves the row to `QUEUED` and provider acceptance moves it to `SENT`; direct mode uses the same durable states through a bounded worker pool.
 
 ```mermaid
 sequenceDiagram
@@ -1352,7 +1352,7 @@ sequenceDiagram
 
 This flow is not a direct controller endpoint, but it supports production privacy and audit retention requirements.
 
-Infrastructure role: `DataRetentionService` runs from the configured cron when enabled on each application instance; there is no distributed lock yet, so multiple replicas may attempt the same purge window (operations should use a single scheduler replica or accept idempotent batch deletes until coordination is added). It purges expired security events, deleted-account tombstones, expired passkey challenges, and expired OAuth authorization codes in bounded transactions to avoid long-running delete transactions.
+Infrastructure role: `DataRetentionService` runs from the configured cron and is coordinated across replicas by PostgreSQL-backed ShedLock (minimum one-minute, maximum two-hour lock). Repeated or retried execution is harmless: it selects bounded ID batches and uses conditional/idempotent deletes for expired security events, deleted-account tombstones, passkey challenges, and OAuth authorization codes.
 
 ```mermaid
 sequenceDiagram

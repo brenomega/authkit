@@ -3,6 +3,8 @@ package io.github.brenomega.authkit.infrastructure.audit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -23,6 +25,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
+import io.github.brenomega.authkit.exception.AuditUnavailableException;
 
 class SecurityEventServiceTest {
 
@@ -65,7 +68,7 @@ class SecurityEventServiceTest {
                 java.util.Map.of("resetToken", "secret-token", "policy", "login"));
 
         ArgumentCaptor<SecurityEvent> eventCaptor = ArgumentCaptor.forClass(SecurityEvent.class);
-        verify(writer).persist(eventCaptor.capture());
+        verify(writer).persistNonCritical(eventCaptor.capture());
 
         SecurityEvent event = eventCaptor.getValue();
         assertEquals(SecurityEventType.LOGIN_FAILURE, event.getEventType());
@@ -113,7 +116,7 @@ class SecurityEventServiceTest {
                 "user@example.com",
                 "password_reset_requested");
 
-        verify(writer).persist(any(SecurityEvent.class));
+        verify(writer).persistNonCritical(any(SecurityEvent.class));
         assertEquals(1.0, meterRegistry.counter(
                 "security.events.overloaded",
                 "type", SecurityEventType.PASSWORD_RESET_REQUESTED.name(),
@@ -122,6 +125,56 @@ class SecurityEventServiceTest {
                 "security.events.fallback.persisted",
                 "type", SecurityEventType.PASSWORD_RESET_REQUESTED.name(),
                 "severity", SecurityEventSeverity.MEDIUM.name()).count());
+    }
+
+    @Test
+    @DisplayName("Critical audit persistence fails closed with an opaque service error")
+    void criticalPersistenceFailureFailsClosed() {
+        SecurityEventWriter writer = mock(SecurityEventWriter.class);
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(writer).persistCritical(any(SecurityEvent.class));
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        SecurityEventService service = service(writer, meters);
+
+        assertThrows(AuditUnavailableException.class, () -> service.recordForEmail(
+                SecurityEventType.ACCOUNT_LOCKED,
+                SecurityEventOutcome.DENIED,
+                SecurityEventSeverity.CRITICAL,
+                "user@example.com",
+                "account_locked"));
+        assertEquals(1.0, meters.find("security.audit.fail_closed").counter().count());
+    }
+
+    @Test
+    @DisplayName("Noncritical audit persistence failure records a drop without failing the operation")
+    void nonCriticalPersistenceFailureIsBestEffort() {
+        SecurityEventWriter writer = mock(SecurityEventWriter.class);
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(writer).persistNonCritical(any(SecurityEvent.class));
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        SecurityEventService service = service(writer, meters);
+
+        assertDoesNotThrow(() -> service.recordForEmail(
+                SecurityEventType.LOGIN_FAILURE,
+                SecurityEventOutcome.FAILURE,
+                SecurityEventSeverity.MEDIUM,
+                "user@example.com",
+                "invalid_credentials"));
+        assertEquals(1.0, meters.find("security.audit.dropped").counter().count());
+    }
+
+    private SecurityEventService service(SecurityEventWriter writer, SimpleMeterRegistry meters) {
+        AuthProperties properties = new AuthProperties();
+        properties.getAudit().setAsyncEnabled(false);
+        properties.getAudit().setHashPepper("unit-test-audit-hash-pepper-at-least-32-chars");
+        return new SecurityEventService(
+                writer,
+                mock(ThreadPoolTaskExecutor.class),
+                mock(NetworkIpResolver.class),
+                meters,
+                new ObjectMapper(),
+                properties,
+                new AuditDigestService(properties));
     }
 
     @Test

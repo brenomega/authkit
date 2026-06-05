@@ -14,7 +14,12 @@ public class SecurityEventWriter {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void persist(SecurityEvent event) {
-        repository.save(event);
+    public void persistNonCritical(SecurityEvent event) {
+        repository.saveAndFlush(event);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRED)
+    public void persistCritical(SecurityEvent event) {
+        repository.saveAndFlush(event);
     }
 }

@@ -5,5 +5,6 @@ public enum EmailOutboxStatus {
     PROCESSING,
     QUEUED,
     SENT,
-    FAILED
+    FAILED,
+    DEAD
 }

@@ -64,6 +64,25 @@ class ProductionConfigValidatorTest {
     }
 
     @Test
+    @DisplayName("Production validation requires distributed scheduler locks when jobs are enabled")
+    void run_scheduledJobsWithoutDistributedLock_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.scheduler.distributed-lock-enabled", "false")
+                .withProperty("authkit.auth.email-outbox.enabled", "true");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects scheduler lock windows above safety bounds")
+    void run_oversizedSchedulerLock_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.scheduler.email-poll-lock-at-most", "PT11M");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
     @DisplayName("Production validation requires Rabbit credentials when direct mode preserves Rabbit observability")
     void run_directEmailDispatchPreservingRabbitObservabilityWithoutRabbitCredentials_rejectsStartup() {
         MockEnvironment environment = productionEnvironmentBase()

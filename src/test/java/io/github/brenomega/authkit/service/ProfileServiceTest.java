@@ -208,9 +208,9 @@ class ProfileServiceTest {
         when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         authenticateAsTenant(jwtTenant);
 
-        assertThrows(UserNotFoundException.class, () -> profileService.listSessions(userId));
+        assertThrows(UserNotFoundException.class, () -> profileService.listSessions(userId, 50, null));
         assertThrows(UserNotFoundException.class, () -> profileService.revokeSession(userId, "target-jti"));
-        verify(tokenStorage, never()).listSessions(userId);
+        verify(tokenStorage, never()).listSessions(userId, 50, null);
         verify(tokenStorage, never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 

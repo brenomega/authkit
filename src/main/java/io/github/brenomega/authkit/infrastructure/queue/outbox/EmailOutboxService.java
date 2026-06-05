@@ -11,14 +11,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 
 @Service
 public class EmailOutboxService {
 
     private final EmailOutboxRepository repository;
+    private final AuthProperties authProperties;
+    private final MeterRegistry meterRegistry;
 
-    public EmailOutboxService(EmailOutboxRepository repository) {
+    public EmailOutboxService(EmailOutboxRepository repository,
+                              AuthProperties authProperties,
+                              MeterRegistry meterRegistry) {
         this.repository = repository;
+        this.authProperties = authProperties;
+        this.meterRegistry = meterRegistry;
     }
 
     @SuppressWarnings("null")
@@ -46,22 +54,39 @@ public class EmailOutboxService {
     @SuppressWarnings("null")
     @Transactional
     public void markQueued(UUID messageId, Duration deliveryTimeout) {
-        repository.findById(messageId)
-                .ifPresent(message -> message.markQueued(Instant.now(), deliveryTimeout));
+        repository.markQueued(messageId,
+                List.of(EmailOutboxStatus.PROCESSING, EmailOutboxStatus.QUEUED), EmailOutboxStatus.QUEUED,
+                Instant.now().plus(deliveryTimeout));
     }
 
     @SuppressWarnings("null")
     @Transactional
     public void markSent(UUID messageId, String providerMessageId) {
-        repository.findById(messageId)
-                .ifPresent(message -> message.markSent(providerMessageId, Instant.now()));
+        repository.markSent(messageId, EmailOutboxStatus.SENT, providerMessageId, Instant.now());
     }
 
     @SuppressWarnings("null")
     @Transactional
     public void markFailed(UUID messageId, String error) {
-        repository.findById(messageId)
-                .ifPresent(message -> message.markFailed(error, Instant.now()));
+        EmailOutboxMessage message = repository.findById(messageId).orElse(null);
+        if (message == null || message.getStatus() == EmailOutboxStatus.SENT
+                || message.getStatus() == EmailOutboxStatus.DEAD) {
+            return;
+        }
+        int maxAttempts = authProperties.getEmailOutbox().getMaxAttempts();
+        Instant nextAttemptAt = Instant.now().plus(backoffDelay(message.getAttempts()));
+        int updated = repository.markFailed(
+                messageId,
+                List.of(EmailOutboxStatus.PROCESSING, EmailOutboxStatus.QUEUED),
+                EmailOutboxStatus.FAILED,
+                EmailOutboxStatus.DEAD,
+                maxAttempts,
+                truncate(error),
+                nextAttemptAt);
+        if (updated == 1) {
+            String outcome = message.getAttempts() >= maxAttempts ? "dead" : "retry";
+            meterRegistry.counter("security.email.outbox." + outcome).increment();
+        }
     }
 
     @Transactional
@@ -70,5 +95,17 @@ public class EmailOutboxService {
             return 0;
         }
         return repository.deleteByRecipientIn(recipients);
+    }
+
+    private Duration backoffDelay(int attempts) {
+        long delaySeconds = Math.min(3600, 60L * (1L << Math.min(attempts, 5)));
+        return Duration.ofSeconds(delaySeconds);
+    }
+
+    private String truncate(String error) {
+        if (error == null || error.length() <= 1000) {
+            return error;
+        }
+        return error.substring(0, 1000);
     }
 }

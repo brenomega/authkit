@@ -66,6 +66,7 @@ public class JwtConfig {
                 JwtValidators.createDefaultWithIssuer(authProperties.getJwt().getIssuer());
 
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(authProperties.getJwt().getAudience());
+        OAuth2TokenValidator<Jwt> tokenUseValidator = new FirstPartyTokenUseValidator(authProperties.getJwt().getAudience());
         OAuth2TokenValidator<Jwt> keyRevocationValidator = new KeyRevocationValidator(jwtKeyService);
         OAuth2TokenValidator<Jwt> tokenRevocationValidator = new TokenRevocationValidator(tokenRevocationService);
 
@@ -73,11 +74,29 @@ public class JwtConfig {
                 new DelegatingOAuth2TokenValidator<>(
                         defaultValidator,
                         audienceValidator,
+                        tokenUseValidator,
                         keyRevocationValidator,
                         tokenRevocationValidator);
 
         decoder.setJwtValidator(combinedValidator);
         return decoder;
+    }
+
+    private static class FirstPartyTokenUseValidator implements OAuth2TokenValidator<Jwt> {
+        private final String apiAudience;
+
+        private FirstPartyTokenUseValidator(String apiAudience) {
+            this.apiAudience = apiAudience;
+        }
+
+        @Override
+        public OAuth2TokenValidatorResult validate(Jwt jwt) {
+            if (JwtTokenUse.isFirstPartyAccess(jwt, apiAudience)) {
+                return OAuth2TokenValidatorResult.success();
+            }
+            return OAuth2TokenValidatorResult.failure(
+                    new OAuth2Error("invalid_token", "Token is not a first-party access token", null));
+        }
     }
 
     /**

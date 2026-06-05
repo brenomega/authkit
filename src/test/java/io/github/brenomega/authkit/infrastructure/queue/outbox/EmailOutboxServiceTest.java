@@ -14,6 +14,8 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import io.github.brenomega.authkit.service.spi.EmailPayload;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 @DataJpaTest
 @ActiveProfiles("test")
@@ -23,10 +25,14 @@ class EmailOutboxServiceTest {
     private EmailOutboxRepository repository;
 
     private EmailOutboxService service;
+    private AuthProperties properties;
+    private SimpleMeterRegistry meters;
 
     @BeforeEach
     void setUp() {
-        service = new EmailOutboxService(repository);
+        properties = new AuthProperties();
+        meters = new SimpleMeterRegistry();
+        service = new EmailOutboxService(repository, properties, meters);
     }
 
     @SuppressWarnings("null")
@@ -48,5 +54,34 @@ class EmailOutboxServiceTest {
                 .containsExactly(messageId);
         assertThat(repository.findById(messageId).orElseThrow().getStatus())
                 .isEqualTo(EmailOutboxStatus.PROCESSING);
+    }
+
+    @Test
+    @DisplayName("Stale failure cannot overwrite a successful provider delivery")
+    void staleFailureDoesNotOverwriteSent() {
+        service.enqueue(new EmailPayload("sent@example.com", "Subject", "Body"));
+        UUID id = service.claimDueMessages(1, Duration.ZERO).getFirst().getId();
+
+        service.markSent(id, "provider-first");
+        service.markFailed(id, "stale worker failure");
+        service.markSent(id, "provider-duplicate");
+
+        EmailOutboxMessage message = repository.findById(id).orElseThrow();
+        assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.SENT);
+        assertThat(message.getProviderMessageId()).isEqualTo("provider-first");
+    }
+
+    @Test
+    @DisplayName("Maximum delivery attempts move a message to terminal DEAD state")
+    void maxAttemptsMovesMessageToDeadState() {
+        properties.getEmailOutbox().setMaxAttempts(1);
+        service.enqueue(new EmailPayload("dead@example.com", "Subject", "Body"));
+        UUID id = service.claimDueMessages(1, Duration.ZERO).getFirst().getId();
+
+        service.markFailed(id, "provider unavailable");
+
+        assertThat(repository.findById(id).orElseThrow().getStatus()).isEqualTo(EmailOutboxStatus.DEAD);
+        assertThat(service.claimDueMessages(10, Duration.ZERO)).isEmpty();
+        assertThat(meters.counter("security.email.outbox.dead").count()).isEqualTo(1.0);
     }
 }

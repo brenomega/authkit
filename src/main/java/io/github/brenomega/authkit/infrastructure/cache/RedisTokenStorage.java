@@ -4,14 +4,20 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.stereotype.Component;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
+import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
+import io.github.brenomega.authkit.service.spi.SessionPage;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
@@ -26,6 +32,8 @@ public class RedisTokenStorage implements TokenStorage {
     private static final String TOKEN_KEY_SUFFIX = ":tokens";
     private static final String FAMILY_KEY_SUFFIX = ":family:";
     private static final String FAMILIES_KEY_SUFFIX = ":families";
+    private static final String SESSION_CURSOR_PREFIX = "session:cursor:";
+    private static final Duration SESSION_CURSOR_TTL = Duration.ofMinutes(5);
     private static final DefaultRedisScript<Boolean> STORE_REFRESH_SCRIPT =
             new DefaultRedisScript<>("""
                     redis.call('HSET', KEYS[1], ARGV[1], ARGV[2]);
@@ -249,10 +257,94 @@ public class RedisTokenStorage implements TokenStorage {
 
     @SuppressWarnings("null")
     @Override
-    public java.util.List<String> listSessions(String userId) {
-        return redisTemplate.opsForHash().keys(tokenKey(userId)).stream()
-                .map(Object::toString)
-                .toList();
+    public SessionPage listSessions(String userId, int limit, String cursor) {
+        if (limit < 1 || limit > 100) {
+            throw new InvalidSessionCursorException();
+        }
+
+        CursorState state = cursor == null || cursor.isBlank()
+                ? new CursorState(userId, "0", List.of())
+                : consumeCursor(userId, cursor);
+        List<String> items = new ArrayList<>(limit);
+        List<String> overflow = new ArrayList<>(state.overflow());
+        while (!overflow.isEmpty() && items.size() < limit) {
+            items.add(overflow.remove(0));
+        }
+
+        String redisCursor = state.redisCursor();
+        if (items.size() < limit && (!"0".equals(redisCursor) || cursor == null || cursor.isBlank())) {
+            HashScanResult scan = scanHash(tokenKey(userId), redisCursor, limit);
+            redisCursor = scan.nextCursor();
+            for (String jti : scan.fields()) {
+                if (items.size() < limit) {
+                    items.add(jti);
+                } else {
+                    overflow.add(jti);
+                }
+            }
+        }
+
+        String nextCursor = null;
+        if (!"0".equals(redisCursor) || !overflow.isEmpty()) {
+            nextCursor = storeCursor(new CursorState(userId, redisCursor, overflow));
+        }
+        return new SessionPage(List.copyOf(items), nextCursor);
+    }
+
+    @SuppressWarnings("null")
+    private HashScanResult scanHash(String key, String cursor, int count) {
+        Object raw = redisTemplate.execute((RedisCallback<Object>) connection -> connection.execute(
+                "HSCAN",
+                key.getBytes(StandardCharsets.UTF_8),
+                cursor.getBytes(StandardCharsets.UTF_8),
+                "COUNT".getBytes(StandardCharsets.UTF_8),
+                Integer.toString(count).getBytes(StandardCharsets.UTF_8)));
+        if (!(raw instanceof List<?> response) || response.size() != 2) {
+            return new HashScanResult("0", List.of());
+        }
+        String next = decode(response.get(0));
+        List<String> fields = new ArrayList<>();
+        if (response.get(1) instanceof List<?> entries) {
+            for (int i = 0; i + 1 < entries.size(); i += 2) {
+                fields.add(decode(entries.get(i)));
+            }
+        }
+        return new HashScanResult(next, fields);
+    }
+
+    private CursorState consumeCursor(String userId, String token) {
+        String serialized = redisTemplate.opsForValue().getAndDelete(SESSION_CURSOR_PREFIX + token);
+        if (serialized == null) {
+            throw new InvalidSessionCursorException();
+        }
+        String[] parts = serialized.split("\\n", -1);
+        if (parts.length != 3 || !MessageDigest.isEqual(
+                userId.getBytes(StandardCharsets.UTF_8), parts[0].getBytes(StandardCharsets.UTF_8))) {
+            throw new InvalidSessionCursorException();
+        }
+        List<String> overflow = parts[2].isBlank() ? List.of() : Arrays.asList(parts[2].split(","));
+        return new CursorState(parts[0], parts[1], overflow);
+    }
+
+    private String storeCursor(CursorState state) {
+        String token = io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator.randomUrlSafeToken(24);
+        String serialized = state.userId() + "\n" + state.redisCursor() + "\n"
+                + String.join(",", state.overflow());
+        redisTemplate.opsForValue().set(SESSION_CURSOR_PREFIX + token, serialized, SESSION_CURSOR_TTL);
+        return token;
+    }
+
+    private String decode(Object value) {
+        if (value instanceof byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        return String.valueOf(value);
+    }
+
+    private record CursorState(String userId, String redisCursor, List<String> overflow) {
+    }
+
+    private record HashScanResult(String nextCursor, List<String> fields) {
     }
 
     @SuppressWarnings("null")

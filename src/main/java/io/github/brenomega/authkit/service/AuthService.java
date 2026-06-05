@@ -541,6 +541,8 @@ public class AuthService {
                 .subject(user.getId().toString())
                 .id(refreshToken.jti()) // DT 3.2.3: bind access token to refresh session JTI
                 .claim("tenant_id", user.getTenantId().toString())
+                .claim(io.github.brenomega.authkit.infrastructure.security.JwtTokenUse.CLAIM,
+                        io.github.brenomega.authkit.infrastructure.security.JwtTokenUse.FIRST_PARTY_ACCESS)
                 .claim("amr", amr)
                 .claim("mfa", amr.stream().anyMatch(method -> !"pwd".equals(method)))
                 .build();

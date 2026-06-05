@@ -8,13 +8,11 @@ import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.query.Param;
 
 @org.springframework.stereotype.Repository
-public interface SecurityEventRepository extends Repository<SecurityEvent, UUID> {
-
-    SecurityEvent save(SecurityEvent event);
+public interface SecurityEventRepository extends JpaRepository<SecurityEvent, UUID> {
 
     List<SecurityEvent> findTop100ByTargetUserIdOrderByOccurredAtDesc(UUID targetUserId);
 

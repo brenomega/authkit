@@ -1,0 +1,167 @@
+openapi: 3.0.3
+info:
+  title: AuthKit API
+  version: 0.1.0
+  description: Static integration contract. Runtime documentation endpoints are intentionally disabled.
+servers:
+  - url: https://auth.example.com
+security:
+  - bearerAuth: []
+paths:
+  /.well-known/openid-configuration:
+    get: {security: [], responses: {'200': {description: OIDC discovery metadata}}}
+  /.well-known/jwks.json:
+    get: {security: [], responses: {'200': {description: Public signing keys}}}
+  /api/v1/auth/login:
+    post: &publicPost
+      security: []
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {description: Rate limited}, '503': {description: Dependency unavailable}}
+  /api/v1/auth/mfa/verify-login:
+    post: *publicPost
+  /api/v1/auth/passkeys/options:
+    post: *publicPost
+  /api/v1/auth/passkeys/verify:
+    post: *publicPost
+  /api/v1/auth/refresh:
+    post:
+      security: [{refreshCookie: [], csrfHeader: []}]
+      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
+  /api/v1/auth/logout:
+    post:
+      security: [{refreshCookie: [], csrfHeader: []}]
+      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
+  /api/v1/auth/logout-all:
+    post: &authPost
+      responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
+  /api/v1/auth/register:
+    post: *publicPost
+  /api/v1/auth/email-confirmation/confirm:
+    post: *publicPost
+  /api/v1/auth/email-confirmation/resend:
+    post: *publicPost
+  /api/v1/auth/password-recovery/request:
+    post: *publicPost
+  /api/v1/auth/password-recovery/reset:
+    post: *publicPost
+  /api/v1/users/me:
+    get: &authGet
+      responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
+    patch: *authPost
+    delete: *authPost
+  /api/v1/users/me/consent:
+    get: *authGet
+  /api/v1/users/me/export:
+    post: *authPost
+  /api/v1/users/me/password:
+    post: *authPost
+  /api/v1/users/me/sessions:
+    get:
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+        - {name: cursor, in: query, schema: {type: string}, description: Opaque single-use cursor with a five-minute lifetime}
+      responses:
+        '200':
+          description: Bounded active-session page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SessionPageApiResponse'}
+        '400': {$ref: '#/components/responses/Error'}
+  /api/v1/users/me/sessions/{jti}:
+    delete:
+      parameters: [{$ref: '#/components/parameters/Jti'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/users/me/mfa:
+    get: *authGet
+  /api/v1/users/me/mfa/totp/enroll:
+    post: *authPost
+  /api/v1/users/me/mfa/totp/confirm:
+    post: *authPost
+  /api/v1/users/me/mfa/totp:
+    delete: *authPost
+  /api/v1/users/me/mfa/backup-codes:
+    post: *authPost
+  /api/v1/users/me/passkeys:
+    get: *authGet
+    post: *authPost
+  /api/v1/users/me/passkeys/options:
+    post: *authPost
+  /api/v1/users/me/passkeys/{credentialId}:
+    delete:
+      parameters: [{$ref: '#/components/parameters/CredentialId'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/oauth2/authorize:
+    post: *authPost
+  /oauth2/token:
+    post: &oauthFormPost
+      security: [{oauthClientBasic: []}]
+      responses: {'200': {description: OAuth response}, '400': {description: Invalid request}, '503': {description: Dependency unavailable}}
+  /oauth2/revoke:
+    post: *oauthFormPost
+  /oauth2/introspect:
+    post: *oauthFormPost
+  /oauth2/userinfo:
+    get: *authGet
+  /api/v1/admin/users:
+    get: *authGet
+  /api/v1/admin/users/{userId}/role:
+    patch:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/admin/tenants:
+    get: *authGet
+  /api/v1/admin/oauth-clients:
+    get: *authGet
+    post: *authPost
+  /api/v1/admin/oauth-clients/{clientId}:
+    patch:
+      parameters: [{$ref: '#/components/parameters/ClientId'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+    delete:
+      parameters: [{$ref: '#/components/parameters/ClientId'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+    refreshCookie: {type: apiKey, in: cookie, name: Refresh-Token}
+    csrfHeader: {type: apiKey, in: header, name: X-XSRF-TOKEN}
+    oauthClientBasic: {type: http, scheme: basic}
+  parameters:
+    Jti: {name: jti, in: path, required: true, schema: {type: string}}
+    UserId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
+    ClientId: {name: clientId, in: path, required: true, schema: {type: string}}
+    CredentialId: {name: credentialId, in: path, required: true, schema: {type: string, format: uuid}}
+  responses:
+    Success:
+      description: Successful response
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
+    Error:
+      description: Opaque error response
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        data: {}
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+    SessionPageApiResponse:
+      type: object
+      required: [data, timestamp]
+      properties:
+        data: {$ref: '#/components/schemas/SessionPageResponse'}
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+    SessionPageResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/SessionResponse'}
+        nextCursor: {type: string, nullable: true, description: Opaque single-use cursor}
+    SessionResponse:
+      type: object
+      required: [jti]
+      properties:
+        jti: {type: string}

@@ -117,7 +117,10 @@ class UserAuthoritiesFilterTest {
                 now,
                 now.plusSeconds(300),
                 Map.of("alg", "RS256"),
-                Map.of("sub", userId.toString(), "jti", jti, "tenant_id", UUID.randomUUID().toString()));
+                Map.of("sub", userId.toString(), "jti", jti,
+                        "aud", java.util.List.of("authkit-api"),
+                        "token_use", JwtTokenUse.FIRST_PARTY_ACCESS,
+                        "tenant_id", UUID.randomUUID().toString()));
     }
 
     private ObjectMapper objectMapper() {

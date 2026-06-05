@@ -79,6 +79,7 @@ security:
     memory: 4096
     iterations: 1
     parallelism: 1
+    max-concurrent: 0
 
 # =============================================================================
 # JWT — Test keys loaded from classpath (DT 3.2.2)
@@ -95,6 +96,8 @@ jwt:
 # =============================================================================
 authkit:
   auth:
+    scheduler:
+      distributed-lock-enabled: false
     token:
       access-token-ttl-seconds: 900
       refresh-token-ttl-days: 7
@@ -127,6 +130,9 @@ authkit:
       max-body-bytes: 65536
     abuse-control:
       capacity-multiplier: 1000
+      fail-closed-high-risk: false
+    password:
+      hibp-enabled: false
     email-outbox:
       enabled: false
       dispatch-mode: queue

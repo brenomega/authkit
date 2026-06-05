@@ -179,6 +179,8 @@ public class ProfileIntegrationTest {
         tokenStorage.storeRefreshToken(user.getId().toString(), jti, refreshToken.rawToken(), 7);
         return jwt().jwt(builder -> builder
                 .subject(user.getId().toString())
+                .audience(java.util.List.of("authkit-api"))
+                .claim("token_use", "first_party_access")
                 .claim("jti", jti)
                 .claim("tenant_id", user.getTenantId().toString()));
     }

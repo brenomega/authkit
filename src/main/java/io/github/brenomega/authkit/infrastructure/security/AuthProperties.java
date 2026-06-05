@@ -52,6 +52,9 @@ public class AuthProperties {
     private AbuseControl abuseControl = new AbuseControl();
 
     @Valid
+    private Password password = new Password();
+
+    @Valid
     private EmailOutbox emailOutbox = new EmailOutbox();
 
     @Valid
@@ -153,6 +156,14 @@ public class AuthProperties {
 
     public void setAbuseControl(AbuseControl abuseControl) {
         this.abuseControl = abuseControl;
+    }
+
+    public Password getPassword() {
+        return password;
+    }
+
+    public void setPassword(Password password) {
+        this.password = password;
     }
 
     public EmailOutbox getEmailOutbox() {
@@ -549,12 +560,82 @@ public class AuthProperties {
         @Max(1000)
         private long capacityMultiplier = 1;
 
+        private boolean failClosedHighRisk;
+
         public long getCapacityMultiplier() {
             return capacityMultiplier;
         }
 
         public void setCapacityMultiplier(long capacityMultiplier) {
             this.capacityMultiplier = capacityMultiplier;
+        }
+
+        public boolean isFailClosedHighRisk() {
+            return failClosedHighRisk;
+        }
+
+        public void setFailClosedHighRisk(boolean failClosedHighRisk) {
+            this.failClosedHighRisk = failClosedHighRisk;
+        }
+    }
+
+    public static class Password {
+
+        private boolean hibpEnabled;
+
+        @Min(100)
+        @Max(10000)
+        private int hibpConnectTimeoutMs = 1000;
+
+        @Min(100)
+        @Max(10000)
+        private int hibpReadTimeoutMs = 2000;
+
+        @Min(60)
+        private long hibpCacheTtlSeconds = 86400;
+
+        @Min(100)
+        @Max(100000)
+        private long hibpCacheMaxPrefixes = 10000;
+
+        public boolean isHibpEnabled() {
+            return hibpEnabled;
+        }
+
+        public void setHibpEnabled(boolean hibpEnabled) {
+            this.hibpEnabled = hibpEnabled;
+        }
+
+        public int getHibpConnectTimeoutMs() {
+            return hibpConnectTimeoutMs;
+        }
+
+        public void setHibpConnectTimeoutMs(int hibpConnectTimeoutMs) {
+            this.hibpConnectTimeoutMs = hibpConnectTimeoutMs;
+        }
+
+        public int getHibpReadTimeoutMs() {
+            return hibpReadTimeoutMs;
+        }
+
+        public void setHibpReadTimeoutMs(int hibpReadTimeoutMs) {
+            this.hibpReadTimeoutMs = hibpReadTimeoutMs;
+        }
+
+        public long getHibpCacheTtlSeconds() {
+            return hibpCacheTtlSeconds;
+        }
+
+        public void setHibpCacheTtlSeconds(long hibpCacheTtlSeconds) {
+            this.hibpCacheTtlSeconds = hibpCacheTtlSeconds;
+        }
+
+        public long getHibpCacheMaxPrefixes() {
+            return hibpCacheMaxPrefixes;
+        }
+
+        public void setHibpCacheMaxPrefixes(long hibpCacheMaxPrefixes) {
+            this.hibpCacheMaxPrefixes = hibpCacheMaxPrefixes;
         }
     }
 
@@ -600,6 +681,10 @@ public class AuthProperties {
         private int directQueueCapacity = 100;
 
         private boolean preserveRabbitObservability;
+
+        @Min(1)
+        @Max(10)
+        private int maxAttempts = 10;
 
         @AssertTrue(message = "Direct email executor max pool size must be greater than or equal to core pool size")
         public boolean isDirectExecutorPoolValid() {
@@ -700,6 +785,14 @@ public class AuthProperties {
 
         public void setPreserveRabbitObservability(boolean preserveRabbitObservability) {
             this.preserveRabbitObservability = preserveRabbitObservability;
+        }
+
+        public int getMaxAttempts() {
+            return maxAttempts;
+        }
+
+        public void setMaxAttempts(int maxAttempts) {
+            this.maxAttempts = maxAttempts;
         }
     }
 

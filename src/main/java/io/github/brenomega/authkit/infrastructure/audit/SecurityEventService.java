@@ -25,6 +25,7 @@ import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
 import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.exception.AuditUnavailableException;
 
 /**
  * Builds privacy-safe security events and persists them through a bounded writer.
@@ -172,18 +173,22 @@ public class SecurityEventService {
         meterRegistry.counter("security.events", "type", type.name(), "outcome", outcome.name(), "severity", severity.name())
                 .increment();
         recordSpecificMetric(type, storedReason);
-        persist(event);
+        if (isCritical(type, storedReason)) {
+            persistCritical(event);
+        } else {
+            persistNonCritical(event);
+        }
         alertIfNeeded(type, outcome, severity, eventHash);
     }
 
-    private void persist(SecurityEvent event) {
+    private void persistNonCritical(SecurityEvent event) {
         if (!authProperties.getAudit().isAsyncEnabled()) {
-            persistDirect(event);
+            persistBestEffort(event);
             return;
         }
 
         try {
-            eventExecutor.execute(() -> persistDirect(event));
+            eventExecutor.execute(() -> persistBestEffort(event));
         } catch (TaskRejectedException ex) {
             meterRegistry.counter("security.events.overloaded",
                     "type", event.getEventType().name(),
@@ -193,31 +198,58 @@ public class SecurityEventService {
                 meterRegistry.counter("security.events.fallback.persisted",
                         "type", event.getEventType().name(),
                         "severity", event.getSeverity().name()).increment();
-                persistDirect(event);
+                persistBestEffort(event);
                 return;
             }
 
-            meterRegistry.counter("security.events.dropped",
-                    "type", event.getEventType().name(),
-                    "severity", event.getSeverity().name(),
-                    "reason", "queue_saturated").increment();
-            log.warn("Security event writer queue saturated; dropped event type={} severity={} eventHash={}",
-                    event.getEventType(), event.getSeverity(), event.getEventHash());
+            recordDropped(event, "queue_saturated", null);
         }
     }
 
-    private void persistDirect(SecurityEvent event) {
+    private void persistCritical(SecurityEvent event) {
         try {
-            eventWriter.persist(event);
+            eventWriter.persistCritical(event);
         } catch (RuntimeException ex) {
             meterRegistry.counter("security.infrastructure.failure", "component", "security_event_store").increment();
-            meterRegistry.counter("security.events.dropped",
-                    "type", event.getEventType().name(),
-                    "severity", event.getSeverity().name(),
-                    "reason", "persistence_failure").increment();
-            log.error("Security event persistence failed type={} severity={} eventHash={}",
-                    event.getEventType(), event.getSeverity(), event.getEventHash(), ex);
+            meterRegistry.counter("security.audit.fail_closed", "type", event.getEventType().name()).increment();
+            alertLog.error("Critical security audit persistence failed; transaction denied type={} eventHash={}",
+                    event.getEventType(), event.getEventHash());
+            throw new AuditUnavailableException(ex);
         }
+    }
+
+    private void persistBestEffort(SecurityEvent event) {
+        try {
+            eventWriter.persistNonCritical(event);
+        } catch (RuntimeException ex) {
+            recordDropped(event, "persistence_failure", ex);
+        }
+    }
+
+    private void recordDropped(SecurityEvent event, String reason, RuntimeException cause) {
+        meterRegistry.counter("security.infrastructure.failure", "component", "security_event_store").increment();
+        meterRegistry.counter("security.audit.dropped",
+                "type", event.getEventType().name(), "reason", reason).increment();
+        meterRegistry.counter("security.events.dropped",
+                "type", event.getEventType().name(),
+                "severity", event.getSeverity().name(),
+                "reason", reason).increment();
+        alertLog.error("Noncritical security audit event dropped type={} reason={} eventHash={}",
+                event.getEventType(), reason, event.getEventHash());
+        if (cause != null) {
+            log.error("Security event persistence failed type={} severity={} eventHash={}",
+                    event.getEventType(), event.getSeverity(), event.getEventHash(), cause);
+        }
+    }
+
+    private boolean isCritical(SecurityEventType type, String reason) {
+        return switch (type) {
+            case ACCOUNT_LOCKED, REFRESH_TOKEN_REUSE_DETECTED, ADMIN_ACTION,
+                    OAUTH_CLIENT_CREATED, OAUTH_CLIENT_UPDATED,
+                    ACCOUNT_DELETION_REQUESTED, ACCOUNT_ANONYMIZED -> true;
+            case MFA_CHANGED -> "totp_disabled".equals(reason);
+            default -> false;
+        };
     }
 
     private void recordSpecificMetric(SecurityEventType type, String reason) {

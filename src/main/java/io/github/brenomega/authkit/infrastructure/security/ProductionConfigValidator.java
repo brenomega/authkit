@@ -50,6 +50,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("spring.datasource.password", "secretpassword", "CHANGE-ME-DB-PASSWORD");
         validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
         validateEmailDispatchMode();
+        validateSchedulerLocks();
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
         validateEmailProvider();
         validateCredential("authkit.auth.jwt.issuer", "authkit");
@@ -86,11 +87,42 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateMinLong("authkit.auth.email-provider.connect-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.read-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.max-attempts", 1);
+        if (getLongProperty("authkit.auth.email-outbox.max-attempts", 10) < 1) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email outbox max attempts must be positive. Startup aborted.");
+        }
         validateMinLong("security.argon2.memory", 19456);
         validateMinLong("security.argon2.iterations", 2);
         validateMinLong("security.argon2.parallelism", 1);
+        validateNonNegativeLong("security.argon2.max-concurrent");
 
         log.info("Production configuration security checks PASSED successfully.");
+    }
+
+    private void validateSchedulerLocks() {
+        boolean emailJobEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-outbox.enabled", "true"));
+        boolean retentionJobEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.compliance.retention-job-enabled", "true"));
+        boolean distributedLockEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.scheduler.distributed-lock-enabled", "true"));
+        if ((emailJobEnabled || retentionJobEnabled) && !distributedLockEnabled) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Distributed scheduler locking is required when scheduled jobs are enabled. Startup aborted.");
+        }
+        Duration emailLock = Duration.parse(environment.getProperty(
+                "authkit.auth.scheduler.email-poll-lock-at-most", "PT10M"));
+        Duration retentionMax = Duration.parse(environment.getProperty(
+                "authkit.auth.scheduler.retention-lock-at-most", "PT2H"));
+        Duration retentionMin = Duration.parse(environment.getProperty(
+                "authkit.auth.scheduler.retention-lock-at-least", "PT1M"));
+        if (emailLock.isZero() || emailLock.isNegative() || emailLock.compareTo(Duration.ofMinutes(10)) > 0) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email scheduler lock must be between zero and ten minutes. Startup aborted.");
+        }
+        if (retentionMax.isZero() || retentionMax.isNegative()
+                || retentionMax.compareTo(Duration.ofHours(2)) > 0
+                || retentionMin.compareTo(Duration.ofMinutes(1)) < 0
+                || retentionMin.compareTo(retentionMax) > 0) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Retention scheduler lock bounds are unsafe. Startup aborted.");
+        }
     }
 
     private void validateCredential(@NonNull String propertyKey, String... illegalValues) {
@@ -144,6 +176,17 @@ public class ProductionConfigValidator implements ApplicationRunner {
             if (actual < minimumValue) {
                 log.error("CRITICAL SECURITY ERROR: Key '{}' must be at least '{}'.", propertyKey, minimumValue);
                 throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' is below the production minimum. Startup aborted.");
+            }
+        } catch (NumberFormatException ex) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+        }
+    }
+
+    private void validateNonNegativeLong(@NonNull String propertyKey) {
+        String value = environment.getProperty(propertyKey, "0");
+        try {
+            if (Long.parseLong(value) < 0) {
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be zero or positive. Startup aborted.");
             }
         } catch (NumberFormatException ex) {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);

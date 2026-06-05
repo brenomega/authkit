@@ -87,6 +87,9 @@ public class GlobalExceptionHandler {
     @SuppressWarnings("null")
     @ExceptionHandler(ApiBaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiBaseException ex) {
+        if (ex instanceof AuthenticationCapacityExceededException) {
+            meterRegistry.counter("security.argon2.capacity_exceeded").increment();
+        }
         log.warn("Domain exception [{}]: {}", ex.getStatus(), ex.getMessage());
         return ResponseEntity
                 .status(ex.getStatus())

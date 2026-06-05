@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -18,21 +20,30 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
+import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 class OAuthProviderServiceTest {
 
@@ -46,10 +57,22 @@ class OAuthProviderServiceTest {
     private OAuthConsentRepository oauthConsentRepository;
 
     @Autowired
+    private OAuthAuthorizationCodeRepository authorizationCodeRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtDecoder jwtDecoder;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Test
     @DisplayName("Issues and consumes authorization-code + PKCE tokens for OIDC client")
@@ -96,6 +119,20 @@ class OAuthProviderServiceTest {
 
         assertNotNull(tokens.accessToken());
         assertNotNull(tokens.idToken());
+        assertEquals("oauth_access", tokenClaim(tokens.accessToken(), "token_use"));
+        assertEquals("id_token", tokenClaim(tokens.idToken(), "token_use"));
+        assertThrows(JwtException.class, () -> jwtDecoder.decode(tokens.accessToken()));
+        assertThrows(JwtException.class, () -> jwtDecoder.decode(tokens.idToken()));
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.accessToken()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + tokens.idToken()))
+                .andExpect(status().isUnauthorized());
+        assertEquals(false, oauthProviderService
+                .introspect(tokens.idToken(), "access_token", client.getClientId(), null)
+                .get("active"));
+        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.userInfo(tokens.idToken()));
         assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.token(
                 "authorization_code",
                 codeFrom(authz.redirectUri()),
@@ -272,6 +309,45 @@ class OAuthProviderServiceTest {
     }
 
     @Test
+    @DisplayName("OAuth token exchange rejects an expired authorization code")
+    void tokenRejectsExpiredAuthorizationCode() throws Exception {
+        User user = confirmedUser("oidc-expired-code@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                user.getTenantId(),
+                "client-expired-code",
+                null,
+                true,
+                "Expired Code Client",
+                Set.of("https://client.example/callback"),
+                Set.of("openid"),
+                true,
+                java.time.Instant.now()));
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        String rawCode = "expired-" + java.util.UUID.randomUUID();
+        authorizationCodeRepository.save(new OAuthAuthorizationCode(
+                TokenHasher.sha256Hex(rawCode),
+                client.getClientId(),
+                user.getId(),
+                user.getTenantId(),
+                "https://client.example/callback",
+                Set.of("openid"),
+                Set.of("pwd"),
+                pkceChallenge(verifier),
+                "S256",
+                null,
+                java.time.Instant.now().minusSeconds(600),
+                java.time.Instant.now().minusSeconds(1)));
+
+        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.token(
+                "authorization_code",
+                rawCode,
+                "https://client.example/callback",
+                client.getClientId(),
+                null,
+                verifier));
+    }
+
+    @Test
     @DisplayName("OAuth revocation, introspection, and userinfo honor client-scoped tokens")
     void revocationIntrospectionAndUserinfo() throws Exception {
         User user = confirmedUser("oidc-userinfo@example.com");
@@ -297,8 +373,22 @@ class OAuthProviderServiceTest {
                 null,
                 verifier);
 
+        OAuthClient otherClient = oauthClientRepository.save(new OAuthClient(
+                user.getTenantId(),
+                "client-other-audience",
+                null,
+                true,
+                "Other Audience Client",
+                Set.of("https://other.example/callback"),
+                Set.of("openid"),
+                true,
+                java.time.Instant.now()));
+
         assertEquals(true, oauthProviderService
                 .introspect(tokens.accessToken(), "access_token", client.getClientId(), null)
+                .get("active"));
+        assertEquals(false, oauthProviderService
+                .introspect(tokens.accessToken(), "access_token", otherClient.getClientId(), null)
                 .get("active"));
         assertEquals(user.getEmail(), oauthProviderService.userInfo(tokens.accessToken()).get("email"));
 
@@ -338,5 +428,10 @@ class OAuthProviderServiceTest {
                 .map(parts -> URLDecoder.decode(parts[1], StandardCharsets.UTF_8))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private String tokenClaim(String token, String claim) throws Exception {
+        String payload = token.split("\\.")[1];
+        return objectMapper.readTree(Base64.getUrlDecoder().decode(payload)).get(claim).asText();
     }
 }

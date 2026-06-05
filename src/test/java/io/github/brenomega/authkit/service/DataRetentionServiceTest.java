@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,8 +37,8 @@ class DataRetentionServiceTest {
 
     @SuppressWarnings("null")
     @Test
-    @DisplayName("Retention purges expired security events and deleted account tombstones")
-    void purgeExpiredSecurityEvents_purgesEventsAndDeletedUsers() {
+    @DisplayName("Retention purges eligible records once and repeated execution is harmless")
+    void purgeExpiredSecurityEvents_isIdempotentAcrossRepeatedRuns() {
         SecurityEventRepository securityEventRepository = mock(SecurityEventRepository.class);
         UserRepository userRepository = mock(UserRepository.class);
         PasskeyChallengeRepository passkeyChallengeRepository = mock(PasskeyChallengeRepository.class);
@@ -65,17 +66,17 @@ class DataRetentionServiceTest {
         User deletedUserEntity = mock(User.class);
         when(deletedUserEntity.getEmail()).thenReturn("deleted@example.test");
         when(securityEventRepository.findExpiredIds(any(), any(Pageable.class)))
-                .thenReturn(List.of(eventOne, eventTwo));
+                .thenReturn(List.of(eventOne, eventTwo), List.of());
         when(securityEventRepository.purgeByIdIn(List.of(eventOne, eventTwo))).thenReturn(5L);
         when(userRepository.findDeletedIdsBefore(any(), any(Pageable.class)))
-                .thenReturn(List.of(deletedUser));
+                .thenReturn(List.of(deletedUser), List.of());
         when(userRepository.findAllById(List.of(deletedUser))).thenReturn(List.of(deletedUserEntity));
         when(userRepository.purgeDeletedByIdIn(List.of(deletedUser))).thenReturn(2L);
 
-        when(passkeyChallengeRepository.deleteExpired(any())).thenReturn(3);
-        when(oauthAuthorizationCodeRepository.deleteExpired(any())).thenReturn(4);
+        when(passkeyChallengeRepository.deleteExpired(any())).thenReturn(3, 0);
+        when(oauthAuthorizationCodeRepository.deleteExpired(any())).thenReturn(4, 0);
 
-        new DataRetentionService(
+        DataRetentionService service = new DataRetentionService(
                 securityEventRepository,
                 userRepository,
                 passkeyChallengeRepository,
@@ -89,13 +90,14 @@ class DataRetentionServiceTest {
                 emailOutboxService,
                 authProperties,
                 meterRegistry,
-                transactionTemplate)
-                .purgeExpiredSecurityEvents();
+                transactionTemplate);
+        service.purgeExpiredSecurityEvents();
+        service.purgeExpiredSecurityEvents();
 
         ArgumentCaptor<Instant> eventCutoff = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> accountCutoff = ArgumentCaptor.forClass(Instant.class);
-        verify(securityEventRepository).findExpiredIds(eventCutoff.capture(), any(Pageable.class));
-        verify(userRepository).findDeletedIdsBefore(accountCutoff.capture(), any(Pageable.class));
+        verify(securityEventRepository, times(2)).findExpiredIds(eventCutoff.capture(), any(Pageable.class));
+        verify(userRepository, times(2)).findDeletedIdsBefore(accountCutoff.capture(), any(Pageable.class));
         verify(securityEventRepository).purgeByIdIn(List.of(eventOne, eventTwo));
         verify(userRepository).purgeDeletedByIdIn(List.of(deletedUser));
         verify(passkeyChallengeRepository).deleteByUserIdIn(List.of(deletedUser));
@@ -108,10 +110,11 @@ class DataRetentionServiceTest {
         verify(securityEventRepository).purgeByUserReferences(List.of(deletedUser));
         verify(consentEventRepository).deleteByUserIdIn(List.of(deletedUser));
         verify(emailOutboxService).deleteByRecipients(List.of("deleted@example.test"));
-        verify(passkeyChallengeRepository).deleteExpired(any());
-        verify(oauthAuthorizationCodeRepository).deleteExpired(any());
+        verify(passkeyChallengeRepository, times(2)).deleteExpired(any());
+        verify(oauthAuthorizationCodeRepository, times(2)).deleteExpired(any());
 
-        org.junit.jupiter.api.Assertions.assertTrue(eventCutoff.getValue().isBefore(accountCutoff.getValue()));
+        org.junit.jupiter.api.Assertions.assertTrue(eventCutoff.getAllValues().getFirst()
+                .isBefore(accountCutoff.getAllValues().getFirst()));
         assertEquals(5.0, meterRegistry.counter("security.retention.deleted", "dataset", "security_events").count());
         assertEquals(2.0, meterRegistry.counter("security.retention.deleted", "dataset", "deleted_users").count());
         assertEquals(3.0, meterRegistry.counter("security.retention.deleted", "dataset", "passkey_challenges").count());

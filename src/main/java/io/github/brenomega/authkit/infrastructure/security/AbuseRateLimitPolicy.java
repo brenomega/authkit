@@ -31,7 +31,8 @@ public enum AbuseRateLimitPolicy {
     STEP_UP_MFA_USER("step_up_mfa_user", 10, 5, Duration.ofMinutes(15), true),
     MFA_CHANGE_USER("mfa_change_user", 10, 5, Duration.ofHours(1), true),
     PASSKEY_CHANGE_USER("passkey_change_user", 10, 5, Duration.ofHours(1), true),
-    ACCOUNT_DELETION_USER("account_deletion_user", 5, 2, Duration.ofHours(24), true);
+    ACCOUNT_DELETION_USER("account_deletion_user", 5, 2, Duration.ofHours(24), true),
+    SESSION_LIST_USER("session_list_user", 60, 20, Duration.ofMinutes(1), false);
 
     private final String key;
     private final long globalCapacity;
@@ -65,5 +66,17 @@ public enum AbuseRateLimitPolicy {
 
     public boolean highRisk() {
         return highRisk;
+    }
+
+    public boolean failClosedEligible() {
+        return switch (this) {
+            case LOGIN_ENDPOINT_IP, LOGIN_ENDPOINT_DEVICE, LOGIN_EMAIL,
+                    MFA_VERIFY_IP, MFA_VERIFY_USER,
+                    REGISTRATION_IP, REGISTRATION_EMAIL,
+                    PASSWORD_RECOVERY_IP, PASSWORD_RECOVERY_EMAIL_COOLDOWN,
+                    PASSWORD_RECOVERY_EMAIL_DAILY, PASSWORD_RESET_IP,
+                    PASSWORD_RESET_EMAIL, OAUTH_TOKEN_IP -> true;
+            default -> false;
+        };
     }
 }

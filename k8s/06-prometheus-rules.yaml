@@ -126,3 +126,83 @@ spec:
           annotations:
             summary: AuthKit security event writer saturated
             description: The bounded security-event writer queue saturated and used overload handling. Investigate database latency and abuse volume before drops occur.
+        - alert: AuthKitWorkerAuthenticationDenied
+          expr: increase(security_worker_auth_denied_total[5m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Internal worker authentication denied
+            description: Repeated network-bound worker authentication failures may indicate probing or configuration drift.
+        - alert: AuthKitEmailRetries
+          expr: increase(security_email_outbox_retry_total[10m]) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Email delivery retries elevated
+            description: Outbox delivery retries are elevated. Check RabbitMQ, provider latency, and credentials.
+        - alert: AuthKitEmailDeadMessages
+          expr: increase(security_email_outbox_dead_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: Email messages reached terminal DEAD state
+            description: Manual investigation and replay decision are required before the provider idempotency window expires.
+        - alert: AuthKitArgon2Saturation
+          expr: increase(security_argon2_capacity_exceeded_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Argon2 concurrency saturated
+            description: Authentication work is being shed to protect JVM capacity.
+        - alert: AuthKitAuditDrops
+          expr: increase(security_audit_dropped_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: Noncritical audit events dropped
+            description: Investigate audit database latency and bounded writer capacity.
+        - alert: AuthKitAuditFailClosed
+          expr: increase(security_audit_fail_closed_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: Critical operation rolled back by audit failure
+            description: Critical audit persistence failed and a protected mutation was denied.
+        - alert: AuthKitRedisDegradation
+          expr: increase(security_abuse_control_degraded_total[5m]) + increase(security_lockout_degraded_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: Redis-backed security controls degraded
+            description: Distributed abuse or lockout state is unavailable.
+        - alert: AuthKitSchedulerFailure
+          expr: increase(security_scheduler_failure_total[10m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: Scheduled security job failed
+            description: Email polling or retention failed and requires investigation.
+        - alert: AuthKitHibpDegraded
+          expr: increase(security_password_hibp_degraded_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Breached-password screening degraded
+            description: HIBP checks are failing open; inspect provider reachability and timeout rates.
+        - alert: AuthKitAbuseFailClosed
+          expr: increase(security_abuse_control_fail_closed_total[5m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: High-risk authentication denied during Redis loss
+            description: Opt-in fail-closed abuse protection is returning 503 responses.

@@ -16,6 +16,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.RateLimitExceededException;
+import io.github.brenomega.authkit.exception.AbuseProtectionUnavailableException;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFactory;
 import io.github.bucket4j.Bandwidth;
@@ -36,6 +37,7 @@ public class AbuseThrottleService {
     private final AuditDigestService auditDigestService;
     private final MeterRegistry meterRegistry;
     private final long capacityMultiplier;
+    private final boolean failClosedHighRisk;
     private final AtomicLong lastDegradedLogTimestamp = new AtomicLong(0);
 
     public AbuseThrottleService(Optional<RedisClient> redisClient,
@@ -45,6 +47,7 @@ public class AbuseThrottleService {
         this.auditDigestService = auditDigestService;
         this.meterRegistry = meterRegistry;
         this.capacityMultiplier = Math.max(1, authProperties.getAbuseControl().getCapacityMultiplier());
+        this.failClosedHighRisk = authProperties.getAbuseControl().isFailClosedHighRisk();
         this.localBuckets = Caffeine.newBuilder()
                 .maximumSize(250_000)
                 .expireAfterAccess(Duration.ofHours(25))
@@ -65,6 +68,10 @@ public class AbuseThrottleService {
         String normalized = normalizeDimension(dimension);
         String hashedDimension = auditDigestService.hmacHex(policy.key() + '|' + normalized);
         String key = policy.key() + ':' + hashedDimension;
+
+        if (proxyManager == null && shouldFailClosed(policy)) {
+            failClosed(policy, "redis_unavailable_startup");
+        }
 
         Bucket localBucket = localBuckets.get(key, ignored -> createBucket(scaledCapacity(policy.degradedLocalCapacity()), policy.window()));
         if (!localBucket.tryConsume(1)) {
@@ -93,6 +100,9 @@ public class AbuseThrottleService {
             throw ex;
         } catch (Exception ex) {
             recordDegraded(policy, "redis_runtime_failure");
+            if (shouldFailClosed(policy)) {
+                failClosed(policy, "redis_runtime_failure");
+            }
             logDegraded("Redis unavailable for abuse throttle policy " + policy.key() + ". Strict local fallback remains active.");
         }
     }
@@ -138,6 +148,18 @@ public class AbuseThrottleService {
         if (policy.highRisk()) {
             meterRegistry.counter("security.abuse_control.degraded", "policy", policy.key(), "reason", reason).increment();
         }
+    }
+
+    private boolean shouldFailClosed(AbuseRateLimitPolicy policy) {
+        return failClosedHighRisk && policy.failClosedEligible();
+    }
+
+    private void failClosed(AbuseRateLimitPolicy policy, String reason) {
+        meterRegistry.counter("security.abuse_control.fail_closed",
+                "policy", policy.key(), "reason", reason).increment();
+        logDegraded("Distributed abuse protection unavailable for high-risk policy " + policy.key()
+                + "; request denied by fail-closed policy.");
+        throw new AbuseProtectionUnavailableException();
     }
 
     private void logDegraded(String message) {

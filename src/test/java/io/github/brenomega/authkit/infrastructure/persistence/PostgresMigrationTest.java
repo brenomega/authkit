@@ -2,18 +2,27 @@ package io.github.brenomega.authkit.infrastructure.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import net.javacrumbs.shedlock.core.LockConfiguration;
+import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider;
 
 @Testcontainers(disabledWithoutDocker = true)
 class PostgresMigrationTest {
@@ -44,7 +53,50 @@ class PostgresMigrationTest {
                     insert into users (id, email, password, role)
                     values ('%s', 'case@test.example', 'hash', 'USER')
                     """.formatted(UUID.randomUUID())));
+
+            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'shedlock'")) {
+                result.next();
+                assertEquals(1, result.getInt(1));
+            }
         }
+    }
+
+    @Test
+    @DisplayName("PostgreSQL ShedLock permits only one competing scheduler holder")
+    void shedLockCoordinatesCompetingHolders() {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        var firstProvider = lockProvider(dataSource);
+        var secondProvider = lockProvider(dataSource);
+        var configuration = new LockConfiguration(
+                Instant.now(),
+                "emailOutboxPoll-test-" + UUID.randomUUID(),
+                Duration.ofMinutes(10),
+                Duration.ZERO);
+        AtomicInteger executions = new AtomicInteger();
+
+        var firstLock = firstProvider.lock(configuration).orElseThrow();
+        try {
+            executions.incrementAndGet();
+            assertTrue(secondProvider.lock(configuration).isEmpty());
+            assertEquals(1, executions.get());
+        } finally {
+            firstLock.unlock();
+        }
+
+        var retryLock = secondProvider.lock(configuration).orElseThrow();
+        try {
+            executions.incrementAndGet();
+        } finally {
+            retryLock.unlock();
+        }
+        assertEquals(2, executions.get());
     }
 
     @Test
@@ -154,5 +206,13 @@ class PostgresMigrationTest {
             result.next();
             return result.getInt(1);
         }
+    }
+
+    private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
+        return new JdbcTemplateLockProvider(
+                JdbcTemplateLockProvider.Configuration.builder()
+                        .withJdbcTemplate(new JdbcTemplate(dataSource))
+                        .usingDbTime()
+                        .build());
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -36,20 +37,27 @@ public class EmailOutboxProcessor {
     @Scheduled(
             fixedDelayString = "${authkit.auth.email-outbox.poll-delay-ms:5000}",
             scheduler = "emailOutboxTaskScheduler")
+    @SchedulerLock(name = "emailOutboxPoll",
+            lockAtMostFor = "${authkit.auth.scheduler.email-poll-lock-at-most:PT10M}")
     public void publishDueMessages() {
-        var properties = authProperties.getEmailOutbox();
-        var messages = outboxService.claimDueMessages(
-                batchSize(properties),
-                lockTimeout(properties));
+        try {
+            var properties = authProperties.getEmailOutbox();
+            var messages = outboxService.claimDueMessages(
+                    batchSize(properties),
+                    lockTimeout(properties));
 
-        for (EmailOutboxMessage message : messages) {
-            try {
-                emailDispatchStrategy.dispatch(message);
-            } catch (RuntimeException ex) {
-                log.warn("Email outbox dispatch failed for message {}.", message.getId());
-                meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
-                outboxService.markFailed(message.getId(), ex.getMessage());
+            for (EmailOutboxMessage message : messages) {
+                try {
+                    emailDispatchStrategy.dispatch(message);
+                } catch (RuntimeException ex) {
+                    log.warn("Email outbox dispatch failed for message {}.", message.getId());
+                    meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
+                    outboxService.markFailed(message.getId(), ex.getMessage());
+                }
             }
+        } catch (RuntimeException ex) {
+            meterRegistry.counter("security.scheduler.failure", "job", "email_outbox").increment();
+            throw ex;
         }
     }
 

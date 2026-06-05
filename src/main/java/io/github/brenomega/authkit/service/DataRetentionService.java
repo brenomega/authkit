@@ -28,6 +28,7 @@ import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
  * Enforces configured data-retention windows for privacy governance.
@@ -85,7 +86,19 @@ public class DataRetentionService {
     }
 
     @Scheduled(cron = "${authkit.auth.compliance.retention-job-cron:0 30 3 * * *}")
+    @SchedulerLock(name = "dataRetention",
+            lockAtMostFor = "${authkit.auth.scheduler.retention-lock-at-most:PT2H}",
+            lockAtLeastFor = "${authkit.auth.scheduler.retention-lock-at-least:PT1M}")
     public void purgeExpiredSecurityEvents() {
+        try {
+            purgeExpiredSecurityEventsInternal();
+        } catch (RuntimeException ex) {
+            meterRegistry.counter("security.scheduler.failure", "job", "data_retention").increment();
+            throw ex;
+        }
+    }
+
+    private void purgeExpiredSecurityEventsInternal() {
         Instant now = Instant.now();
         int batchSize = authProperties.getCompliance().getRetentionBatchSize();
         long deletedEvents = purgeSecurityEventsInBatches(
