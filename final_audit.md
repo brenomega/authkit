@@ -198,7 +198,7 @@ Status: complete on `auth-preproof-hardening`.
 
 #### C. Audit and observability as code (not live SIEM yet)
 
-- [x] Persist critical lockout/admin/refresh-reuse/MFA-disable/deletion events synchronously in the business transaction; opaque 503 rolls transactional mutations back. Noncritical failures emit `security.audit.dropped` and `SECURITY_ALERT` without failing the operation.
+- [x] Persist critical lockout/admin/refresh-reuse/MFA-disable/deletion events synchronously; opaque 503 rolls back active database-backed transactional mutations, while already-applied Redis/local security state may remain applied as deliberate fail-closed behavior. Noncritical failures emit `security.audit.dropped` and `SECURITY_ALERT` without failing the operation.
 - [x] Complete `k8s/06-prometheus-rules.yaml` for Redis degradation, refresh reuse, worker denial, email retry/dead state, Argon2 saturation, audit drops/fail-closed events, HIBP, abuse fail-closed, and scheduler failures.
 - [x] Add `observability/grafana-dashboard.json` panels for security, dependencies, HTTP, Hikari, JVM, outbox, and schedulers.
 

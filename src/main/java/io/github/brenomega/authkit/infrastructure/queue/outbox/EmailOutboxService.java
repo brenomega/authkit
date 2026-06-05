@@ -62,7 +62,11 @@ public class EmailOutboxService {
     @SuppressWarnings("null")
     @Transactional
     public void markSent(UUID messageId, String providerMessageId) {
-        repository.markSent(messageId, EmailOutboxStatus.SENT, providerMessageId, Instant.now());
+        repository.markSent(messageId,
+                List.of(EmailOutboxStatus.PROCESSING, EmailOutboxStatus.QUEUED),
+                EmailOutboxStatus.SENT,
+                providerMessageId,
+                Instant.now());
     }
 
     @SuppressWarnings("null")

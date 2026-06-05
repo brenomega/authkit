@@ -84,4 +84,20 @@ class EmailOutboxServiceTest {
         assertThat(service.claimDueMessages(10, Duration.ZERO)).isEmpty();
         assertThat(meters.counter("security.email.outbox.dead").count()).isEqualTo(1.0);
     }
+
+    @Test
+    @DisplayName("Terminal DEAD messages cannot be overwritten by stale provider success")
+    void staleSuccessDoesNotOverwriteDead() {
+        properties.getEmailOutbox().setMaxAttempts(1);
+        service.enqueue(new EmailPayload("dead-stale-success@example.com", "Subject", "Body"));
+        UUID id = service.claimDueMessages(1, Duration.ZERO).getFirst().getId();
+
+        service.markFailed(id, "provider unavailable");
+        service.markSent(id, "provider-late");
+
+        EmailOutboxMessage message = repository.findById(id).orElseThrow();
+        assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.DEAD);
+        assertThat(message.getProviderMessageId()).isNull();
+        assertThat(message.getDeliveredAt()).isNull();
+    }
 }

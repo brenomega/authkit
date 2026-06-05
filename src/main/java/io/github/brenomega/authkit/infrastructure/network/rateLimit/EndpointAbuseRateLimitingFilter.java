@@ -3,14 +3,17 @@ package io.github.brenomega.authkit.infrastructure.network.rateLimit;
 import java.io.IOException;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import io.github.brenomega.authkit.exception.ApiBaseException;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
-import io.github.brenomega.authkit.exception.RateLimitExceededException;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
+import io.github.brenomega.authkit.response.ApiResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,11 +24,14 @@ public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
 
     private final NetworkIpResolver ipResolver;
     private final AbuseThrottleService abuseThrottleService;
+    private final ObjectMapper objectMapper;
 
     public EndpointAbuseRateLimitingFilter(NetworkIpResolver ipResolver,
-                                           AbuseThrottleService abuseThrottleService) {
+                                           AbuseThrottleService abuseThrottleService,
+                                           ObjectMapper objectMapper) {
         this.ipResolver = ipResolver;
         this.abuseThrottleService = abuseThrottleService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -42,8 +48,8 @@ public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
                     abuseThrottleService.check(policy, "ip:" + clientIp);
                     abuseThrottleService.check(policy, "ua:" + clientIp + ':' + (userAgent == null ? "unknown" : userAgent));
                 }
-            } catch (RateLimitExceededException ex) {
-                sendRateLimitResponse(response);
+            } catch (ApiBaseException ex) {
+                sendApiExceptionResponse(response, ex);
                 return;
             }
         }
@@ -102,12 +108,11 @@ public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
         return List.of();
     }
 
-    private void sendRateLimitResponse(HttpServletResponse response) throws IOException {
-        response.setStatus(429);
+    private void sendApiExceptionResponse(HttpServletResponse response, ApiBaseException ex) throws IOException {
+        response.resetBuffer();
+        response.setStatus(ex.getStatus().value());
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"errors":["Too many requests"]}
-                """);
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(ex.getMessage()));
     }
 }

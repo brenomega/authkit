@@ -63,9 +63,10 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage,
                 message.lastError = null,
                 message.providerMessageId = coalesce(message.providerMessageId, :providerMessageId),
                 message.deliveredAt = coalesce(message.deliveredAt, :deliveredAt)
-            where message.id = :id and message.status <> :sent
+            where message.id = :id and message.status in :sentEligible
             """)
     int markSent(@Param("id") UUID id,
+                 @Param("sentEligible") Collection<EmailOutboxStatus> sentEligible,
                  @Param("sent") EmailOutboxStatus sent,
                  @Param("providerMessageId") String providerMessageId,
                  @Param("deliveredAt") Instant deliveredAt);
