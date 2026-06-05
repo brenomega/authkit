@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,12 +15,12 @@ public class SecurityEventWriter {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void persistNonCritical(SecurityEvent event) {
+    public void persistNonCritical(@NonNull SecurityEvent event) {
         repository.saveAndFlush(event);
     }
 
     @Transactional(propagation = Propagation.REQUIRED)
-    public void persistCritical(SecurityEvent event) {
+    public void persistCritical(@NonNull SecurityEvent event) {
         repository.saveAndFlush(event);
     }
 }

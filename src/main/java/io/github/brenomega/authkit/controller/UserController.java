@@ -14,7 +14,6 @@ import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
-import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;

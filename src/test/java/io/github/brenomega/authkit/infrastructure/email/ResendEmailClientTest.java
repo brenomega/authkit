@@ -21,6 +21,7 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 class ResendEmailClientTest {
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Duplicate dispatches preserve the stable outbox UUID idempotency key")
     void stableOutboxIdBecomesStableProviderIdempotencyKey() {

@@ -35,7 +35,7 @@ import io.github.brenomega.authkit.repository.UserRepository;
 
 class DataRetentionServiceTest {
 
-    @SuppressWarnings("null")
+    @SuppressWarnings({ "null", "unchecked" })
     @Test
     @DisplayName("Retention purges eligible records once and repeated execution is harmless")
     void purgeExpiredSecurityEvents_isIdempotentAcrossRepeatedRuns() {

@@ -66,11 +66,13 @@ class EmailOutboxServiceTest {
         service.markFailed(id, "stale worker failure");
         service.markSent(id, "provider-duplicate");
 
+        @SuppressWarnings("null")
         EmailOutboxMessage message = repository.findById(id).orElseThrow();
         assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.SENT);
         assertThat(message.getProviderMessageId()).isEqualTo("provider-first");
     }
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("Maximum delivery attempts move a message to terminal DEAD state")
     void maxAttemptsMovesMessageToDeadState() {
@@ -95,6 +97,7 @@ class EmailOutboxServiceTest {
         service.markFailed(id, "provider unavailable");
         service.markSent(id, "provider-late");
 
+        @SuppressWarnings("null")
         EmailOutboxMessage message = repository.findById(id).orElseThrow();
         assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.DEAD);
         assertThat(message.getProviderMessageId()).isNull();

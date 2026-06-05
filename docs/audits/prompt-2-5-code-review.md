@@ -2,7 +2,7 @@
 
 Reviewed commit: `002e84dd93eabc8bee076580d0320fa6b72000e2` (`hardering for production`)
 
-Scope: latest commit implementing Prompt 2.5 from `final_audit.md`, with review limited to changed files and likely side effects in adjacent code paths.
+Scope: latest commit implementing Prompt 2.5 from `docs/audits/final_audit.md`, with review limited to changed files and likely side effects in adjacent code paths.
 
 ## Summary
 
@@ -28,7 +28,7 @@ References:
 Impact:
 
 - Login, MFA login verification, registration, recovery/reset, and OAuth token/revoke/introspect paths can return an unintended servlet/security-chain error during a Redis incident.
-- The behavior contradicts `SYSTEM_USE_CASE_FLOWS.md:22`, which says the optional fail-closed mode returns opaque 503.
+- The behavior contradicts `docs/architecture/SYSTEM_USE_CASE_FLOWS.md:22`, which says the optional fail-closed mode returns opaque 503.
 - This is not an auth bypass, but it weakens incident behavior exactly when a high-risk protective mode is enabled.
 
 Recommendation:
@@ -67,7 +67,7 @@ Severity: Medium/Low, observability and release-contract risk.
 
 References:
 
-- `SYSTEM_USE_CASE_FLOWS.md:29`
+- `docs/architecture/SYSTEM_USE_CASE_FLOWS.md:29`
 - `src/main/java/io/github/brenomega/authkit/infrastructure/audit/SecurityEventWriter.java:21`
 - `src/main/java/io/github/brenomega/authkit/service/AuthService.java:110`
 - `src/main/java/io/github/brenomega/authkit/service/AuthService.java:151`
@@ -96,17 +96,17 @@ Recommendation:
 
 ## Root Markdown Cleanup
 
-Current root Markdown files:
+Resolved layout:
 
-- `README.md`: Keep. This is the project entrypoint.
-- `CHANGELOG.md`: Keep. Needed for release/version discipline.
-- `DEPLOYMENT.md`: Keep somewhere. It is operationally important; root placement is acceptable, though `docs/DEPLOYMENT.md` would reduce root clutter.
-- `INTEGRATOR.md`: Keep somewhere. It is a real integration contract; consider moving to `docs/INTEGRATOR.md` and leaving a README link.
-- `SECURITY_MODEL.md`: Keep somewhere. It is release-facing security documentation; consider moving to `docs/SECURITY_MODEL.md`.
-- `SYSTEM_USE_CASE_FLOWS.md`: Useful for architecture/onboarding, but not necessary in the root. Move to `docs/architecture/SYSTEM_USE_CASE_FLOWS.md` if retained.
-- `final_audit.md`: Not a production-facing product document. After extracting open issues into tickets and keeping this review, remove it from the root or move it to `docs/audits/final_audit.md`. Also remove the production-audit link from `README.md` before a public release if it remains a prompt/history artifact.
+- `README.md`: Kept in the root as the project entrypoint.
+- `CHANGELOG.md`: Kept in the root for release/version discipline.
+- `DEPLOYMENT.md`: Kept in the root as the operational deployment guide.
+- `docs/INTEGRATOR.md`: Moved under `docs/` and linked from `README.md`.
+- `docs/SECURITY_MODEL.md`: Moved under `docs/` and linked from `README.md`.
+- `docs/architecture/SYSTEM_USE_CASE_FLOWS.md`: Moved under architecture docs and linked from `README.md`.
+- `docs/audits/final_audit.md`: Moved under audit docs; the public `README.md` production-audit link was removed.
 
-Recommended root policy: keep only `README.md`, `CHANGELOG.md`, and optionally `DEPLOYMENT.md` at the root. Move long-form security, integrator, architecture, and audit documents under `docs/`.
+Root policy now keeps only `README.md`, `CHANGELOG.md`, and `DEPLOYMENT.md` as Markdown entrypoints.
 
 ## Verification Performed
 

@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.lang.NonNull;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -181,7 +182,7 @@ public class SecurityEventService {
         alertIfNeeded(type, outcome, severity, eventHash);
     }
 
-    private void persistNonCritical(SecurityEvent event) {
+    private void persistNonCritical(@NonNull SecurityEvent event) {
         if (!authProperties.getAudit().isAsyncEnabled()) {
             persistBestEffort(event);
             return;
@@ -206,7 +207,7 @@ public class SecurityEventService {
         }
     }
 
-    private void persistCritical(SecurityEvent event) {
+    private void persistCritical(@NonNull SecurityEvent event) {
         try {
             eventWriter.persistCritical(event);
         } catch (RuntimeException ex) {
@@ -218,7 +219,7 @@ public class SecurityEventService {
         }
     }
 
-    private void persistBestEffort(SecurityEvent event) {
+    private void persistBestEffort(@NonNull SecurityEvent event) {
         try {
             eventWriter.persistNonCritical(event);
         } catch (RuntimeException ex) {

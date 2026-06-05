@@ -34,7 +34,8 @@ class SecurityEventServiceTest {
         RequestContextHolder.resetRequestAttributes();
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Security events persist privacy-safe identifiers and metrics")
     void recordForEmail_persistsPrivacySafeIdentifiers() throws Exception {
         SecurityEventWriter writer = mock(SecurityEventWriter.class);
@@ -86,7 +87,8 @@ class SecurityEventServiceTest {
         assertEquals(1.0, meterRegistry.counter("security.login.failed").count());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Security events persist synchronously when the async writer is saturated")
     void recordForEmail_writerSaturated_persistsSynchronously() {
         SecurityEventWriter writer = mock(SecurityEventWriter.class);
@@ -127,7 +129,8 @@ class SecurityEventServiceTest {
                 "severity", SecurityEventSeverity.MEDIUM.name()).count());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Critical audit persistence fails closed with an opaque service error")
     void criticalPersistenceFailureFailsClosed() {
         SecurityEventWriter writer = mock(SecurityEventWriter.class);
@@ -145,7 +148,8 @@ class SecurityEventServiceTest {
         assertEquals(1.0, meters.find("security.audit.fail_closed").counter().count());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Noncritical audit persistence failure records a drop without failing the operation")
     void nonCriticalPersistenceFailureIsBestEffort() {
         SecurityEventWriter writer = mock(SecurityEventWriter.class);

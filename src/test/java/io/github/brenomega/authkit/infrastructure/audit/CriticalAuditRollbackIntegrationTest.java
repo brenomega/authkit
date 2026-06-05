@@ -47,7 +47,8 @@ class CriticalAuditRollbackIntegrationTest {
     @MockitoBean
     private SecurityEventWriter securityEventWriter;
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Critical audit persistence failure returns 503 and rolls back account anonymization")
     void criticalAuditFailureRollsBackBusinessTransaction() throws Exception {
         User user = new User(
@@ -80,6 +81,7 @@ class CriticalAuditRollbackIntegrationTest {
                 .andExpect(jsonPath("$.errors[0]")
                         .value("Security audit service is temporarily unavailable. Please try again later."));
 
+        @SuppressWarnings("null")
         User persisted = userRepository.findById(persistedUser.getId()).orElseThrow();
         Assertions.assertEquals("audit-rollback@example.com", persisted.getEmail());
         Assertions.assertEquals("Still Present", persisted.getName());

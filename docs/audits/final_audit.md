@@ -187,7 +187,7 @@ Status: complete on `auth-preproof-hardening`.
 #### A. Token model and API boundaries (security correctness)
 
 - [x] Enforce explicit first-party access, OAuth access, and ID token classes. First-party APIs require configured audience plus active Redis session; OAuth and ID tokens are rejected before authority/session lookup. Legacy compatibility is claim/audience constrained.
-- [x] Document first-party vs OAuth token usage, claims, refresh cookie/CSRF, reset fragments, JWKS refresh, audience, tenant, and scope validation in `INTEGRATOR.md`.
+- [x] Document first-party vs OAuth token usage, claims, refresh cookie/CSRF, reset fragments, JWKS refresh, audience, tenant, and scope validation in [docs/INTEGRATOR.md](../INTEGRATOR.md).
 - [x] Prove OAuth access and ID tokens fail on `/api/v1/users/me`; prove first-party tokens fail after logout-all, password reset, and session revocation.
 
 #### B. Reliability on multiple replicas (small/medium SaaS baseline)
@@ -213,7 +213,7 @@ Status: complete on `auth-preproof-hardening`.
 - [x] Publish static OpenAPI 3 in `docs/openapi.yaml`, link it from `README.md`, and enforce controller-operation parity with `swagger-parser-v3:2.1.35` in tests; no runtime documentation endpoint is exposed.
 - [x] Add `docs/DEPLOYMENT_MODES.md` for standalone, embedded, and monolith ownership boundaries plus queue/direct email requirements.
 - [x] Add explicitly unproven conservative starting-size tables for approximately 500, 5,000, and 50,000 users, including Hikari/Redis/Argon2 guidance.
-- [x] Add the JWKS/`kid`/audience/tenant/scope resource-server checklist and Spring example to `INTEGRATOR.md`.
+- [x] Add the JWKS/`kid`/audience/tenant/scope resource-server checklist and Spring example to [docs/INTEGRATOR.md](../INTEGRATOR.md).
 
 #### F. CI and supply-chain prep (lightweight, pre–Prompt 3)
 

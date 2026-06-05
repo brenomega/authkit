@@ -6,7 +6,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
@@ -326,6 +325,7 @@ public class RedisTokenStorage implements TokenStorage {
         return new CursorState(parts[0], parts[1], overflow);
     }
 
+    @SuppressWarnings("null")
     private String storeCursor(CursorState state) {
         String token = io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator.randomUrlSafeToken(24);
         String serialized = state.userId() + "\n" + state.redisCursor() + "\n"

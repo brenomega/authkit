@@ -70,6 +70,7 @@ class PostgresMigrationTest {
                 .load()
                 .migrate();
 
+        @SuppressWarnings("null")
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         var firstProvider = lockProvider(dataSource);
@@ -208,7 +209,8 @@ class PostgresMigrationTest {
         }
     }
 
-    private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
+    @SuppressWarnings("null")
+private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
         return new JdbcTemplateLockProvider(
                 JdbcTemplateLockProvider.Configuration.builder()
                         .withJdbcTemplate(new JdbcTemplate(dataSource))
