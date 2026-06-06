@@ -51,6 +51,12 @@ jobs:
       - name: Run tests
         run: mvn clean verify -Dspring.profiles.active=test -B
 
+      - name: Validate proof and deployment scripts
+        run: find deploy testing -name '*.sh' -print -exec bash -n {} \;
+
+      - name: Validate contract fixture metadata
+        run: find testing/proof/fixtures/tokens -name '*.json' -print -exec python -m json.tool {} /dev/null \;
+
       - name: Upload CycloneDX SBOMs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

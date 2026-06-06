@@ -1,0 +1,17 @@
+[Unit]
+Description=AuthKit PostgreSQL and Redis backup
+Documentation=file:/opt/authkit/docs/runbooks/health-readiness.md
+
+[Service]
+Type=oneshot
+User=authkit
+Group=authkit
+EnvironmentFile=/etc/authkit/authkit.env
+Environment=AUTHKIT_BACKUP_DIR=/var/lib/authkit/backups
+ExecStart=/opt/authkit/deploy/scripts/backup-postgres.sh
+ExecStart=/opt/authkit/deploy/scripts/backup-redis.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/authkit/backups
+ReadOnlyPaths=/etc/authkit /opt/authkit

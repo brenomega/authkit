@@ -1,0 +1,18 @@
+{
+  "name": "id-token-used-on-api",
+  "description": "ID token presented to an AuthKit or integrator API as a bearer access token.",
+  "tokenClass": "id_token",
+  "claims": {
+    "token_use": "id_token",
+    "aud": ["sample-resource-api"],
+    "iss": "authkit",
+    "sub": "fixture-user-id",
+    "jti": "fixture-id-jti",
+    "tenant_id": "fixture-tenant-id",
+    "nonce": "fixture-nonce"
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "ID tokens are not authorization credentials"
+}

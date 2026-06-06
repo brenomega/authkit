@@ -1,0 +1,65 @@
+services:
+  authkit:
+    build:
+      context: ../..
+    env_file:
+      - ${AUTHKIT_COMPOSE_ENV_FILE:-.env.redis-direct}
+    ports:
+      - "${AUTHKIT_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - authkit-internal
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-authkit}"
+      POSTGRES_USER: "${POSTGRES_USER:-authkit}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-CHANGE-ME-postgres-password}"
+    volumes:
+      - authkit-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - authkit-internal
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-CHANGE-ME-redis-password}"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE-ME-redis-password}"]
+    volumes:
+      - authkit-redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:-CHANGE-ME-redis-password}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - authkit-internal
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.26
+    networks:
+      - authkit-internal
+    restart: unless-stopped
+
+networks:
+  authkit-internal:
+    driver: bridge
+
+volumes:
+  authkit-postgres:
+  authkit-redis:

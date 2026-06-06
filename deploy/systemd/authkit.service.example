@@ -1,0 +1,32 @@
+[Unit]
+Description=AuthKit authentication service
+Documentation=https://github.com/brenomega/authkit
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=authkit
+Group=authkit
+WorkingDirectory=/opt/authkit
+EnvironmentFile=/etc/authkit/authkit.env
+ExecStartPre=/opt/authkit/deploy/scripts/preflight-config.sh /etc/authkit/authkit.env
+ExecStart=/usr/bin/java -XX:MaxRAMPercentage=70 -jar /opt/authkit/authkit.jar
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/authkit /var/log/authkit
+ReadOnlyPaths=/etc/authkit
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

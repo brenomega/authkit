@@ -1,0 +1,17 @@
+{
+  "name": "missing-token-use",
+  "description": "Legacy-like token without token_use. AuthKit temporarily accepts it only as unambiguous first-party, while integrators must reject it.",
+  "tokenClass": "legacy_or_invalid",
+  "claims": {
+    "aud": ["authkit-api"],
+    "iss": "authkit",
+    "sub": "fixture-user-id",
+    "jti": "fixture-session-jti",
+    "tenant_id": "fixture-tenant-id",
+    "amr": ["pwd"]
+  },
+  "expectedAuthKitResult": "acceptedOnlyWhenLegacyFirstPartyAndSessionIsActive",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "resource APIs must require explicit oauth_access token_use"
+}

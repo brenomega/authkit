@@ -1,0 +1,19 @@
+{
+  "name": "valid-id-token",
+  "description": "OIDC ID token that proves authentication to a client but must not authorize API requests.",
+  "tokenClass": "id_token",
+  "claims": {
+    "token_use": "id_token",
+    "aud": ["sample-resource-api"],
+    "iss": "authkit",
+    "sub": "fixture-user-id",
+    "jti": "fixture-id-jti",
+    "tenant_id": "fixture-tenant-id",
+    "nonce": "fixture-nonce",
+    "amr": ["pwd"]
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "ID tokens are authentication assertions and must never be accepted as API bearer tokens"
+}

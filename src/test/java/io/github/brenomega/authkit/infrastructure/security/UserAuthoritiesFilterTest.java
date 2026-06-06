@@ -110,7 +110,53 @@ class UserAuthoritiesFilterTest {
         verify(userRepository, times(0)).findById(userId);
     }
 
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("OAuth access tokens are rejected before first-party session lookup")
+    void doFilterInternal_rejectsOAuthTokenClassBeforeSessionLookup() throws Exception {
+        UserRepository userRepository = mock(UserRepository.class);
+        TokenStorage tokenStorage = mock(TokenStorage.class);
+        AuthProperties authProperties = new AuthProperties();
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+        UUID userId = UUID.randomUUID();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt(userId, UUID.randomUUID().toString(), JwtTokenUse.OAUTH_ACCESS, "client-api")));
+        filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
+
+        assertEquals(401, response.getStatus());
+        verify(tokenStorage, times(0)).isSessionActive(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(userRepository, times(0)).findById(userId);
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("ID tokens are rejected before first-party session lookup")
+    void doFilterInternal_rejectsIdTokenClassBeforeSessionLookup() throws Exception {
+        UserRepository userRepository = mock(UserRepository.class);
+        TokenStorage tokenStorage = mock(TokenStorage.class);
+        AuthProperties authProperties = new AuthProperties();
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+        UUID userId = UUID.randomUUID();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt(userId, UUID.randomUUID().toString(), JwtTokenUse.ID_TOKEN, "client-api")));
+        filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
+
+        assertEquals(401, response.getStatus());
+        verify(tokenStorage, times(0)).isSessionActive(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(userRepository, times(0)).findById(userId);
+    }
+
     private Jwt jwt(UUID userId, String jti) {
+        return jwt(userId, jti, JwtTokenUse.FIRST_PARTY_ACCESS, "authkit-api");
+    }
+
+    private Jwt jwt(UUID userId, String jti, String tokenUse, String audience) {
         Instant now = Instant.now();
         return new Jwt(
                 "token",
@@ -118,8 +164,8 @@ class UserAuthoritiesFilterTest {
                 now.plusSeconds(300),
                 Map.of("alg", "RS256"),
                 Map.of("sub", userId.toString(), "jti", jti,
-                        "aud", java.util.List.of("authkit-api"),
-                        "token_use", JwtTokenUse.FIRST_PARTY_ACCESS,
+                        "aud", java.util.List.of(audience),
+                        "token_use", tokenUse,
                         "tenant_id", UUID.randomUUID().toString()));
     }
 

@@ -1,0 +1,16 @@
+{
+  "name": "oauth-token-used-on-first-party-api",
+  "description": "OAuth access token presented to a first-party AuthKit endpoint.",
+  "tokenClass": "oauth_access",
+  "claims": {
+    "token_use": "oauth_access",
+    "aud": ["sample-resource-api"],
+    "iss": "authkit",
+    "client_id": "sample-resource-api",
+    "scope": "openid email profile"
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "acceptedWhenAudienceScopeAndTenantMatch",
+  "expectedStatus": 401,
+  "reason": "UserAuthoritiesFilter and first-party JWT validation reject OAuth token classes"
+}

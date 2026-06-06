@@ -1,0 +1,16 @@
+{
+  "name": "wrong-issuer",
+  "description": "OAuth access token issued by an untrusted issuer.",
+  "tokenClass": "oauth_access",
+  "claims": {
+    "token_use": "oauth_access",
+    "aud": ["sample-resource-api"],
+    "iss": "https://issuer.example.invalid",
+    "client_id": "sample-resource-api",
+    "scope": "openid email profile"
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "iss does not equal the configured AuthKit issuer"
+}

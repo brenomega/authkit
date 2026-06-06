@@ -1,0 +1,17 @@
+{
+  "name": "tenant-mismatch",
+  "description": "OAuth access token for one tenant used against another tenant's path.",
+  "tokenClass": "oauth_access",
+  "claims": {
+    "token_use": "oauth_access",
+    "aud": ["sample-resource-api"],
+    "iss": "authkit",
+    "tenant_id": "fixture-tenant-a",
+    "client_id": "sample-resource-api",
+    "scope": "openid email profile"
+  },
+  "expectedAuthKitResult": "notApplicable",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 403,
+  "reason": "resource APIs must enforce object-level tenant authorization server-side"
+}

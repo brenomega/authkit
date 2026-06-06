@@ -308,18 +308,18 @@ If the test selector misses relevant tests, run:
 
 ### Acceptance Checklist
 
-- [ ] Fixture metadata exists.
-- [ ] Test token generator exists and writes only to `target/`.
-- [ ] Generated tokens are not committed.
-- [ ] First-party APIs reject OAuth and ID tokens.
-- [ ] OAuth APIs reject first-party and ID tokens where required.
-- [ ] Wrong issuer/audience/token_use cases are tested.
-- [ ] Revoked or inactive first-party session is tested.
-- [ ] OpenAPI documents token class expectations.
-- [ ] Negative curl script exists.
-- [ ] Fixture README exists.
-- [ ] Targeted tests pass.
-- [ ] `git diff --check` passes.
+- [x] Fixture metadata exists.
+- [x] Test token generator exists and writes only to `target/`.
+- [x] Generated tokens are not committed.
+- [x] First-party APIs reject OAuth and ID tokens.
+- [x] OAuth APIs reject first-party and ID tokens where required.
+- [x] Wrong issuer/audience/token_use cases are tested.
+- [x] Revoked or inactive first-party session is tested.
+- [x] OpenAPI documents token class expectations.
+- [x] Negative curl script exists.
+- [x] Fixture README exists.
+- [x] Targeted tests pass.
+- [x] `git diff --check` passes.
 
 ### AI Prompt For This Topic
 
@@ -519,16 +519,16 @@ git diff --check
 
 ### Acceptance Checklist
 
-- [ ] Sample resource server exists.
-- [ ] Sample validates JWKS, issuer, audience, and token_use.
-- [ ] Sample enforces tenant path authorization.
-- [ ] Sample enforces scope or role.
-- [ ] Sample rejects wrong token classes.
-- [ ] Sample tests pass.
-- [ ] Browser session flow doc exists.
-- [ ] Integrator guide links to the sandbox.
-- [ ] Wavern-specific assumptions remain isolated.
-- [ ] `git diff --check` passes.
+- [x] Sample resource server exists.
+- [x] Sample validates JWKS, issuer, audience, and token_use.
+- [x] Sample enforces tenant path authorization.
+- [x] Sample enforces scope or role.
+- [x] Sample rejects wrong token classes.
+- [x] Sample tests pass.
+- [x] Browser session flow doc exists.
+- [x] Integrator guide links to the sandbox.
+- [x] Wavern-specific assumptions remain isolated.
+- [x] `git diff --check` passes.
 
 ### AI Prompt For This Topic
 
@@ -768,16 +768,16 @@ shellcheck deploy/scripts/*.sh
 
 ### Acceptance Checklist
 
-- [ ] Redis-direct compose exists.
-- [ ] JDBC-direct compose exists.
-- [ ] Queue compose exists or is explicitly deferred with rationale.
-- [ ] Env examples contain no real secrets.
-- [ ] Systemd examples exist.
-- [ ] Backup scripts exist and pass `bash -n`.
-- [ ] Preflight script exists and pass/fail logic is documented.
-- [ ] Runbooks exist for Tier 00H, 0S, 1S, and 0P.
-- [ ] Health/readiness runbook exists.
-- [ ] `git diff --check` passes.
+- [x] Redis-direct compose exists.
+- [x] JDBC-direct compose exists.
+- [x] Queue compose exists or is explicitly deferred with rationale.
+- [x] Env examples contain no real secrets.
+- [x] Systemd examples exist.
+- [x] Backup scripts exist and pass `bash -n`.
+- [x] Preflight script exists and pass/fail logic is documented.
+- [x] Runbooks exist for Tier 00H, 0S, 1S, and 0P.
+- [x] Health/readiness runbook exists.
+- [x] `git diff --check` passes.
 
 ### AI Prompt For This Topic
 
@@ -981,16 +981,16 @@ k6 inspect testing/proof/k6/mixed-auth-workload.js
 
 ### Acceptance Checklist
 
-- [ ] Proof matrix exists.
-- [ ] Report template exists.
-- [ ] Go/no-go criteria exists.
-- [ ] Smoke scripts exist and are syntax-valid.
-- [ ] k6 scripts exist.
-- [ ] Metrics snapshot script exists.
-- [ ] Chaos scripts exist and refuse production by default.
-- [ ] Proof runner exists.
-- [ ] Scripts do not print secrets or raw tokens.
-- [ ] `git diff --check` passes.
+- [x] Proof matrix exists.
+- [x] Report template exists.
+- [x] Go/no-go criteria exists.
+- [x] Smoke scripts exist and are syntax-valid.
+- [x] k6 scripts exist.
+- [x] Metrics snapshot script exists.
+- [x] Chaos scripts exist and refuse production by default.
+- [x] Proof runner exists.
+- [x] Scripts do not print secrets or raw tokens.
+- [x] `git diff --check` passes.
 
 ### AI Prompt For This Topic
 
@@ -1159,19 +1159,19 @@ If tagged tests are used, run the documented Maven command and verify it actuall
 
 ### Acceptance Checklist
 
-- [ ] Performance baseline doc exists.
-- [ ] Performance budget doc exists.
-- [ ] SQL query plan files exist.
-- [ ] Performance README exists.
-- [ ] Lightweight performance tests or benchmarks exist.
-- [ ] Slow tests are tagged or isolated.
-- [ ] Hikari tuning procedure is documented.
-- [ ] Argon2 tuning procedure is documented.
-- [ ] Direct email tuning procedure is documented.
-- [ ] Redis/JDBC comparison procedure is documented.
-- [ ] No security floors are lowered.
-- [ ] Targeted tests pass.
-- [ ] `git diff --check` passes.
+- [x] Performance baseline doc exists.
+- [x] Performance budget doc exists.
+- [x] SQL query plan files exist.
+- [x] Performance README exists.
+- [x] Lightweight performance tests or benchmarks exist.
+- [x] Slow tests are tagged or isolated.
+- [x] Hikari tuning procedure is documented.
+- [x] Argon2 tuning procedure is documented.
+- [x] Direct email tuning procedure is documented.
+- [x] Redis/JDBC comparison procedure is documented.
+- [x] No security floors are lowered.
+- [x] Targeted tests pass.
+- [x] `git diff --check` passes.
 
 ### AI Prompt For This Topic
 
@@ -1214,20 +1214,20 @@ find testing/proof/k6 -name '*.js' -print -exec k6 inspect {} \;
 
 ## Final Workstream Acceptance Checklist
 
-- [ ] API/Contract Fixtures are implemented.
-- [ ] Integrator Sandbox is implemented.
-- [ ] Deployment Automation is implemented.
-- [ ] AuthKit Proof Pack is implemented.
-- [ ] Performance Tightening scaffolding is implemented.
-- [ ] README links all major new docs.
-- [ ] No committed secrets exist.
-- [ ] No generated JWTs are committed unless clearly test-only and approved.
-- [ ] No production-host scripts run by default.
-- [ ] All executable scripts have syntax checks.
-- [ ] Targeted tests pass.
-- [ ] Full H2 suite passes.
-- [ ] Docker-backed tests pass or are explicitly skipped because Docker is unavailable.
-- [ ] Remaining unproven items are listed in a proof report or follow-up issue.
+- [x] API/Contract Fixtures are implemented.
+- [x] Integrator Sandbox is implemented.
+- [x] Deployment Automation is implemented.
+- [x] AuthKit Proof Pack is implemented.
+- [x] Performance Tightening scaffolding is implemented.
+- [x] README links all major new docs.
+- [x] No committed secrets exist.
+- [x] No generated JWTs are committed unless clearly test-only and approved.
+- [x] No production-host scripts run by default.
+- [x] All executable scripts have syntax checks.
+- [x] Targeted tests pass.
+- [x] Full H2 suite passes.
+- [x] Docker-backed tests pass or are explicitly skipped because Docker is unavailable.
+- [x] Remaining unproven items are listed in a proof report or follow-up issue.
 
 ## Suggested Branch And Commit Naming
 

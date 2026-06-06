@@ -100,7 +100,10 @@ paths:
   /oauth2/introspect:
     post: *oauthFormPost
   /oauth2/userinfo:
-    get: *authGet
+    get:
+      security: [{oauthAccessBearer: []}]
+      description: Requires an AuthKit OAuth access token with `token_use=oauth_access`; ID tokens and first-party access tokens are rejected.
+      responses: {'200': {description: OIDC userinfo claims}, '400': {description: Invalid token class or malformed bearer token}, '401': {description: Unauthorized}}
   /api/v1/admin/users:
     get: *authGet
   /api/v1/admin/users/{userId}/role:
@@ -121,10 +124,30 @@ paths:
       responses: {'200': {$ref: '#/components/responses/Success'}}
 components:
   securitySchemes:
-    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
-    refreshCookie: {type: apiKey, in: cookie, name: Refresh-Token}
-    csrfHeader: {type: apiKey, in: header, name: X-XSRF-TOKEN}
-    oauthClientBasic: {type: http, scheme: basic}
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: First-party AuthKit access token with `token_use=first_party_access`, configured API audience, non-revoked key, and active server-side session. OAuth access tokens and ID tokens are rejected.
+    oauthAccessBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth access token with `token_use=oauth_access`, OAuth client audience, `client_id`, and server-side scope checks. ID tokens and first-party access tokens are rejected.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: Refresh-Token
+      description: HttpOnly refresh cookie scoped to AuthKit refresh/logout routes.
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+      description: CSRF header that must echo the readable CSRF cookie on refresh and logout.
+    oauthClientBasic:
+      type: http
+      scheme: basic
+      description: OAuth client authentication for token, introspection, and revocation endpoints. Public clients may use approved body credentials where supported.
   parameters:
     Jti: {name: jti, in: path, required: true, schema: {type: string}}
     UserId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}

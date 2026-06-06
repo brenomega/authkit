@@ -1,0 +1,18 @@
+{
+  "name": "revoked-session",
+  "description": "First-party token with a jti that no longer maps to an active AuthKit session.",
+  "tokenClass": "first_party_access",
+  "claims": {
+    "token_use": "first_party_access",
+    "aud": ["authkit-api"],
+    "iss": "authkit",
+    "sub": "fixture-user-id",
+    "jti": "revoked-session-jti",
+    "tenant_id": "fixture-tenant-id",
+    "amr": ["pwd"]
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "AuthKit first-party access requires an active server-side session lookup"
+}

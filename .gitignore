@@ -21,6 +21,9 @@ build/
 ### Environment and secrets ###
 .env
 *.env.*
+!*.env.example
+!**/*.env.example
+!deploy/compose/.env.*.example
 application-local.yml
 application-local.properties
 *secrets.yaml
@@ -57,3 +60,4 @@ Thumbs.db
 ### Logs ###
 *.log
 logs/
+docs/proof/reports/

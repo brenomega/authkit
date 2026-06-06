@@ -36,6 +36,18 @@ class OpenApiContractTest {
         assertTrue(result.getMessages() == null || result.getMessages().isEmpty(),
                 () -> "OpenAPI parser messages: " + result.getMessages());
         assertNotNull(result.getOpenAPI());
+        assertNotNull(result.getOpenAPI().getComponents().getSecuritySchemes().get("bearerAuth"));
+        assertNotNull(result.getOpenAPI().getComponents().getSecuritySchemes().get("oauthAccessBearer"));
+        assertTrue(result.getOpenAPI().getComponents().getSecuritySchemes().get("bearerAuth")
+                .getDescription().contains("token_use=first_party_access"));
+        assertTrue(result.getOpenAPI().getComponents().getSecuritySchemes().get("oauthAccessBearer")
+                .getDescription().contains("token_use=oauth_access"));
+        assertTrue(result.getOpenAPI().getPaths()
+                .get("/oauth2/userinfo")
+                .getGet()
+                .getSecurity()
+                .stream()
+                .anyMatch(requirement -> requirement.containsKey("oauthAccessBearer")));
 
         Set<String> documented = new HashSet<>();
         result.getOpenAPI().getPaths().forEach((path, item) -> item.readOperationsMap()

@@ -1,0 +1,16 @@
+{
+  "name": "wrong-audience",
+  "description": "OAuth access token with an audience not accepted by the sample resource API.",
+  "tokenClass": "oauth_access",
+  "claims": {
+    "token_use": "oauth_access",
+    "aud": ["other-resource-api"],
+    "iss": "authkit",
+    "client_id": "sample-resource-api",
+    "scope": "openid email profile"
+  },
+  "expectedAuthKitResult": "rejected",
+  "expectedIntegratorResult": "rejected",
+  "expectedStatus": 401,
+  "reason": "aud does not match the accepted audience"
+}

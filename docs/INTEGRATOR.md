@@ -35,3 +35,32 @@ decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
 ```
 
 Refresh JWKS on key rotation, keep retiring keys until all issued tokens expire, and treat revoked keys as an emergency deny list supplied out of band to downstream services.
+
+## Generic Resource-Server Sandbox
+
+Use [the Spring resource-server sample](../samples/resource-server-spring/README.md) as the generic integration sandbox before wiring AuthKit into a real host system. It demonstrates:
+
+- JWKS-based signature validation.
+- Exact issuer and audience checks.
+- `token_use=oauth_access` enforcement for host APIs.
+- Tenant path authorization.
+- Scope/role checks.
+- Rejection of ID tokens and first-party AuthKit tokens.
+
+The sandbox is intentionally generic. Wavern-specific routes, claims, and rollout details belong in [the Wavern integration spec](integration/wavern-auth-integration-spec.md), not in the reusable sample.
+
+## Contract Fixtures
+
+Contract fixture metadata lives in [testing/proof/fixtures](../testing/proof/fixtures/README.md). Generate signed test-only tokens with:
+
+```bash
+testing/proof/fixtures/generate-test-tokens.sh
+```
+
+Generated JWTs are written to `target/contract-fixtures/` and are never committed. Use them for local/HML negative tests only; they are signed by the repository test key and are not production credentials.
+
+Run AuthKit boundary checks with:
+
+```bash
+AUTHKIT_BASE_URL=http://localhost:8080 testing/proof/smoke/negative-contracts.sh
+```
