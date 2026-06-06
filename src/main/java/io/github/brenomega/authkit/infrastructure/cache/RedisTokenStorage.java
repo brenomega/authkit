@@ -1,11 +1,15 @@
 package io.github.brenomega.authkit.infrastructure.cache;
 
+import java.lang.reflect.Array;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
-import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
@@ -274,8 +278,12 @@ public class RedisTokenStorage implements TokenStorage {
         }
 
         String redisCursor = state.redisCursor();
-        if (items.size() < limit && (!"0".equals(redisCursor) || cursor == null || cursor.isBlank())) {
-            HashScanResult scan = scanHash(tokenKey(userId), redisCursor, limit);
+        boolean needsInitialScan = cursor == null || cursor.isBlank();
+        int scanBudget = Math.max(16, limit * 4);
+        while (items.size() < limit && scanBudget-- > 0
+                && (needsInitialScan || !"0".equals(redisCursor))) {
+            needsInitialScan = false;
+            HashScanResult scan = scanHash(tokenKey(userId), redisCursor, Math.max(1, limit - items.size()));
             redisCursor = scan.nextCursor();
             for (String jti : scan.fields()) {
                 if (items.size() < limit) {
@@ -301,17 +309,121 @@ public class RedisTokenStorage implements TokenStorage {
                 cursor.getBytes(StandardCharsets.UTF_8),
                 "COUNT".getBytes(StandardCharsets.UTF_8),
                 Integer.toString(count).getBytes(StandardCharsets.UTF_8)));
-        if (!(raw instanceof List<?> response) || response.size() != 2) {
+        return parseHashScanResponse(raw);
+    }
+
+    static HashScanResult parseHashScanResponse(Object raw) {
+        HashScanResult cursorLike = parseCursorLikeResponse(raw);
+        if (cursorLike != null) {
+            return cursorLike;
+        }
+        List<?> response = toList(raw);
+        if (response.size() != 2) {
             return new HashScanResult("0", List.of());
         }
         String next = decode(response.get(0));
         List<String> fields = new ArrayList<>();
-        if (response.get(1) instanceof List<?> entries) {
-            for (int i = 0; i + 1 < entries.size(); i += 2) {
-                fields.add(decode(entries.get(i)));
+        if (response.get(1) instanceof Map<?, ?> map) {
+            for (Object key : map.keySet()) {
+                fields.add(decode(key));
+            }
+        } else {
+            List<?> entries = toList(response.get(1));
+            boolean parsedEntryObjects = false;
+            for (Object entry : entries) {
+                Object key = extractEntryKey(entry);
+                if (key != null) {
+                    fields.add(decode(key));
+                    parsedEntryObjects = true;
+                }
+            }
+            if (!parsedEntryObjects) {
+                for (int i = 0; i + 1 < entries.size(); i += 2) {
+                    fields.add(decode(entries.get(i)));
+                }
             }
         }
         return new HashScanResult(next, fields);
+    }
+
+    private static HashScanResult parseCursorLikeResponse(Object raw) {
+        Object cursor = invokeNoArg(raw, "getCursor");
+        Object map = invokeNoArg(raw, "getMap");
+        if (cursor != null && map instanceof Map<?, ?> hashEntries) {
+            List<String> fields = new ArrayList<>();
+            for (Object key : hashEntries.keySet()) {
+                fields.add(decode(key));
+            }
+            return new HashScanResult(decode(cursor), fields);
+        }
+
+        Object keys = invokeNoArg(raw, "getKeys");
+        if (cursor != null && keys != null) {
+            List<String> fields = new ArrayList<>();
+            for (Object key : toList(keys)) {
+                fields.add(decode(key));
+            }
+            return new HashScanResult(decode(cursor), fields);
+        }
+        return null;
+    }
+
+    private static Object extractEntryKey(Object entry) {
+        if (entry instanceof Map.Entry<?, ?> mapEntry) {
+            return mapEntry.getKey();
+        }
+        return invokeNoArg(entry, "getKey");
+    }
+
+    private static Object invokeNoArg(Object target, String methodName) {
+        if (target == null) {
+            return null;
+        }
+        try {
+            Method method = target.getClass().getMethod(methodName);
+            method.setAccessible(true);
+            return method.invoke(target);
+        } catch (ReflectiveOperationException ex) {
+            return null;
+        }
+    }
+
+    private static List<?> toList(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (value instanceof List<?> list) {
+            return list;
+        }
+        if (value instanceof Iterable<?> iterable) {
+            List<Object> values = new ArrayList<>();
+            for (Object item : iterable) {
+                values.add(item);
+            }
+            return values;
+        }
+        if (value.getClass().isArray() && !(value instanceof byte[])) {
+            List<Object> values = new ArrayList<>();
+            int length = Array.getLength(value);
+            for (int index = 0; index < length; index++) {
+                values.add(Array.get(value, index));
+            }
+            return values;
+        }
+        return List.of();
+    }
+
+    private static String decode(Object value) {
+        if (value instanceof byte[] bytes) {
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        if (value instanceof ByteBuffer buffer) {
+            ByteBuffer copy = buffer.asReadOnlyBuffer();
+            byte[] bytes = new byte[copy.remaining()];
+            copy.get(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        return String.valueOf(value);
     }
 
     private CursorState consumeCursor(String userId, String token) {
@@ -337,17 +449,10 @@ public class RedisTokenStorage implements TokenStorage {
         return token;
     }
 
-    private String decode(Object value) {
-        if (value instanceof byte[] bytes) {
-            return new String(bytes, StandardCharsets.UTF_8);
-        }
-        return String.valueOf(value);
-    }
-
     private record CursorState(String userId, String redisCursor, List<String> overflow) {
     }
 
-    private record HashScanResult(String nextCursor, List<String> fields) {
+    record HashScanResult(String nextCursor, List<String> fields) {
     }
 
     @SuppressWarnings("null")
