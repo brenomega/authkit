@@ -13,6 +13,7 @@ import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -35,7 +36,7 @@ public class JdbcTokenStorage implements TokenStorage {
     private final Duration cursorTtl;
 
     public JdbcTokenStorage(JdbcTemplate jdbcTemplate,
-                            PlatformTransactionManager transactionManager,
+                            @NonNull PlatformTransactionManager transactionManager,
                             AuthProperties authProperties) {
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -451,7 +452,7 @@ public class JdbcTokenStorage implements TokenStorage {
         }
     }
 
-    private Optional<StoredHash> lockStoredHash(String sql, Object... args) {
+    private Optional<StoredHash> lockStoredHash(@NonNull String sql, Object... args) {
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(
                     sql,
