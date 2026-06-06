@@ -10,7 +10,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
+import io.lettuce.core.ScanArgs;
+import io.lettuce.core.ScanCursor;
+import io.lettuce.core.api.async.RedisHashAsyncCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.stereotype.Component;
@@ -303,13 +307,48 @@ public class RedisTokenStorage implements TokenStorage {
 
     @SuppressWarnings("null")
     private HashScanResult scanHash(String key, String cursor, int count) {
-        Object raw = redisTemplate.execute((RedisCallback<Object>) connection -> connection.execute(
-                "HSCAN",
-                key.getBytes(StandardCharsets.UTF_8),
-                cursor.getBytes(StandardCharsets.UTF_8),
-                "COUNT".getBytes(StandardCharsets.UTF_8),
-                Integer.toString(count).getBytes(StandardCharsets.UTF_8)));
-        return parseHashScanResponse(raw);
+        byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+        byte[] cursorBytes = cursor.getBytes(StandardCharsets.UTF_8);
+        byte[] countBytes = Integer.toString(count).getBytes(StandardCharsets.UTF_8);
+        HashScanResult result = redisTemplate.execute((RedisCallback<HashScanResult>) connection -> {
+            HashScanResult lettuceResult = scanHashWithNativeLettuce(
+                    connection.getNativeConnection(),
+                    keyBytes,
+                    cursor,
+                    count);
+            if (lettuceResult != null) {
+                return lettuceResult;
+            }
+            Object raw = connection.execute(
+                    "HSCAN",
+                    keyBytes,
+                    cursorBytes,
+                    "COUNT".getBytes(StandardCharsets.UTF_8),
+                    countBytes);
+            return parseHashScanResponse(raw);
+        });
+        return result == null ? new HashScanResult("0", List.of()) : result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HashScanResult scanHashWithNativeLettuce(Object nativeConnection,
+                                                           byte[] key,
+                                                           String cursor,
+                                                           int count) {
+        ScanCursor scanCursor = ScanCursor.of(cursor);
+        ScanArgs args = new ScanArgs().limit(count);
+        try {
+            if (nativeConnection instanceof RedisHashAsyncCommands<?, ?> hashCommands) {
+                var commands = (RedisHashAsyncCommands<byte[], byte[]>) hashCommands;
+                return parseHashScanResponse(commands.hscan(key, scanCursor, args).get());
+            }
+        } catch (ClassCastException | ExecutionException ex) {
+            return null;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        return null;
     }
 
     static HashScanResult parseHashScanResponse(Object raw) {

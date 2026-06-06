@@ -8,6 +8,7 @@ import java.util.AbstractMap;
 import java.util.List;
 import java.util.Map;
 
+import io.lettuce.core.MapScanCursor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -60,6 +61,19 @@ class RedisTokenStorageScanParserTest {
 
         assertEquals("11", result.nextCursor());
         assertEquals(List.of("jti-f"), result.fields());
+    }
+
+    @Test
+    @DisplayName("HSCAN parser accepts Lettuce MapScanCursor")
+    void parseHashScanResponse_acceptsLettuceMapScanCursor() {
+        MapScanCursor<byte[], byte[]> cursor = new MapScanCursor<>();
+        cursor.setCursor("23");
+        cursor.getMap().put(bytes("jti-g"), bytes("hash-g"));
+
+        var result = RedisTokenStorage.parseHashScanResponse(cursor);
+
+        assertEquals("23", result.nextCursor());
+        assertEquals(List.of("jti-g"), result.fields());
     }
 
     private static byte[] bytes(String value) {
