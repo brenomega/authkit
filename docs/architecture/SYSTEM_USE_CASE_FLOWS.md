@@ -9,7 +9,7 @@ Source surface reviewed:
 - `OAuthController`: `/api/v1/oauth2/**`, `/oauth2/token`, `/oauth2/revoke`, `/oauth2/introspect`, `/oauth2/userinfo`, `/.well-known/openid-configuration`
 - `AdminController`: `/api/v1/admin/**`
 - `JwksController`: `/.well-known/jwks.json`
-- Shared infrastructure: Kubernetes manifests, Spring Security filter chain (CORS, security headers), network/rate-limit filters, `AbuseThrottleService` (endpoint filter + service-layer account/email/tenant/client dimensions), Redis token storage and session binding, Caffeine authority/MFA-status/rate-limit caches, JWT key rotation and revocation validators, PostgreSQL/Flyway schema, email outbox with queue or direct dispatch, configurable email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
+- Shared infrastructure: Kubernetes manifests, Spring Security filter chain (CORS, security headers), network/rate-limit filters, `AbuseThrottleService` (endpoint filter + service-layer account/email/tenant/client dimensions), configured `TokenStorage` session binding (Redis by default, JDBC for explicit single-instance PostgreSQL-only tiers), Caffeine authority/MFA-status/rate-limit caches, JWT key rotation and revocation validators, PostgreSQL/Flyway schema, email outbox with queue or direct dispatch, configurable email provider, durable security/consent audit events, WebAuthn relying-party validation, OAuth2 authorization-code storage, Prometheus metrics.
 
 ## Shared Infrastructure Path
 
@@ -24,7 +24,7 @@ Current request order in the codebase is:
 7. Spring Security CORS applies explicit allowed origins from `authkit.auth.cors` when enabled (production rejects wildcard-with-credentials and non-HTTPS origins).
 8. Spring OAuth2 resource-server JWT validation runs for authenticated routes: RS256 signature via JWKS, issuer and `AUTH_JWT_AUDIENCE` checks, `token_use=first_party_access`, revoked signing `kid` rejection, and revoked token `jti` lookup (`OAuthTokenRevocationService`). OAuth access and ID tokens are rejected before session or authority lookup.
 9. `WorkerAuthFilter` applies to `/api/v1/internal/**` and `/actuator/prometheus`; it requires a trusted network source plus the current or previous internal worker token.
-10. `UserAuthoritiesFilter` enforces **first-party API session binding**: for bearer requests it requires JWT `jti` to match an active refresh session in Redis (`TokenStorage.isSessionActive`), then refreshes authorities from a local Caffeine cache (on miss, loads the user snapshot from PostgreSQL). Inactive sessions, missing `jti`, disabled users, or stale roles yield 401.
+10. `UserAuthoritiesFilter` enforces **first-party API session binding**: for bearer requests it requires JWT `jti` to match an active refresh session in the configured `TokenStorage`, then refreshes authorities from a local Caffeine cache (on miss, loads the user snapshot from PostgreSQL). Inactive sessions, missing `jti`, disabled users, or stale roles yield 401.
 11. Controller/service logic executes; many flows apply additional `AbuseThrottleService` checks (per-email, per-user, per-tenant, per-client) beyond the endpoint filter.
 12. Critical security events (lockout creation, admin mutation, refresh-family reuse, TOTP disablement, deletion/anonymization) are synchronously flushed; when a database-backed business transaction is active, persistence failure returns opaque 503 and rolls back those transactional database mutations. Redis/local security state already applied by lockout or refresh-family defenses may remain applied because it is intentionally fail-closed and not transactionally rollbackable. Noncritical events use the bounded asynchronous writer and emit `security.audit.dropped` plus `SECURITY_ALERT` without failing user operations.
 13. Metrics are exposed at `/actuator/prometheus` only when the internal worker token is supplied; alerts are defined in `k8s/06-prometheus-rules.yaml`.
@@ -46,7 +46,7 @@ sequenceDiagram
     participant JWT as Bearer JWT Decoder
     participant WF as WorkerAuthFilter
     participant AF as UserAuthoritiesFilter
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AC as Caffeine authority cache
     participant DB as PostgreSQL
     participant CT as Controller
@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## Access Token Classes
 
-| Token | `token_use` | Typical `aud` | Session in Redis | Use on AuthKit |
+| Token | `token_use` | Typical `aud` | Server-side session | Use on AuthKit |
 |---|---|---|---|
 | First-party access (login, refresh, passkey, MFA login) | `first_party_access` | `AUTH_JWT_AUDIENCE` | Yes — JWT `jti` equals refresh-session JTI | `/api/v1/users/**`, `/api/v1/admin/**`, `/api/v1/oauth2/authorize` |
 | OAuth access (authorization code grant) | `oauth_access` | OAuth `client_id` | No — independent `jti`; revocation via `OAuthTokenRevocationService` | `/oauth2/userinfo`, introspection, and revocation; **not** first-party user/admin APIs |
@@ -135,38 +135,38 @@ Authenticated first-party routes depend on JWT validation **and** `UserAuthoriti
 
 | Endpoint | Auth | Primary state | Key infrastructure |
 |---|---:|---|---|
-| `POST /api/v1/auth/login` | Public | PostgreSQL user, Redis refresh token or MFA challenge | Endpoint/account throttles, Argon2 limiter, lockout Caffeine/Redis, MFA Redis challenge, audit DB |
-| `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | Redis MFA challenge, Redis refresh token | Endpoint/user throttles, one-time MFA challenge consume, TOTP/backup code verification, audit DB |
+| `POST /api/v1/auth/login` | Public | PostgreSQL user, TokenStorage refresh token or MFA challenge | Endpoint/account throttles, Argon2 limiter, lockout Caffeine/Redis when available, MFA challenge, audit DB |
+| `POST /api/v1/auth/mfa/verify-login` | Public + MFA challenge | TokenStorage MFA challenge and refresh token | Endpoint/user throttles, one-time MFA challenge consume, TOTP/backup code verification, audit DB |
 | `POST /api/v1/auth/passkeys/options` | Public | PostgreSQL passkey challenge | Endpoint/email throttles, WebAuthn assertion options, DB challenge state, audit DB |
-| `POST /api/v1/auth/passkeys/verify` | Public + passkey assertion | PostgreSQL passkey credential/challenge, Redis refresh token | Endpoint/email throttles, Yubico WebAuthn assertion verification, signature counter update, JWT/cookies |
-| `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | Redis refresh token family | Endpoint throttles, CSRF double-submit cookie, Redis Lua rotation, audit DB |
-| `POST /api/v1/auth/logout` | Refresh cookie + CSRF | Redis refresh token session | CSRF double-submit cookie, Redis revocation, audit DB |
-| `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | Redis all sessions | JWT + Redis session `jti`, authority cache, MFA step-up, Redis revocation |
+| `POST /api/v1/auth/passkeys/verify` | Public + passkey assertion | PostgreSQL passkey credential/challenge, TokenStorage refresh token | Endpoint/email throttles, Yubico WebAuthn assertion verification, signature counter update, JWT/cookies |
+| `POST /api/v1/auth/refresh` | Refresh cookie + CSRF | TokenStorage refresh token family | Endpoint throttles, CSRF double-submit cookie, atomic rotation/reuse detection, audit DB |
+| `POST /api/v1/auth/logout` | Refresh cookie + CSRF | TokenStorage refresh token session | CSRF double-submit cookie, session revocation, audit DB |
+| `POST /api/v1/auth/logout-all` | Bearer JWT + MFA if enabled | TokenStorage all sessions | JWT + active session `jti`, authority cache, MFA step-up, session revocation |
 | `POST /api/v1/auth/register` | Public | PostgreSQL user, email outbox | Endpoint/email throttles, password policy/history, Argon2, consent event DB, outbox, email dispatch/provider |
 | `POST /api/v1/auth/email-confirmation/confirm` | Public | PostgreSQL user token hash | Audit DB |
 | `POST /api/v1/auth/email-confirmation/resend` | Public | PostgreSQL user token hash, email outbox | Endpoint/email cooldown and daily caps, token rotation, outbox |
-| `POST /api/v1/auth/password-recovery/request` | Public | Redis recovery token, email outbox | Stealth response, endpoint/email cooldown and daily caps, outbox, email dispatch/provider, audit DB |
-| `POST /api/v1/auth/password-recovery/reset` | Public | Redis recovery token, PostgreSQL password | Endpoint/email throttles, password policy/history, Argon2 limiter, Redis session revoke, outbox, audit DB |
-| `GET /api/v1/users/me` | Bearer JWT | PostgreSQL user | JWT + Redis session `jti`, authority cache, tenant check |
-| `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | JWT + Redis session `jti`, authority cache, tenant check |
+| `POST /api/v1/auth/password-recovery/request` | Public | TokenStorage recovery token, email outbox | Stealth response, endpoint/email cooldown and daily caps, outbox, email dispatch/provider, audit DB |
+| `POST /api/v1/auth/password-recovery/reset` | Public | TokenStorage recovery token, PostgreSQL password | Endpoint/email throttles, password policy/history, Argon2 limiter, session revoke, outbox, audit DB |
+| `GET /api/v1/users/me` | Bearer JWT | PostgreSQL user | JWT + active session `jti`, authority cache, tenant check |
+| `GET /api/v1/users/me/consent` | Bearer JWT | PostgreSQL user | JWT + active session `jti`, authority cache, tenant check |
 | `POST /api/v1/users/me/export` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL user, consent events, security events | JWT + session `jti`, Argon2 limiter, MFA step-up, audit DB |
 | `PATCH /api/v1/users/me` | Bearer JWT | PostgreSQL user | JWT + session `jti`, user write throttle, authority cache, tenant check |
-| `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, Redis sessions | JWT + session `jti`, user write throttle, password policy/history, Argon2 limiter, lockout check, MFA step-up, audit DB |
-| `GET /api/v1/users/me/sessions?limit=50&cursor=...` | Bearer JWT | Redis refresh sessions and cursor state | JWT + session `jti`, per-user throttle, bounded Redis `HSCAN`, single-use user-bound cursor with five-minute TTL |
+| `POST /api/v1/users/me/password` | Bearer JWT + current password + MFA if enabled | PostgreSQL password, TokenStorage sessions | JWT + session `jti`, user write throttle, password policy/history, Argon2 limiter, lockout check, MFA step-up, audit DB |
+| `GET /api/v1/users/me/sessions?limit=50&cursor=...` | Bearer JWT | TokenStorage refresh sessions and cursor state | JWT + session `jti`, per-user throttle, bounded Redis `HSCAN` or JDBC keyset page, single-use user-bound cursor with five-minute TTL |
 | `GET /api/v1/users/me/mfa` | Bearer JWT | PostgreSQL MFA rows | JWT + session `jti`, authority cache, MFA status cache, tenant check |
 | `POST /api/v1/users/me/mfa/totp/enroll` | Bearer JWT + current password | PostgreSQL pending encrypted TOTP secret | MFA change throttle, Argon2 limiter, encrypted secret storage, audit DB |
-| `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, Redis sessions | MFA change throttle, TOTP verification, hashed backup codes, session revocation, audit DB |
-| `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, Redis sessions | MFA change throttle, MFA step-up, backup-code cleanup, session revocation, audit DB |
+| `POST /api/v1/users/me/mfa/totp/confirm` | Bearer JWT + current password + TOTP | PostgreSQL active TOTP and backup codes, TokenStorage sessions | MFA change throttle, TOTP verification, hashed backup codes, session revocation, audit DB |
+| `DELETE /api/v1/users/me/mfa/totp` | Bearer JWT + current password + MFA | PostgreSQL disabled TOTP, TokenStorage sessions | MFA change throttle, MFA step-up, backup-code cleanup, session revocation, audit DB |
 | `POST /api/v1/users/me/mfa/backup-codes` | Bearer JWT + current password + MFA | PostgreSQL hashed backup codes | MFA change throttle, atomic backup-code replacement, audit DB |
 | `GET /api/v1/users/me/passkeys` | Bearer JWT | PostgreSQL passkey credentials | Authority Caffeine/DB cache, tenant check |
 | `POST /api/v1/users/me/passkeys/options` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey challenge | Passkey change throttle, Argon2 limiter, MFA step-up, WebAuthn registration options, DB challenge state, audit DB |
 | `POST /api/v1/users/me/passkeys` | Bearer JWT + WebAuthn challenge | PostgreSQL passkey credential | Yubico registration verification, public key storage, audit DB |
 | `DELETE /api/v1/users/me/passkeys/{credentialId}` | Bearer JWT + current password + MFA if enabled | PostgreSQL passkey credential | Passkey change throttle, Argon2 limiter, MFA step-up, credential disablement, audit DB |
-| `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT + MFA if enabled | Redis refresh session | Lockout check, MFA step-up, audit DB |
-| `DELETE /api/v1/users/me` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL anonymized user, Redis sessions | Account deletion throttle, Argon2 limiter, MFA step-up, authority cache eviction, audit DB |
+| `DELETE /api/v1/users/me/sessions/{jti}` | Bearer JWT + MFA if enabled | TokenStorage refresh session | Lockout check, MFA step-up, audit DB |
+| `DELETE /api/v1/users/me` | Bearer JWT + password step-up + MFA if enabled | PostgreSQL anonymized user, TokenStorage sessions | Account deletion throttle, Argon2 limiter, MFA step-up, authority cache eviction, audit DB |
 | `POST /api/v1/oauth2/authorize` | First-party Bearer JWT + consent | PostgreSQL OAuth consent and authorization code | JWT + session `jti`, endpoint/client throttles, PKCE S256, consent persistence, audit DB |
 | `POST /oauth2/token` | Public + client/PKCE proof | PostgreSQL OAuth authorization code | Endpoint/client throttles, one-time code consume, RS256 access/ID token (`aud`=client_id), audit DB |
-| `POST /oauth2/revoke` | Public + client proof | Redis/Caffeine revoked OAuth `jti` | Client throttles, JWT decode, revoked-JTI TTL |
+| `POST /oauth2/revoke` | Public + client proof | Redis/Caffeine or JDBC revoked OAuth `jti` | Client throttles, JWT decode, revoked-JTI TTL |
 | `POST /oauth2/introspect` | Public + confidential client proof | JWT and revocation state | Client throttles, active token response |
 | `GET /oauth2/userinfo` | Bearer OAuth access token (permitAll route) | JWT claims | Service-side OAuth JWT decode (not first-party session binding), `openid` scope, scope-filtered claims |
 | `GET /.well-known/openid-configuration` | Public | AuthProperties | OIDC discovery metadata |
@@ -180,7 +180,7 @@ Authenticated first-party routes depend on JWT validation **and** `UserAuthoriti
 
 `POST /api/v1/auth/login`
 
-Infrastructure role: edge and Kubernetes restrict entry; network filters rate-limit before hashing; `AccountLockoutService` uses Redis as the global lockout source when available and Caffeine as local fallback; Argon2 verification is bounded by `Argon2ConcurrencyLimiter`; accounts with MFA enabled receive only a short-lived one-time MFA challenge in Redis, not a refresh cookie; accounts without MFA receive a Redis-backed refresh token and a self-contained RS256 access JWT whose `jti` is bound to that refresh session for later first-party API calls; security events and Prometheus counters are emitted.
+Infrastructure role: edge and Kubernetes restrict entry; network filters rate-limit before hashing; `AccountLockoutService` uses Redis as the global lockout source when available and Caffeine as local fallback; Argon2 verification is bounded by `Argon2ConcurrencyLimiter`; accounts with MFA enabled receive only a short-lived one-time MFA challenge in `TokenStorage`, not a refresh cookie; accounts without MFA receive a server-side-stored refresh token and a self-contained RS256 access JWT whose `jti` is bound to that refresh session for later first-party API calls; security events and Prometheus counters are emitted.
 
 ```mermaid
 sequenceDiagram
@@ -194,7 +194,7 @@ sequenceDiagram
     participant DB as PostgreSQL users
     participant ARG as Argon2 limiter + PasswordEncoder
     participant MFA as MfaService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant JWT as JwtEncoder
     participant AUD as SecurityEventService
 
@@ -265,7 +265,7 @@ sequenceDiagram
     participant I as Shared ingress filters
     participant AC as AuthController
     participant AS as AuthService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant DB as PostgreSQL users/MFA
     participant LS as AccountLockoutService
     participant MFA as MfaService
@@ -317,7 +317,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/refresh`
 
-Infrastructure role: refresh is public at the route layer but requires a valid refresh cookie; CSRF is enforced through double-submit cookie/header before service logic; token rotation is atomic in Redis Lua; refresh-token family pointers allow O(1) reuse detection and family revocation without scanning every session for the user. The newly issued access JWT uses the **new** refresh-session `jti`, so the previous access token stops working on first-party APIs once rotation succeeds.
+Infrastructure role: refresh is public at the route layer but requires a valid refresh cookie; CSRF is enforced through double-submit cookie/header before service logic; token rotation is atomic in the configured `TokenStorage` (Redis Lua by default, row-locked JDBC in Tier 0P); refresh-token family pointers allow reuse detection and family revocation without scanning every session for the user. The newly issued access JWT uses the **new** refresh-session `jti`, so the previous access token stops working on first-party APIs once rotation succeeds.
 
 ```mermaid
 sequenceDiagram
@@ -328,7 +328,7 @@ sequenceDiagram
     participant AS as AuthService
     participant DB as PostgreSQL users
     participant LS as AccountLockoutService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant JWT as JwtEncoder
     participant AUD as SecurityEventService
 
@@ -351,7 +351,7 @@ sequenceDiagram
             else User active
                 AS->>LS: isLocked(user.email)
                 AS->>TS: rotateRefreshToken(currentJti,currentRaw,nextJti,nextRaw)
-                TS->>TS: Redis Lua validates hash, swaps JTI, updates family pointer
+                TS->>TS: Atomically validate hash, swap JTI, update family pointer
                 alt Redis detects same-family reuse
                     TS-->>AS: TokenFamilyCompromisedException
                     AS->>AUD: REFRESH_TOKEN_REUSE_DETECTED critical
@@ -373,7 +373,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/logout`
 
-Infrastructure role: logout is route-public to allow client cleanup, but CSRF is enforced when a refresh cookie is present; Redis validates the refresh token before revoking so forged logout audit events are not created; invalid or missing tokens are treated as idempotent cleanup.
+Infrastructure role: logout is route-public to allow client cleanup, but CSRF is enforced when a refresh cookie is present; `TokenStorage` validates the refresh token before revoking so forged logout audit events are not created; invalid or missing tokens are treated as idempotent cleanup.
 
 ```mermaid
 sequenceDiagram
@@ -382,7 +382,7 @@ sequenceDiagram
     participant I as Shared ingress filters
     participant AC as AuthController
     participant AS as AuthService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
 
     C->>I: POST /api/v1/auth/logout + optional cookies
@@ -412,7 +412,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/logout-all`
 
-Infrastructure role: this route requires a valid first-party bearer access token with an active Redis refresh session (`UserAuthoritiesFilter` checks `jwt.jti` before refreshing roles from Caffeine or PostgreSQL); if MFA is enabled for the account the request must include a valid MFA proof; Redis deletes the entire refresh session hash for the user, which immediately invalidates all bound access tokens.
+Infrastructure role: this route requires a valid first-party bearer access token with an active `TokenStorage` refresh session (`UserAuthoritiesFilter` checks `jwt.jti` before refreshing roles from Caffeine or PostgreSQL); if MFA is enabled for the account the request must include a valid MFA proof; `TokenStorage` revokes all sessions for the user, which immediately invalidates all bound access tokens.
 
 ```mermaid
 sequenceDiagram
@@ -425,7 +425,7 @@ sequenceDiagram
     participant AC as AuthController
     participant AS as AuthService
     participant MFA as MfaService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
 
     C->>I: POST /api/v1/auth/logout-all + Bearer JWT + optional MFA code
@@ -560,7 +560,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/password-recovery/request`
 
-Infrastructure role: the endpoint intentionally returns the same success response for existing and non-existing accounts; existing accounts get a Redis recovery token and an outbox-backed email; unknown accounts still create a durable security event for abuse visibility. Endpoint, IP, and per-email cooldown/daily throttles apply before token creation.
+Infrastructure role: the endpoint intentionally returns the same success response for existing and non-existing accounts; existing accounts get a `TokenStorage` recovery token and an outbox-backed email; unknown accounts still create a durable security event for abuse visibility. Endpoint, IP, and per-email cooldown/daily throttles apply before token creation.
 
 ```mermaid
 sequenceDiagram
@@ -570,7 +570,7 @@ sequenceDiagram
     participant AC as AuthController
     participant PR as PasswordRecoveryService
     participant DB as PostgreSQL users
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant OB as EmailOutboxService
     participant OP as EmailOutboxProcessor
     participant DS as EmailDispatchStrategy
@@ -608,7 +608,7 @@ sequenceDiagram
     participant I as Shared ingress filters
     participant AC as AuthController
     participant PR as PasswordRecoveryService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant DB as PostgreSQL users
     participant ARG as Argon2 limiter + PasswordEncoder
     participant LS as AccountLockoutService
@@ -648,7 +648,7 @@ sequenceDiagram
 
 `GET /api/v1/users/me`
 
-Infrastructure role: first-party JWT must pass resource-server validation and prove an active Redis refresh session via `jwt.jti` before `UserAuthoritiesFilter` rehydrates roles; profile access also enforces tenant match against the JWT `tenant_id` claim and rejects deleted accounts.
+Infrastructure role: first-party JWT must pass resource-server validation and prove an active `TokenStorage` refresh session via `jwt.jti` before `UserAuthoritiesFilter` rehydrates roles; profile access also enforces tenant match against the JWT `tenant_id` claim and rejects deleted accounts.
 
 ```mermaid
 sequenceDiagram
@@ -656,7 +656,7 @@ sequenceDiagram
     participant C as Client
     participant I as Shared authenticated ingress
     participant AF as UserAuthoritiesFilter
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant ACa as Authority Caffeine
     participant DB as PostgreSQL users
     participant UC as UserController
@@ -806,7 +806,7 @@ sequenceDiagram
 
 `POST /api/v1/users/me/password`
 
-Infrastructure role: this is a sensitive authenticated operation; it is blocked while the account is locked, requires current-password verification, requires MFA proof when MFA is enabled for the account, bounds both Argon2 verification and encoding, revokes every Redis refresh session except the current access-token JTI, and emits high-severity security events.
+Infrastructure role: this is a sensitive authenticated operation; it is blocked while the account is locked, requires current-password verification, requires MFA proof when MFA is enabled for the account, bounds both Argon2 verification and encoding, revokes every refresh session except the current access-token JTI, and emits high-severity security events.
 
 ```mermaid
 sequenceDiagram
@@ -819,7 +819,7 @@ sequenceDiagram
     participant LS as AccountLockoutService
     participant ARG as Argon2 limiter + PasswordEncoder
     participant MFA as MfaService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
 
     C->>I: POST /api/v1/users/me/password {currentPassword,newPassword,mfaCode?} + Bearer JWT
@@ -870,7 +870,7 @@ sequenceDiagram
     participant MFA as MfaService
     participant ARG as Argon2 limiter + PasswordEncoder
     participant DB as PostgreSQL users/MFA
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
 
     C->>I: MFA management request + Bearer JWT
@@ -914,7 +914,7 @@ sequenceDiagram
 
 `GET /api/v1/users/me/sessions`
 
-Infrastructure role: the caller must present a first-party access token with an active Redis session (`jwt.jti`); active refresh sessions are listed from the user's Redis token hash by JTI; user activity and tenant checks happen before exposing session identifiers.
+Infrastructure role: the caller must present a first-party access token with an active `TokenStorage` session (`jwt.jti`); active refresh sessions are listed through bounded Redis `HSCAN` or JDBC keyset pagination; user activity and tenant checks happen before exposing session identifiers.
 
 ```mermaid
 sequenceDiagram
@@ -924,7 +924,7 @@ sequenceDiagram
     participant UC as UserController
     participant PS as ProfileService
     participant DB as PostgreSQL users
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
 
     C->>I: GET /api/v1/users/me/sessions + Bearer JWT
     I->>UC: JWT valid and authorities current
@@ -944,7 +944,7 @@ sequenceDiagram
 
 `DELETE /api/v1/users/me/sessions/{jti}`
 
-Infrastructure role: revocation is scoped to the authenticated user's Redis refresh-token hash, which prevents cross-user session deletion; lockout blocks session management; MFA proof is required when enabled for the account; success is audited as logout/session revocation.
+Infrastructure role: revocation is scoped to the authenticated user's `TokenStorage` records, which prevents cross-user session deletion; lockout blocks session management; MFA proof is required when enabled for the account; success is audited as logout/session revocation.
 
 ```mermaid
 sequenceDiagram
@@ -956,7 +956,7 @@ sequenceDiagram
     participant DB as PostgreSQL users
     participant LS as AccountLockoutService
     participant MFA as MfaService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
 
     C->>I: DELETE /api/v1/users/me/sessions/{jti} {code?} + Bearer JWT
@@ -987,7 +987,7 @@ sequenceDiagram
 
 `DELETE /api/v1/users/me`
 
-Infrastructure role: deletion requires bearer auth, password step-up, and MFA proof when MFA is enabled; user PII is anonymized immediately in PostgreSQL; deletion and anonymization audit rows are synchronously flushed in the same transaction so audit failure rolls the mutation back; authority cache eviction, Redis session revocation, and outbox cleanup occur after commit; retention jobs later purge deleted-account tombstones according to configuration.
+Infrastructure role: deletion requires bearer auth, password step-up, and MFA proof when MFA is enabled; user PII is anonymized immediately in PostgreSQL; deletion and anonymization audit rows are synchronously flushed in the same transaction so audit failure rolls the mutation back; authority cache eviction, token-session revocation, and outbox cleanup occur after commit; retention jobs later purge deleted-account tombstones according to configuration.
 
 ```mermaid
 sequenceDiagram
@@ -1000,7 +1000,7 @@ sequenceDiagram
     participant ARG as Argon2 limiter + PasswordEncoder
     participant MFA as MfaService
     participant ACa as Authority Caffeine
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant AUD as SecurityEventService
     participant MET as MeterRegistry
 
@@ -1100,7 +1100,7 @@ sequenceDiagram
 
 `POST /api/v1/auth/passkeys/options`, `POST /api/v1/auth/passkeys/verify`
 
-Infrastructure role: passkey login is public until assertion verification succeeds. Optional email narrows the allow-list without enumeration guarantees; discoverable credentials are supported when email is omitted. Successful assertions update the signature counter, issue normal HttpOnly refresh and CSRF cookies, and produce an RS256 access JWT with `amr=["webauthn"]` whose `jti` is bound to the new Redis refresh session.
+Infrastructure role: passkey login is public until assertion verification succeeds. Optional email narrows the allow-list without enumeration guarantees; discoverable credentials are supported when email is omitted. Successful assertions update the signature counter, issue normal HttpOnly refresh and CSRF cookies, and produce an RS256 access JWT with `amr=["webauthn"]` whose `jti` is bound to the new refresh session.
 
 ```mermaid
 sequenceDiagram
@@ -1112,7 +1112,7 @@ sequenceDiagram
     participant RP as Yubico RelyingParty
     participant DB as PostgreSQL passkey/user/challenge tables
     participant AS as AuthService
-    participant TS as RedisTokenStorage
+    participant TS as TokenStorage
     participant JWT as JwtEncoder
     participant AUD as SecurityEventService
 
@@ -1138,7 +1138,7 @@ sequenceDiagram
         PS->>DB: Update signatureCount and lastUsedAt
         PS->>AUD: PASSKEY_AUTHENTICATED
         PS->>AS: issueLoginForVerifiedUser(user, ["webauthn"])
-        AS->>TS: Store refresh token hash/family in Redis
+        AS->>TS: Store refresh token hash/family
         AS->>JWT: Sign RS256 JWT with tenant_id and amr=["webauthn"]
         AS->>AUD: LOGIN_SUCCESS
         AC-->>C: 200 accessToken + HttpOnly refresh cookie + CSRF cookie
@@ -1149,7 +1149,7 @@ sequenceDiagram
 
 `POST /api/v1/oauth2/authorize`, `POST /oauth2/token`, `POST /oauth2/revoke`, `POST /oauth2/introspect`, `GET /oauth2/userinfo`, `GET /.well-known/openid-configuration`
 
-Infrastructure role: AuthKit acts as an API-oriented OAuth2/OIDC provider for authorization-code + PKCE. The authorization endpoint requires an already-authenticated **first-party** user token (`aud` = `AUTH_JWT_AUDIENCE`, active Redis session) plus explicit user consent unless an active consent already covers the requested client scopes; client applications are managed through the admin policy plane. OAuth consents are durable PostgreSQL rows included in account export. Authorization codes are high-entropy one-time values stored as SHA-256 hashes in PostgreSQL and consumed atomically before RS256 access/ID token issuance with `aud` set to the OAuth `client_id` (not the first-party API audience). `/oauth2/token`, `/oauth2/revoke`, and `/oauth2/introspect` are public routes with client/endpoint throttles. `/oauth2/userinfo` is a public route that decodes the OAuth access token inside `OAuthProviderService` (it does not use first-party session binding). Revoked OAuth token `jti` values are tracked in Redis when available and in local Caffeine as fallback. OAuth access tokens must not be sent to `/api/v1/users/**` or `/api/v1/admin/**` (wrong `aud` and no refresh session).
+Infrastructure role: AuthKit acts as an API-oriented OAuth2/OIDC provider for authorization-code + PKCE. The authorization endpoint requires an already-authenticated **first-party** user token (`aud` = `AUTH_JWT_AUDIENCE`, active `TokenStorage` session) plus explicit user consent unless an active consent already covers the requested client scopes; client applications are managed through the admin policy plane. OAuth consents are durable PostgreSQL rows included in account export. Authorization codes are high-entropy one-time values stored as SHA-256 hashes in PostgreSQL and consumed atomically before RS256 access/ID token issuance with `aud` set to the OAuth `client_id` (not the first-party API audience). `/oauth2/token`, `/oauth2/revoke`, and `/oauth2/introspect` are public routes with client/endpoint throttles. `/oauth2/userinfo` is a public route that decodes the OAuth access token inside `OAuthProviderService` (it does not use first-party session binding). Revoked OAuth token `jti` values are tracked in Redis or JDBC according to the selected token backend, with local Caffeine as a short-lived process cache. OAuth access tokens must not be sent to `/api/v1/users/**` or `/api/v1/admin/**` (wrong `aud` and no refresh session).
 
 ```mermaid
 sequenceDiagram
@@ -1170,7 +1170,7 @@ sequenceDiagram
     OC-->>App: issuer, auth/token/revoke/introspect/userinfo endpoints, jwks_uri, PKCE S256
 
     App->>I: POST /api/v1/oauth2/authorize + Bearer JWT {clientId,redirectUri,scope,codeChallenge,S256,nonce,state,consentAccepted}
-    I->>OC: First-party JWT valid with active Redis session
+    I->>OC: First-party JWT valid with active TokenStorage session
     OC->>OPS: authorize(jwt, request)
     OPS->>CR: Load enabled client
     OPS->>OPS: Exact redirect URI match and scope subset check
@@ -1221,7 +1221,7 @@ sequenceDiagram
 
 `/api/v1/admin/**`
 
-Infrastructure role: admin routes require a live first-party bearer JWT with `ROLE_ADMIN` and an active Redis refresh session; `UserAuthoritiesFilter` refreshes the role snapshot from Caffeine/PostgreSQL before controller execution. Write operations require current-password step-up and MFA proof, with passkeys preferred for phishing resistance and TOTP accepted as fallback. Admin writes are tenant-throttled, preserve a last-admin guard, hash OAuth client secrets at rest, support confidential-client secret rotation with one-time return, and emit high-severity durable audit events.
+Infrastructure role: admin routes require a live first-party bearer JWT with `ROLE_ADMIN` and an active `TokenStorage` refresh session; `UserAuthoritiesFilter` refreshes the role snapshot from Caffeine/PostgreSQL before controller execution. Write operations require current-password step-up and MFA proof, with passkeys preferred for phishing resistance and TOTP accepted as fallback. Admin writes are tenant-throttled, preserve a last-admin guard, hash OAuth client secrets at rest, support confidential-client secret rotation with one-time return, and emit high-severity durable audit events.
 
 ```mermaid
 sequenceDiagram
@@ -1237,14 +1237,14 @@ sequenceDiagram
     participant AUD as SecurityEventService
 
     A->>I: GET /api/v1/admin/users or /tenants or /oauth-clients + Bearer JWT
-    I->>AF: First-party JWT, active Redis session, refreshed authorities
+    I->>AF: First-party JWT, active TokenStorage session, refreshed authorities
     AF->>AC: ROLE_ADMIN confirmed
     AC->>AS: list operation
     AS->>UDB: Read users/tenants or clients
     AS-->>A: Privacy-bounded admin response
 
     A->>I: PATCH /api/v1/admin/users/{id}/role {role,currentPassword,mfaCode?}
-    I->>AF: First-party JWT, active Redis session, refreshed authorities
+    I->>AF: First-party JWT, active TokenStorage session, refreshed authorities
     AF->>AC: ROLE_ADMIN confirmed
     AC->>AS: updateRole(jwt,id,request)
     AS->>UDB: Load admin and target user
@@ -1255,7 +1255,7 @@ sequenceDiagram
     AS-->>A: Updated AdminUserResponse
 
     A->>I: POST/PATCH/DELETE /api/v1/admin/oauth-clients
-    I->>AF: First-party JWT, active Redis session, refreshed authorities
+    I->>AF: First-party JWT, active TokenStorage session, refreshed authorities
     AF->>AC: ROLE_ADMIN confirmed
     AC->>AS: client management command
     AS->>MFA: Require password step-up and MFA/passkey proof
@@ -1403,7 +1403,7 @@ Production strengths visible in the current implementation:
 - OAuth2/OIDC provider support uses authorization-code + PKCE with durable per-client consent, one-time hashed authorization codes, slow-hashed confidential client secrets with rotation, exact redirect URI validation, revocation, introspection, userinfo, JWKS-backed RS256 token signing, and admin-managed client registration.
 - JWT signing supports active and retiring public keys in JWKS plus emergency key-id revocation; the resource-server decoder also rejects revoked token `jti` values and emergency revoked `kid` values before controller logic runs.
 - The admin policy plane is server-enforced with `ROLE_ADMIN`, live authority refresh, password step-up plus MFA/passkey proof for sensitive writes, one-time OAuth client secret return, and high-severity durable audit events.
-- Authenticated first-party routes rehydrate live authorities and enforce active Redis session binding instead of trusting stale JWT roles or revoked refresh sessions indefinitely.
+- Authenticated first-party routes rehydrate live authorities and enforce active `TokenStorage` session binding instead of trusting stale JWT roles or revoked refresh sessions indefinitely.
 - Email delivery is outbox-backed and does not hold user transactions open while calling RabbitMQ or the configured provider; `SENT` means provider acceptance, not merely queue publish.
 - Security and consent events are durable, privacy-safe, metric-backed, and alertable.
 - Account export/deletion require current-password step-up and MFA proof when MFA is enabled; password change, logout-all, session revocation, MFA disablement, and backup-code regeneration also require MFA proof when MFA is enabled.
@@ -1411,7 +1411,7 @@ Production strengths visible in the current implementation:
 
 Operational caveats to keep in mind before production:
 
-- Redis is a hard dependency for refresh tokens, recovery tokens, and MFA login challenges and must require authentication; rate limiting and lockout have local fallback. High-risk endpoint abuse throttles degrade to stricter local limits and emit critical metrics when Redis is unavailable.
+- Redis is the standard shared token/rate-limit dependency and must require authentication; explicit single-instance deployments may use JDBC token storage instead. Rate limiting and lockout have local fallback without Redis. High-risk endpoint abuse throttles degrade to stricter local limits and emit critical metrics when Redis is unavailable.
 - The Kubernetes service is intended to sit behind an ingress controller; real client IP handling depends on trusted ingress/proxy headers and the configured `network.proxy-depth`.
 - CORS is enforced in-app from explicit configured origins; production startup rejects wildcard-with-credentials and non-HTTPS origins.
 - No frontend is included in this repository; browser storage, XSS controls, and redirect UX must be validated in the consuming application.

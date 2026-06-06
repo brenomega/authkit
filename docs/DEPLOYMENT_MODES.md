@@ -2,7 +2,9 @@
 
 ## Standalone Authentication Service
 
-Run AuthKit behind a TLS-terminating ingress or gateway. The edge owns public CORS/TLS policy; AuthKit still enforces its origin firewall, explicit CORS allowlist, request limits, and bearer validation. PostgreSQL and Redis are mandatory. Email may use RabbitMQ queue dispatch or bounded direct dispatch.
+Run AuthKit behind a TLS-terminating ingress or gateway. The edge owns public CORS/TLS policy; AuthKit still enforces its origin firewall, explicit CORS allowlist, request limits, and bearer validation. PostgreSQL is mandatory. Redis is mandatory for standard shared token/rate-limit state; explicit single-instance deployments may use JDBC token storage without Redis. Email may use RabbitMQ queue dispatch or bounded direct dispatch.
+
+For costed Wavern-oriented deployment tiers, see `docs/DEPLOYMENT_TIERS.md`.
 
 ## Embedded Authentication Module
 
@@ -10,7 +12,7 @@ Package AuthKit beside another service but retain distinct controller, security,
 
 ## Monolith
 
-Use the same first-party token/session semantics even when protected business controllers share the process. Authorization remains server-side and tenant-bound. PostgreSQL remains the scheduler lock authority. Redis remains required for live sessions and distributed abuse controls. Never bypass JWT class checks because calls are in-process.
+Use the same first-party token/session semantics even when protected business controllers share the process. Authorization remains server-side and tenant-bound. PostgreSQL remains the scheduler lock authority. Redis remains required for multi-replica live sessions and distributed abuse controls; JDBC token storage is single-instance only until a future proof validates otherwise. Never bypass JWT class checks because calls are in-process.
 
 ## Scheduled Jobs
 
@@ -18,7 +20,7 @@ Production requires `AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED=true` whenever emai
 
 ## Starting Sizes
 
-These are conservative, unproven baselines pending Prompt 3 load and chaos evidence. Tune from measured p95/p99 latency, Argon2 saturation, Hikari wait time, Redis latency, queue depth, and JVM pressure.
+These are conservative, unproven resilient-baseline sizes pending Prompt 3 load and chaos evidence. They are not the cheapest Wavern tiers. Tune from measured p95/p99 latency, Argon2 saturation, Hikari wait time, Redis latency, queue depth, and JVM pressure.
 
 | Approximate users | App replicas | CPU / memory per replica | Hikari max | Redis | Notes |
 | ---: | ---: | --- | ---: | --- | --- |

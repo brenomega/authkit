@@ -111,6 +111,12 @@
 			<artifactId>spring-boot-starter-amqp</artifactId>
 		</dependency>
 
+		<!-- SMTP email provider for low-cost deployments -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
 		<!-- Flyway — database schema migration (DT 3.1.22) -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>

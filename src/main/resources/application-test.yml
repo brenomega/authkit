@@ -102,6 +102,13 @@ authkit:
       access-token-ttl-seconds: 900
       refresh-token-ttl-days: 7
       recovery-token-ttl-minutes: 15
+    token-storage:
+      backend: redis
+      single-instance-mode: false
+      jdbc:
+        cleanup-delay-ms: 300000
+        cleanup-lock-at-most: PT5M
+        session-cursor-ttl-seconds: 300
     cookie:
       refresh-name: Refresh-Token
       path: /api/v1/auth

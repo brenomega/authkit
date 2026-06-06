@@ -10,6 +10,7 @@ import java.util.Arrays;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
@@ -26,6 +27,8 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
  * Lua scripts to prevent session replay attacks.</p>
  */
 @Component
+@ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",
+        havingValue = "redis", matchIfMissing = true)
 public class RedisTokenStorage implements TokenStorage {
 
     private static final String TOKEN_KEY_SUFFIX = ":tokens";

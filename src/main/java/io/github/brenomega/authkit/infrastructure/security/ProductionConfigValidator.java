@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 
@@ -48,7 +49,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
 
         validateCredential("spring.datasource.username", "postgres", "CHANGE-ME-DB-USER");
         validateCredential("spring.datasource.password", "secretpassword", "CHANGE-ME-DB-PASSWORD");
-        validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
+        validateTokenStorage();
+        if (usesRedisTokenStorage()) {
+            validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
+        }
         validateEmailDispatchMode();
         validateSchedulerLocks();
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
@@ -87,6 +91,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateMinLong("authkit.auth.email-provider.connect-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.read-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.max-attempts", 1);
+        validateMinLong("authkit.auth.token-storage.jdbc.cleanup-delay-ms", 1000);
+        validateMinLong("authkit.auth.token-storage.jdbc.session-cursor-ttl-seconds", 60);
         if (getLongProperty("authkit.auth.email-outbox.max-attempts", 10) < 1) {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Email outbox max attempts must be positive. Startup aborted.");
         }
@@ -96,6 +102,32 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateNonNegativeLong("security.argon2.max-concurrent");
 
         log.info("Production configuration security checks PASSED successfully.");
+    }
+
+    private void validateTokenStorage() {
+        String backend = environment.getProperty("authkit.auth.token-storage.backend", "redis")
+                .toLowerCase(Locale.ROOT);
+        if ("redis".equals(backend)) {
+            return;
+        }
+        if (!"jdbc".equals(backend)) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported token storage backend '" + backend + "'. Startup aborted.");
+        }
+        boolean singleInstanceMode = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.token-storage.single-instance-mode", "false"));
+        if (!singleInstanceMode) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: JDBC token storage without Redis is allowed only in explicit single-instance mode. Startup aborted.");
+        }
+        boolean failClosedHighRisk = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.abuse-control.fail-closed-high-risk", "false"));
+        if (failClosedHighRisk) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Redis-free JDBC token storage cannot enable high-risk abuse fail-closed mode. Startup aborted.");
+        }
+    }
+
+    private boolean usesRedisTokenStorage() {
+        return "redis".equals(environment.getProperty("authkit.auth.token-storage.backend", "redis")
+                .toLowerCase(Locale.ROOT));
     }
 
     private void validateSchedulerLocks() {
@@ -210,15 +242,45 @@ public class ProductionConfigValidator implements ApplicationRunner {
     }
 
     private void validateEmailProvider() {
-        String provider = environment.getProperty("authkit.auth.email-provider.type", "resend");
+        validateCredential("authkit.auth.email-provider.from", "AuthKit Account <onboarding@resend.dev>");
+        String provider = environment.getProperty("authkit.auth.email-provider.type", "resend")
+                .toLowerCase(Locale.ROOT);
         if ("resend".equals(provider)) {
             validateCredential("resend.api.key", "mock-key", "test-resend-key", "CHANGE-ME-RESEND-API-KEY");
+            return;
+        }
+        if ("smtp".equals(provider)) {
+            validateSmtpProvider();
             return;
         }
         if ("logging".equals(provider)) {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: Logging email provider cannot be used in production. Startup aborted.");
         }
         throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email provider '" + provider + "'. Startup aborted.");
+    }
+
+    private void validateSmtpProvider() {
+        validateCredential("authkit.auth.email-provider.smtp.host", "localhost", "127.0.0.1", "CHANGE-ME-SMTP-HOST");
+        validateMinLong("authkit.auth.email-provider.smtp.port", 1);
+        validateMaxLong("authkit.auth.email-provider.smtp.port", 65535);
+        boolean auth = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-provider.smtp.auth", "true"));
+        if (auth) {
+            validateCredential("authkit.auth.email-provider.smtp.username", "CHANGE-ME-SMTP-USERNAME");
+            validateCredential("authkit.auth.email-provider.smtp.password", "CHANGE-ME-SMTP-PASSWORD");
+        }
+        boolean startTlsEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-provider.smtp.start-tls-enabled", "true"));
+        boolean startTlsRequired = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-provider.smtp.start-tls-required", "true"));
+        boolean sslEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-provider.smtp.ssl-enabled", "false"));
+        if (!startTlsEnabled && !sslEnabled) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP provider must use STARTTLS or SSL. Startup aborted.");
+        }
+        if (startTlsEnabled && !startTlsRequired) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP STARTTLS must be required in production. Startup aborted.");
+        }
     }
 
     private void validateEmailDispatchMode() {

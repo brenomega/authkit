@@ -6,7 +6,7 @@ AuthKit issues three mutually exclusive JWT classes. Consumers must validate `al
 
 | `token_use` | Audience | Required claims | Intended use |
 | --- | --- | --- | --- |
-| `first_party_access` | Configured API audience | `sub`, `jti`, `tenant_id`, `amr`, `mfa` | AuthKit user/admin APIs; the Redis session identified by `jti` must remain active |
+| `first_party_access` | Configured API audience | `sub`, `jti`, `tenant_id`, `amr`, `mfa` | AuthKit user/admin APIs; the configured token-storage session identified by `jti` must remain active |
 | `oauth_access` | OAuth client ID | `sub`, `jti`, `tenant_id`, `client_id`, `scope`, `amr` | Client resource APIs, userinfo, introspection, revocation |
 | `id_token` | OAuth client ID | `sub`, `jti`, `tenant_id`, `amr`, optional `nonce` | Client authentication result only; never use as an API bearer token |
 

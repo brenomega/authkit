@@ -58,6 +58,14 @@ class PostgresMigrationTest {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }
+            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'auth_refresh_sessions'")) {
+                result.next();
+                assertEquals(1, result.getInt(1));
+            }
+            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'oauth_revoked_tokens'")) {
+                result.next();
+                assertEquals(1, result.getInt(1));
+            }
         }
     }
 

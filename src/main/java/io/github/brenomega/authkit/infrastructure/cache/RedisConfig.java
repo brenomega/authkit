@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.cache;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -28,6 +29,8 @@ import io.lettuce.core.RedisClient;
  */
 @Configuration
 @Profile("!test")
+@ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",
+        havingValue = "redis", matchIfMissing = true)
 public class RedisConfig {
 
     /**

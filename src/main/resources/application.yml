@@ -55,9 +55,9 @@ spring:
   # ---------------------------------------------------------------------------
   data:
     redis:
-      host: ${REDIS_HOST}
+      host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD}
+      password: ${REDIS_PASSWORD:}
       timeout: 200ms
 
   # ---------------------------------------------------------------------------
@@ -109,6 +109,13 @@ authkit:
       access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:900}
       refresh-token-ttl-days: ${AUTH_REFRESH_TOKEN_TTL_DAYS:7}
       recovery-token-ttl-minutes: ${AUTH_RECOVERY_TOKEN_TTL_MINUTES:15}
+    token-storage:
+      backend: ${AUTH_TOKEN_STORAGE_BACKEND:redis}
+      single-instance-mode: ${AUTH_TOKEN_STORAGE_SINGLE_INSTANCE_MODE:false}
+      jdbc:
+        cleanup-delay-ms: ${AUTH_TOKEN_STORAGE_JDBC_CLEANUP_DELAY_MS:300000}
+        cleanup-lock-at-most: ${AUTH_TOKEN_STORAGE_JDBC_CLEANUP_LOCK_AT_MOST:PT5M}
+        session-cursor-ttl-seconds: ${AUTH_TOKEN_STORAGE_JDBC_SESSION_CURSOR_TTL_SECONDS:300}
     cookie:
       refresh-name: ${AUTH_REFRESH_COOKIE_NAME:Refresh-Token}
       path: ${AUTH_REFRESH_COOKIE_PATH:/api/v1/auth}
@@ -170,6 +177,15 @@ authkit:
       max-attempts: ${AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS:3}
       retry-backoff-ms: ${AUTH_EMAIL_PROVIDER_RETRY_BACKOFF_MS:250}
       from: ${AUTH_EMAIL_PROVIDER_FROM:AuthKit Account <onboarding@resend.dev>}
+      smtp:
+        host: ${AUTH_EMAIL_SMTP_HOST:}
+        port: ${AUTH_EMAIL_SMTP_PORT:587}
+        auth: ${AUTH_EMAIL_SMTP_AUTH:true}
+        username: ${AUTH_EMAIL_SMTP_USERNAME:}
+        password: ${AUTH_EMAIL_SMTP_PASSWORD:}
+        start-tls-enabled: ${AUTH_EMAIL_SMTP_STARTTLS_ENABLED:true}
+        start-tls-required: ${AUTH_EMAIL_SMTP_STARTTLS_REQUIRED:true}
+        ssl-enabled: ${AUTH_EMAIL_SMTP_SSL_ENABLED:false}
     compliance:
       terms-version: ${AUTH_TERMS_VERSION}
       privacy-policy-version: ${AUTH_PRIVACY_POLICY_VERSION}

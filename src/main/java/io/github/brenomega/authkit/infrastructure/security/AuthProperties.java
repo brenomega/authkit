@@ -25,6 +25,9 @@ public class AuthProperties {
     private Token token = new Token();
 
     @Valid
+    private TokenStorage tokenStorage = new TokenStorage();
+
+    @Valid
     private Cookie cookie = new Cookie();
 
     @Valid
@@ -84,6 +87,14 @@ public class AuthProperties {
 
     public void setToken(Token token) {
         this.token = token;
+    }
+
+    public TokenStorage getTokenStorage() {
+        return tokenStorage;
+    }
+
+    public void setTokenStorage(TokenStorage tokenStorage) {
+        this.tokenStorage = tokenStorage;
     }
 
     public Cookie getCookie() {
@@ -263,6 +274,67 @@ public class AuthProperties {
 
         public void setRecoveryTokenTtlMinutes(long recoveryTokenTtlMinutes) {
             this.recoveryTokenTtlMinutes = recoveryTokenTtlMinutes;
+        }
+    }
+
+    public static class TokenStorage {
+
+        @NotBlank
+        @Pattern(regexp = "redis|jdbc")
+        private String backend = "redis";
+
+        private boolean singleInstanceMode;
+
+        @Valid
+        private Jdbc jdbc = new Jdbc();
+
+        public String getBackend() {
+            return backend;
+        }
+
+        public void setBackend(String backend) {
+            this.backend = backend;
+        }
+
+        public boolean isSingleInstanceMode() {
+            return singleInstanceMode;
+        }
+
+        public void setSingleInstanceMode(boolean singleInstanceMode) {
+            this.singleInstanceMode = singleInstanceMode;
+        }
+
+        public Jdbc getJdbc() {
+            return jdbc;
+        }
+
+        public void setJdbc(Jdbc jdbc) {
+            this.jdbc = jdbc;
+        }
+
+        public static class Jdbc {
+
+            @Min(1000)
+            private long cleanupDelayMs = 300000;
+
+            @Min(60)
+            private long sessionCursorTtlSeconds = 300;
+
+            public long getCleanupDelayMs() {
+                return cleanupDelayMs;
+            }
+
+            public void setCleanupDelayMs(long cleanupDelayMs) {
+                this.cleanupDelayMs = cleanupDelayMs;
+            }
+
+            public long getSessionCursorTtlSeconds() {
+                return sessionCursorTtlSeconds;
+            }
+
+            public void setSessionCursorTtlSeconds(long sessionCursorTtlSeconds) {
+                this.sessionCursorTtlSeconds = sessionCursorTtlSeconds;
+            }
         }
     }
 
@@ -799,8 +871,11 @@ public class AuthProperties {
     public static class EmailProvider {
 
         @NotBlank
-        @Pattern(regexp = "resend|logging")
+        @Pattern(regexp = "resend|logging|smtp")
         private String type = "resend";
+
+        @Valid
+        private Smtp smtp = new Smtp();
 
         @Min(100)
         private int connectTimeoutMs = 2000;
@@ -824,6 +899,14 @@ public class AuthProperties {
 
         public void setType(String type) {
             this.type = type;
+        }
+
+        public Smtp getSmtp() {
+            return smtp;
+        }
+
+        public void setSmtp(Smtp smtp) {
+            this.smtp = smtp;
         }
 
         public int getConnectTimeoutMs() {
@@ -864,6 +947,91 @@ public class AuthProperties {
 
         public void setFrom(String from) {
             this.from = from;
+        }
+
+        public static class Smtp {
+
+            private String host = "";
+
+            @Min(1)
+            @Max(65535)
+            private int port = 587;
+
+            private boolean auth = true;
+
+            private String username = "";
+
+            private String password = "";
+
+            private boolean startTlsEnabled = true;
+
+            private boolean startTlsRequired = true;
+
+            private boolean sslEnabled;
+
+            public String getHost() {
+                return host;
+            }
+
+            public void setHost(String host) {
+                this.host = host;
+            }
+
+            public int getPort() {
+                return port;
+            }
+
+            public void setPort(int port) {
+                this.port = port;
+            }
+
+            public boolean isAuth() {
+                return auth;
+            }
+
+            public void setAuth(boolean auth) {
+                this.auth = auth;
+            }
+
+            public String getUsername() {
+                return username;
+            }
+
+            public void setUsername(String username) {
+                this.username = username;
+            }
+
+            public String getPassword() {
+                return password;
+            }
+
+            public void setPassword(String password) {
+                this.password = password;
+            }
+
+            public boolean isStartTlsEnabled() {
+                return startTlsEnabled;
+            }
+
+            public void setStartTlsEnabled(boolean startTlsEnabled) {
+                this.startTlsEnabled = startTlsEnabled;
+            }
+
+            public boolean isStartTlsRequired() {
+                return startTlsRequired;
+            }
+
+            public void setStartTlsRequired(boolean startTlsRequired) {
+                this.startTlsRequired = startTlsRequired;
+            }
+
+            public boolean isSslEnabled() {
+                return sslEnabled;
+            }
+
+            public void setSslEnabled(boolean sslEnabled) {
+                this.sslEnabled = sslEnabled;
+            }
         }
     }
 

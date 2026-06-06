@@ -46,12 +46,69 @@ class ProductionConfigValidatorTest {
     }
 
     @Test
+    @DisplayName("Production validation allows SMTP provider with TLS and required credentials")
+    void run_smtpEmailProviderWithTlsAndCredentials_allowsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.email-provider.type", "smtp")
+                .withProperty("authkit.auth.email-provider.smtp.host", "smtp.example.com")
+                .withProperty("authkit.auth.email-provider.smtp.port", "587")
+                .withProperty("authkit.auth.email-provider.smtp.auth", "true")
+                .withProperty("authkit.auth.email-provider.smtp.username", "authkit@example.com")
+                .withProperty("authkit.auth.email-provider.smtp.password", "smtp-prod-secret")
+                .withProperty("authkit.auth.email-provider.smtp.start-tls-enabled", "true")
+                .withProperty("authkit.auth.email-provider.smtp.start-tls-required", "true")
+                .withProperty("authkit.auth.email-provider.smtp.ssl-enabled", "false");
+
+        assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects SMTP provider without encrypted transport")
+    void run_smtpEmailProviderWithoutTls_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.email-provider.type", "smtp")
+                .withProperty("authkit.auth.email-provider.smtp.host", "smtp.example.com")
+                .withProperty("authkit.auth.email-provider.smtp.port", "25")
+                .withProperty("authkit.auth.email-provider.smtp.auth", "true")
+                .withProperty("authkit.auth.email-provider.smtp.username", "authkit@example.com")
+                .withProperty("authkit.auth.email-provider.smtp.password", "smtp-prod-secret")
+                .withProperty("authkit.auth.email-provider.smtp.start-tls-enabled", "false")
+                .withProperty("authkit.auth.email-provider.smtp.ssl-enabled", "false");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
     @DisplayName("Production validation allows direct email dispatch without RabbitMQ credentials")
     void run_directEmailDispatchWithoutRabbitCredentials_allowsStartup() {
         MockEnvironment environment = productionEnvironmentBase()
                 .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct");
 
         assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation allows explicit single-instance JDBC token storage")
+    void run_jdbcTokenStorageSingleInstance_allowsStartupWithoutRedisPassword() {
+        MockEnvironment environment = productionEnvironmentBaseWithoutRedis()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.token-storage.backend", "jdbc")
+                .withProperty("authkit.auth.token-storage.single-instance-mode", "true");
+
+        assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects accidental JDBC token storage without single-instance flag")
+    void run_jdbcTokenStorageWithoutSingleInstanceFlag_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBaseWithoutRedis()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.token-storage.backend", "jdbc")
+                .withProperty("authkit.auth.token-storage.single-instance-mode", "false");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
     @Test
@@ -110,10 +167,16 @@ class ProductionConfigValidatorTest {
     }
 
     private MockEnvironment productionEnvironmentBase() {
+        return productionEnvironmentBaseWithoutRedis()
+                .withProperty("spring.data.redis.password", "redis-prod-secret")
+                .withProperty("authkit.auth.token-storage.backend", "redis")
+                .withProperty("authkit.auth.token-storage.single-instance-mode", "false");
+    }
+
+    private MockEnvironment productionEnvironmentBaseWithoutRedis() {
         return new MockEnvironment()
                 .withProperty("spring.datasource.username", "authkit")
                 .withProperty("spring.datasource.password", "db-prod-secret")
-                .withProperty("spring.data.redis.password", "redis-prod-secret")
                 .withProperty("app.security.worker-token", "worker-prod-secret")
                 .withProperty("resend.api.key", "re_prod_secret")
                 .withProperty("authkit.auth.jwt.issuer", "https://auth.example.com")
@@ -143,10 +206,13 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.registration.stealth-conflicts", "true")
                 .withProperty("authkit.auth.passkey.allow-origin-port", "false")
                 .withProperty("authkit.auth.email-provider.type", "resend")
+                .withProperty("authkit.auth.email-provider.from", "AuthKit <auth@example.com>")
                 .withProperty("authkit.auth.email-provider.connect-timeout-ms", "2000")
                 .withProperty("authkit.auth.email-provider.read-timeout-ms", "5000")
                 .withProperty("authkit.auth.email-provider.max-attempts", "3")
                 .withProperty("authkit.auth.email-provider.retry-backoff-ms", "250")
+                .withProperty("authkit.auth.token-storage.jdbc.cleanup-delay-ms", "300000")
+                .withProperty("authkit.auth.token-storage.jdbc.session-cursor-ttl-seconds", "300")
                 .withProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", "600")
                 .withProperty("security.argon2.memory", "32768")
                 .withProperty("security.argon2.iterations", "2")
