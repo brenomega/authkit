@@ -1,0 +1,36 @@
+services:
+  authkit:
+    environment:
+      AUTH_EMAIL_SMTP_HOST: mailpit
+      AUTH_EMAIL_SMTP_PORT: "1025"
+      AUTH_EMAIL_SMTP_AUTH: "false"
+      AUTH_EMAIL_SMTP_USERNAME: ""
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/run/secrets/smtp_truststore -Djavax.net.ssl.trustStorePassword=changeit
+    secrets:
+      - smtp_truststore
+    depends_on:
+      mailpit:
+        condition: service_started
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    command:
+      - --smtp-tls-cert
+      - /run/secrets/tls_certificate
+      - --smtp-tls-key
+      - /run/secrets/tls_private_key
+      - --smtp-require-starttls
+      - --smtp-auth-accept-any
+    secrets:
+      - tls_certificate
+      - tls_private_key
+    ports:
+      - "127.0.0.1:${AUTHKIT_PROOF_MAILPIT_PORT:-18027}:8025"
+    networks:
+      egress: {}
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  smtp_truststore:
+    file: ${AUTHKIT_PROOF_SECRETS_DIRECTORY:?Set AUTHKIT_PROOF_SECRETS_DIRECTORY}/smtp-truststore.p12

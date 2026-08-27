@@ -6,7 +6,6 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,8 +22,11 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
+import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
+import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.spi.SessionPage;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 @Component
@@ -34,23 +36,28 @@ public class JdbcTokenStorage implements TokenStorage {
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
     private final Duration cursorTtl;
+    private final AuditDigestService auditDigestService;
 
     public JdbcTokenStorage(JdbcTemplate jdbcTemplate,
                             @NonNull PlatformTransactionManager transactionManager,
-                            AuthProperties authProperties) {
+                            AuthProperties authProperties,
+                            AuditDigestService auditDigestService) {
         this.jdbcTemplate = jdbcTemplate;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.cursorTtl = Duration.ofSeconds(
                 authProperties.getTokenStorage().getJdbc().getSessionCursorTtlSeconds());
+        this.auditDigestService = auditDigestService;
     }
 
     @Override
-    public void storeRefreshToken(String userId, String jti, String rawToken, long durationDays) {
+    public void storeRefreshToken(String userId, String jti, String rawToken, long durationDays,
+                                  SessionMetadata metadata) {
         RefreshTokenCodec.IssuedRefreshToken token = RefreshTokenCodec.parse(rawToken)
                 .orElseThrow(() -> new IllegalArgumentException("Malformed refresh token"));
         if (!userId.equals(token.userId()) || !jti.equals(token.jti())) {
             throw new IllegalArgumentException("Refresh token metadata does not match storage key");
         }
+        requireMatchingMetadata(jti, metadata);
         transactionTemplate.executeWithoutResult(status -> {
             Instant now = Instant.now();
             Instant expiresAt = now.plus(Duration.ofDays(durationDays));
@@ -81,16 +88,25 @@ public class JdbcTokenStorage implements TokenStorage {
             }
             jdbcTemplate.update("""
                     insert into auth_refresh_sessions
-                        (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at)
-                    values (?, ?, ?, ?, ?, ?, ?)
+                        (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at,
+                         public_session_id, last_seen_at, initial_amr, user_agent_summary, device_label,
+                         creation_ip_masked, last_ip_masked)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     userUuid,
                     jti,
                     hash,
                     token.familyId(),
                     timestamp(expiresAt),
+                    timestamp(metadata.createdAt()),
                     timestamp(now),
-                    timestamp(now));
+                    UUID.fromString(metadata.publicSessionId()),
+                    timestamp(metadata.lastSeenAt()),
+                    encodeAmr(metadata.initialAmr()),
+                    metadata.userAgentSummary(),
+                    metadata.deviceLabel(),
+                    metadata.creationIpMasked(),
+                    metadata.lastIpMasked());
         });
     }
 
@@ -150,16 +166,25 @@ public class JdbcTokenStorage implements TokenStorage {
                     """, userUuid, currentJti);
             jdbcTemplate.update("""
                     insert into auth_refresh_sessions
-                        (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at)
-                    values (?, ?, ?, ?, ?, ?, ?)
+                        (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at,
+                         public_session_id, last_seen_at, initial_amr, user_agent_summary, device_label,
+                         creation_ip_masked, last_ip_masked)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     userUuid,
                     nextJti,
                     hashToken(nextRawToken),
                     nextToken.familyId(),
                     timestamp(expiresAt),
+                    timestamp(current.get().metadata().createdAt()),
                     timestamp(now),
-                    timestamp(now));
+                    UUID.fromString(current.get().metadata().publicSessionId()),
+                    timestamp(now),
+                    encodeAmr(current.get().metadata().initialAmr()),
+                    current.get().metadata().userAgentSummary(),
+                    current.get().metadata().deviceLabel(),
+                    current.get().metadata().creationIpMasked(),
+                    current.get().metadata().lastIpMasked());
             jdbcTemplate.update("""
                     update auth_refresh_token_families
                     set active_jti = ?, expires_at = ?, updated_at = ?
@@ -189,46 +214,59 @@ public class JdbcTokenStorage implements TokenStorage {
                     ? null
                     : consumeCursor(userUuid, cursor);
             Instant now = Instant.now();
-            List<String> rows;
+            List<SessionMetadata> rows;
             if (afterJti == null) {
-                rows = jdbcTemplate.queryForList("""
-                        select jti
+                rows = jdbcTemplate.query("""
+                        select jti, public_session_id, created_at, last_seen_at, expires_at,
+                               initial_amr, user_agent_summary, device_label,
+                               creation_ip_masked, last_ip_masked
                         from auth_refresh_sessions
                         where user_id = ? and expires_at > ?
                         order by jti asc
                         limit ?
-                        """,
-                        String.class,
+                        """, this::mapSessionMetadata,
                         userUuid,
                         timestamp(now),
                         limit + 1);
             } else {
-                rows = jdbcTemplate.queryForList("""
-                        select jti
+                rows = jdbcTemplate.query("""
+                        select jti, public_session_id, created_at, last_seen_at, expires_at,
+                               initial_amr, user_agent_summary, device_label,
+                               creation_ip_masked, last_ip_masked
                         from auth_refresh_sessions
                         where user_id = ? and expires_at > ? and jti > ?
                         order by jti asc
                         limit ?
-                        """,
-                        String.class,
+                        """, this::mapSessionMetadata,
                         userUuid,
                         timestamp(now),
                         afterJti,
                         limit + 1);
             }
 
-            List<String> items = rows.size() > limit
+            List<SessionMetadata> items = rows.size() > limit
                     ? List.copyOf(rows.subList(0, limit))
                     : List.copyOf(rows);
             String nextCursor = rows.size() > limit
-                    ? storeCursor(userUuid, items.get(items.size() - 1))
+                    ? storeCursor(userUuid, items.get(items.size() - 1).jti())
                     : null;
             return new SessionPage(items, nextCursor);
         });
     }
 
     @Override
-    public void revokeSession(String userId, String jti) {
+    public void revokeSession(String userId, String publicSessionId) {
+        transactionTemplate.executeWithoutResult(status ->
+                lockSessionByPublicId(UUID.fromString(userId), publicSessionId).ifPresent(session -> {
+                    jdbcTemplate.update("delete from auth_refresh_sessions where user_id = ? and jti = ?",
+                            UUID.fromString(userId), session.metadata().jti());
+                    jdbcTemplate.update("delete from auth_refresh_token_families where user_id = ? and family_id = ?",
+                            UUID.fromString(userId), session.familyId());
+                }));
+    }
+
+    @Override
+    public void revokeSessionByJti(String userId, String jti) {
         transactionTemplate.executeWithoutResult(status ->
                 lockSession(UUID.fromString(userId), jti).ifPresent(session -> {
                     jdbcTemplate.update("delete from auth_refresh_sessions where user_id = ? and jti = ?",
@@ -236,6 +274,18 @@ public class JdbcTokenStorage implements TokenStorage {
                     jdbcTemplate.update("delete from auth_refresh_token_families where user_id = ? and family_id = ?",
                             UUID.fromString(userId), session.familyId());
                 }));
+    }
+
+    @Override
+    public void touchSession(String userId, String jti, Instant seenAt, String maskedIp, long throttleSeconds) {
+        jdbcTemplate.update("""
+                update auth_refresh_sessions
+                set last_seen_at = ?, last_ip_masked = ?, updated_at = ?
+                where user_id = ? and jti = ? and expires_at > ?
+                  and last_seen_at <= ?
+                """,
+                timestamp(seenAt), maskedIp, timestamp(seenAt), UUID.fromString(userId), jti,
+                timestamp(seenAt), timestamp(seenAt.minusSeconds(throttleSeconds)));
     }
 
     @Override
@@ -272,7 +322,7 @@ public class JdbcTokenStorage implements TokenStorage {
             String emailHash = emailHash(email);
             int updated = jdbcTemplate.update("""
                     update auth_recovery_tokens
-                    set token_hash = ?, expires_at = ?, created_at = ?
+                    set token_hash = ?, expires_at = ?, created_at = ?, claim_id = null, claim_until = null
                     where email_hash = ?
                     """,
                     hashToken(rawToken),
@@ -323,6 +373,43 @@ public class JdbcTokenStorage implements TokenStorage {
             return true;
         });
         return Boolean.TRUE.equals(consumed);
+    }
+
+    @Override
+    public boolean claimRecoveryToken(String email, String rawToken, String claimId, long claimTtlSeconds) {
+        Boolean claimed = transactionTemplate.execute(status -> {
+            String emailHash = emailHash(email);
+            Optional<StoredRecoveryClaim> stored = lockRecoveryClaim(emailHash);
+            Instant now = Instant.now();
+            if (stored.isEmpty() || !stored.get().expiresAt().isAfter(now)
+                    || !constantTimeEquals(stored.get().tokenHash(), hashToken(rawToken))) {
+                return false;
+            }
+            if (stored.get().claimId() != null && stored.get().claimUntil() != null
+                    && stored.get().claimUntil().isAfter(now)) {
+                return false;
+            }
+            return jdbcTemplate.update("""
+                    update auth_recovery_tokens
+                    set claim_id = ?, claim_until = ?
+                    where email_hash = ?
+                    """, claimId, timestamp(now.plusSeconds(claimTtlSeconds)), emailHash) == 1;
+        });
+        return Boolean.TRUE.equals(claimed);
+    }
+
+    @Override
+    public void completeRecoveryTokenClaim(String email, String claimId) {
+        jdbcTemplate.update("delete from auth_recovery_tokens where email_hash = ? and claim_id = ?",
+                emailHash(email), claimId);
+    }
+
+    @Override
+    public void releaseRecoveryTokenClaim(String email, String claimId) {
+        jdbcTemplate.update("""
+                update auth_recovery_tokens set claim_id = null, claim_until = null
+                where email_hash = ? and claim_id = ?
+                """, emailHash(email), claimId);
     }
 
     @Override
@@ -395,7 +482,9 @@ public class JdbcTokenStorage implements TokenStorage {
 
     private Optional<RefreshSession> findSession(UUID userId, String jti, boolean lock) {
         String sql = """
-                select token_hash, family_id, expires_at
+                select token_hash, family_id, expires_at, jti, public_session_id, created_at,
+                       last_seen_at, initial_amr, user_agent_summary, device_label,
+                       creation_ip_masked, last_ip_masked
                 from auth_refresh_sessions
                 where user_id = ? and jti = ? and expires_at > ?
                 """ + (lock ? " for update" : "");
@@ -405,7 +494,8 @@ public class JdbcTokenStorage implements TokenStorage {
                     (rs, rowNum) -> new RefreshSession(
                             rs.getString("token_hash"),
                             rs.getString("family_id"),
-                            rs.getTimestamp("expires_at").toInstant()),
+                            rs.getTimestamp("expires_at").toInstant(),
+                            mapSessionMetadata(rs, rowNum)),
                     userId,
                     jti,
                     timestamp(Instant.now())));
@@ -416,6 +506,25 @@ public class JdbcTokenStorage implements TokenStorage {
 
     private Optional<RefreshSession> lockSession(UUID userId, String jti) {
         return findSession(userId, jti, true);
+    }
+
+    private Optional<RefreshSession> lockSessionByPublicId(UUID userId, String publicSessionId) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                    select token_hash, family_id, expires_at, jti, public_session_id, created_at,
+                           last_seen_at, initial_amr, user_agent_summary, device_label,
+                           creation_ip_masked, last_ip_masked
+                    from auth_refresh_sessions
+                    where user_id = ? and public_session_id = ? and expires_at > ?
+                    for update
+                    """,
+                    (rs, rowNum) -> new RefreshSession(
+                            rs.getString("token_hash"), rs.getString("family_id"),
+                            rs.getTimestamp("expires_at").toInstant(), mapSessionMetadata(rs, rowNum)),
+                    userId, UUID.fromString(publicSessionId), timestamp(Instant.now())));
+        } catch (EmptyResultDataAccessException | IllegalArgumentException ex) {
+            return Optional.empty();
+        }
     }
 
     private Optional<FamilyState> lockFamily(UUID userId, String familyId) {
@@ -460,6 +569,22 @@ public class JdbcTokenStorage implements TokenStorage {
                             rs.getString("token_hash"),
                             rs.getTimestamp("expires_at").toInstant()),
                     args));
+        } catch (EmptyResultDataAccessException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<StoredRecoveryClaim> lockRecoveryClaim(String emailHash) {
+        try {
+            return Optional.ofNullable(jdbcTemplate.queryForObject("""
+                    select token_hash, expires_at, claim_id, claim_until
+                    from auth_recovery_tokens where email_hash = ? for update
+                    """, (rs, rowNum) -> new StoredRecoveryClaim(
+                    rs.getString("token_hash"),
+                    rs.getTimestamp("expires_at").toInstant(),
+                    rs.getString("claim_id"),
+                    rs.getTimestamp("claim_until") == null ? null : rs.getTimestamp("claim_until").toInstant()),
+                    emailHash));
         } catch (EmptyResultDataAccessException ex) {
             return Optional.empty();
         }
@@ -513,7 +638,7 @@ public class JdbcTokenStorage implements TokenStorage {
     }
 
     private String emailHash(String email) {
-        return TokenHasher.sha256Hex(email.trim().toLowerCase(Locale.ROOT));
+        return auditDigestService.hmacHex(EmailNormalizer.normalize(email));
     }
 
     private String hashToken(String rawToken) {
@@ -533,13 +658,41 @@ public class JdbcTokenStorage implements TokenStorage {
         return Timestamp.from(instant);
     }
 
-    private record RefreshSession(String tokenHash, String familyId, Instant expiresAt) {
+    private SessionMetadata mapSessionMetadata(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new SessionMetadata(
+                rs.getString("public_session_id"), rs.getString("jti"),
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("last_seen_at").toInstant(),
+                rs.getTimestamp("expires_at").toInstant(), decodeAmr(rs.getString("initial_amr")),
+                rs.getString("user_agent_summary"), rs.getString("device_label"),
+                rs.getString("creation_ip_masked"), rs.getString("last_ip_masked"));
+    }
+
+    private void requireMatchingMetadata(String jti, SessionMetadata metadata) {
+        if (metadata == null || !jti.equals(metadata.jti())) {
+            throw new IllegalArgumentException("Session metadata does not match storage key");
+        }
+        UUID.fromString(metadata.publicSessionId());
+    }
+
+    private String encodeAmr(List<String> amr) {
+        return String.join(" ", amr);
+    }
+
+    private List<String> decodeAmr(String amr) {
+        return amr == null || amr.isBlank() ? List.of() : List.of(amr.split(" "));
+    }
+
+    private record RefreshSession(String tokenHash, String familyId, Instant expiresAt,
+                                  SessionMetadata metadata) {
     }
 
     private record FamilyState(String activeJti, Instant expiresAt) {
     }
 
     private record StoredHash(String tokenHash, Instant expiresAt) {
+    }
+
+    private record StoredRecoveryClaim(String tokenHash, Instant expiresAt, String claimId, Instant claimUntil) {
     }
 
     private record CursorState(UUID userId, String nextJti, Instant expiresAt) {

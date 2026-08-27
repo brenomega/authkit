@@ -55,8 +55,8 @@ public class EmailOutboxMessage {
     @Column(name = "provider_message_id", length = 255)
     private String providerMessageId;
 
-    @Column(name = "delivered_at")
-    private Instant deliveredAt;
+    @Column(name = "accepted_at")
+    private Instant acceptedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -112,12 +112,12 @@ public class EmailOutboxMessage {
         this.nextAttemptAt = now.plus(deliveryTimeout);
     }
 
-    public void markSent(String providerMessageId, Instant now) {
-        this.status = EmailOutboxStatus.SENT;
+    public void markAccepted(String providerMessageId, Instant now) {
+        this.status = EmailOutboxStatus.ACCEPTED;
         this.lockedAt = null;
         this.lastError = null;
         this.providerMessageId = providerMessageId;
-        this.deliveredAt = now;
+        this.acceptedAt = now;
     }
 
     public void markFailed(String error, Instant now) {
@@ -179,8 +179,8 @@ public class EmailOutboxMessage {
         return providerMessageId;
     }
 
-    public Instant getDeliveredAt() {
-        return deliveredAt;
+    public Instant getAcceptedAt() {
+        return acceptedAt;
     }
 
     public Instant getCreatedAt() {

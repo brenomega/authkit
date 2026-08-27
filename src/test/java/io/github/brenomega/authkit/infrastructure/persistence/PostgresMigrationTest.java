@@ -66,6 +66,201 @@ class PostgresMigrationTest {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'social_identity_providers'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'social_identities'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'social_login_transactions'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'oauth_authorization_transactions'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'oauth_refresh_token_families'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'oauth_refresh_tokens'"));
+            assertEquals("character varying", scalar(statement, """
+                    select data_type from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'users'
+                      and column_name = 'email_change_token_hash'
+                    """));
+            assertEquals("1|false", scalar(statement, """
+                    select id::text || '|' || (completed_at is not null)::text
+                    from authkit_bootstrap_state
+                    """));
+        }
+    }
+
+    @Test
+    @DisplayName("Runtime cannot delete audit rows while the retention role can use only audited purge functions")
+    void retentionRoleSeparatesAuditDeletion() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        String workerRole = "retention_" + UUID.randomUUID().toString().replace("-", "");
+        UUID eventId = UUID.randomUUID();
+        try (var connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("create role " + workerRole + " nologin nosuperuser");
+            statement.executeUpdate("grant usage on schema public to " + workerRole);
+            statement.executeUpdate("grant authkit_retention to " + workerRole);
+            statement.executeUpdate("""
+                    insert into security_events (id, occurred_at, event_type, outcome, severity, event_hash)
+                    values ('%s', now(), 'LOGIN_FAILURE', 'FAILURE', 'MEDIUM', '%s')
+                    """.formatted(eventId, "f".repeat(64)));
+
+            statement.execute("set role authkit_runtime");
+            assertThrows(SQLException.class, () -> statement.executeUpdate(
+                    "delete from security_events where id = '" + eventId + "'"));
+            assertThrows(SQLException.class, () -> statement.executeQuery(
+                    "select retention_purge_security_events(array['" + eventId + "'::uuid])"));
+            statement.execute("reset role");
+
+            statement.execute("set role " + workerRole);
+            assertThrows(SQLException.class, () -> statement.executeUpdate(
+                    "delete from security_events where id = '" + eventId + "'"));
+            assertEquals("1", scalar(statement,
+                    "select retention_purge_security_events(array['" + eventId + "'::uuid])"));
+            statement.execute("reset role");
+
+            assertEquals("1", scalar(statement,
+                    "select count(*) from retention_purge_log where dataset = 'security_events_by_id' and deleted_count = 1"));
+        }
+    }
+
+    @Test
+    @DisplayName("V15 safely migrates representative legacy roles, lifecycle data, phone, and OAuth clients")
+    void v15MigratesRepresentativeExistingData() throws Exception {
+        String schema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        String jdbcUrl = POSTGRES.getJdbcUrl()
+                + (POSTGRES.getJdbcUrl().contains("?") ? "&" : "?")
+                + "currentSchema=" + schema + ",public";
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema)
+                .defaultSchema(schema)
+                .locations("classpath:db/migration")
+                .target("14")
+                .load()
+                .migrate();
+
+        UUID adminId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID pendingId = UUID.randomUUID();
+        UUID clientId = UUID.randomUUID();
+        UUID outboxId = UUID.randomUUID();
+        String legacyJti = UUID.randomUUID().toString();
+        String legacyFamily = UUID.randomUUID().toString();
+        try (var connection = DriverManager.getConnection(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    insert into users (id, email, password, role, phone)
+                    values
+                      ('%s', 'legacy-admin@example.test', 'hash', 'ADMIN', '111'),
+                      ('%s', 'legacy-owner@example.test', 'hash', 'OWNER', '222'),
+                      ('%s', 'legacy-pending@example.test', 'hash', 'TENANT_ADMIN', '333')
+                    """.formatted(adminId, ownerId, pendingId));
+            statement.executeUpdate("update users set deletion_requested_at = now() where id = '%s'".formatted(pendingId));
+            statement.executeUpdate("""
+                    insert into email_outbox
+                        (id, recipient, subject, body, status, attempts, next_attempt_at, created_at, updated_at)
+                    values ('%s', 'legacy@example.test', 'Legacy', '<p>Legacy</p>', 'SENT', 1, now(), now(), now())
+                    """.formatted(outboxId));
+            statement.executeUpdate("""
+                    insert into auth_refresh_token_families
+                        (family_id, user_id, active_jti, expires_at, created_at, updated_at)
+                    values ('%s', '%s', '%s', now() + interval '7 days', now(), now())
+                    """.formatted(legacyFamily, ownerId, legacyJti));
+            statement.executeUpdate("""
+                    insert into auth_refresh_sessions
+                        (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at)
+                    values ('%s', '%s', '%s', '%s', now() + interval '7 days', now(), now())
+                    """.formatted(ownerId, legacyJti, "a".repeat(64), legacyFamily));
+            statement.executeUpdate("""
+                    insert into oauth_clients (
+                        id, tenant_id, client_id, public_client, display_name, redirect_uris,
+                        scopes, require_pkce, enabled, created_at, updated_at
+                    ) values ('%s', '%s', 'legacy-client', true, 'Legacy',
+                              'https://client.example/callback', 'openid', true, true, now(), now())
+                    """.formatted(clientId, UUID.randomUUID()));
+        }
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema)
+                .defaultSchema(schema)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        try (var connection = DriverManager.getConnection(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            assertEquals("PLATFORM_ADMIN", scalar(statement,
+                    "select role from users where id = '" + adminId + "'"));
+            assertEquals(adminId.toString(), scalar(statement,
+                    "select admin_user_id::text from authkit_bootstrap_state where completed_at is not null"));
+            assertEquals("USER", scalar(statement,
+                    "select role from users where id = '" + ownerId + "'"));
+            assertEquals("DELETION_PENDING", scalar(statement,
+                    "select account_state from users where id = '" + pendingId + "'"));
+            assertEquals("0", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'users' and column_name = 'phone'
+                    """));
+            assertEquals("1", scalar(statement, """
+                    select count(*) from auth_refresh_sessions
+                    where jti = '%s' and public_session_id is not null
+                      and last_seen_at is not null and user_agent_summary = 'Unknown client'
+                      and creation_ip_masked = 'unknown' and last_ip_masked = 'unknown'
+                    """.formatted(legacyJti)));
+            assertEquals("0", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'oauth_clients' and column_name = 'tenant_id'
+                    """));
+            assertEquals("ACCEPTED", scalar(statement,
+                    "select status from email_outbox where id = '" + outboxId + "'"));
+            assertEquals("1", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'email_outbox' and column_name = 'accepted_at'
+                    """));
+            assertEquals("0", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'email_outbox' and column_name = 'delivered_at'
+                    """));
+
+            UUID socialOnlyId = UUID.randomUUID();
+            UUID providerId = UUID.randomUUID();
+            statement.executeUpdate("""
+                    insert into users (id, email, password, role)
+                    values ('%s', 'social-only@example.test', null, 'USER')
+                    """.formatted(socialOnlyId));
+            statement.executeUpdate("""
+                    insert into social_identity_providers
+                      (id, provider_key, display_name, provider_type, issuer, client_id,
+                       encrypted_client_secret, scopes, client_auth_method, created_at, updated_at)
+                    values ('%s', 'generic', 'Generic', 'GENERIC_OIDC', 'https://issuer.example',
+                            'client', 'encrypted', 'openid email', 'CLIENT_SECRET_BASIC', now(), now())
+                    """.formatted(providerId));
+            statement.executeUpdate("""
+                    insert into social_identities
+                      (id, user_id, tenant_id, provider_id, issuer, subject, email_at_link,
+                       email_verified, created_at)
+                    select '%s', id, tenant_id, '%s', 'https://issuer.example', 'subject-1',
+                           email, true, now() from users where id = '%s'
+                    """.formatted(UUID.randomUUID(), providerId, socialOnlyId));
+            assertThrows(SQLException.class, () -> statement.executeUpdate("""
+                    insert into social_identities
+                      (id, user_id, tenant_id, provider_id, issuer, subject, email_verified, created_at)
+                    select '%s', id, tenant_id, '%s', 'https://issuer.example', 'subject-1', true, now()
+                    from users where id = '%s'
+                    """.formatted(UUID.randomUUID(), providerId, ownerId)));
+
+            assertThrows(SQLException.class, () -> statement.executeUpdate(
+                    "update users set role = 'USER' where id = '" + adminId + "'"));
         }
     }
 
@@ -130,11 +325,12 @@ class PostgresMigrationTest {
                     insert into users (
                         id, email, password, role, tenant_id, terms_accepted, privacy_policy_accepted,
                         email_confirmed, terms_version, privacy_policy_version, lawful_basis,
-                        deleted_at, anonymized_at
+                        account_state, deletion_requested_at, deleted_at, anonymized_at
                     )
                     values (
                         '%s', 'deleted-%s@example.test', 'hash', 'USER', '%s', true, true,
-                        false, 'terms-v1', 'privacy-v1', 'consent', now() - interval '31 days', now() - interval '31 days'
+                        false, 'terms-v1', 'privacy-v1', 'consent', 'ANONYMIZED',
+                        now() - interval '31 days', now() - interval '31 days', now() - interval '31 days'
                     )
                     """.formatted(userId, userId, tenantId));
             statement.executeUpdate("""
@@ -159,12 +355,12 @@ class PostgresMigrationTest {
                     """.formatted(UUID.randomUUID(), userId));
             statement.executeUpdate("""
                     insert into oauth_clients (
-                        id, tenant_id, client_id, public_client, display_name, redirect_uris, scopes,
+                        id, client_id, public_client, display_name, redirect_uris, scopes,
                         require_pkce, enabled, created_at, updated_at
                     )
-                    values ('%s', '%s', '%s', true, 'Client', 'https://client.example/callback',
+                    values ('%s', '%s', true, 'Client', 'https://client.example/callback',
                             'openid', true, true, now(), now())
-                    """.formatted(oauthClientId, tenantId, clientId));
+                    """.formatted(oauthClientId, clientId));
             statement.executeUpdate("""
                     insert into oauth_consents (id, user_id, tenant_id, client_id, scopes, granted_at)
                     values ('%s', '%s', '%s', '%s', 'openid', now())
@@ -214,6 +410,13 @@ class PostgresMigrationTest {
         try (var result = statement.executeQuery("select count(*) from " + table + " where user_id = '" + userId + "'")) {
             result.next();
             return result.getInt(1);
+        }
+    }
+
+    private String scalar(java.sql.Statement statement, String sql) throws SQLException {
+        try (var result = statement.executeQuery(sql)) {
+            result.next();
+            return result.getString(1);
         }
     }
 

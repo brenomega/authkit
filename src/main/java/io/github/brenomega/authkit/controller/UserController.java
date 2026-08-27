@@ -12,6 +12,8 @@ import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationFinishR
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
+import io.github.brenomega.authkit.domain.user.dto.EmailChangeRequest;
+import io.github.brenomega.authkit.domain.user.dto.EmailChangeStatusResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
@@ -19,6 +21,7 @@ import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AccountLifecycleService;
+import io.github.brenomega.authkit.service.EmailChangeService;
 import io.github.brenomega.authkit.service.MfaService;
 import io.github.brenomega.authkit.service.PasskeyService;
 import io.github.brenomega.authkit.service.ProfileService;
@@ -40,22 +43,25 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/v1/users/me")
-@PreAuthorize("hasAnyRole('USER', 'OWNER', 'TENANT_ADMIN', 'ADMIN')")
+@PreAuthorize("hasAnyRole('USER', 'PLATFORM_ADMIN')")
 public class UserController {
 
     private final ProfileService profileService;
     private final AccountLifecycleService accountLifecycleService;
     private final MfaService mfaService;
     private final PasskeyService passkeyService;
+    private final EmailChangeService emailChangeService;
 
     public UserController(ProfileService profileService,
                           AccountLifecycleService accountLifecycleService,
                           MfaService mfaService,
-                          PasskeyService passkeyService) {
+                          PasskeyService passkeyService,
+                          EmailChangeService emailChangeService) {
         this.profileService = profileService;
         this.accountLifecycleService = accountLifecycleService;
         this.mfaService = mfaService;
         this.passkeyService = passkeyService;
+        this.emailChangeService = emailChangeService;
     }
 
     /**
@@ -98,6 +104,20 @@ public class UserController {
         return new ApiResponse<>(updated, null, Instant.now());
     }
 
+    @PostMapping("/email-change")
+    public ApiResponse<EmailChangeStatusResponse> requestEmailChange(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody EmailChangeRequest request) {
+        return ApiResponse.success(emailChangeService.request(jwt.getSubject(), request));
+    }
+
+    @DeleteMapping("/email-change")
+    public ApiResponse<EmailChangeStatusResponse> cancelEmailChange(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody StepUpRequest request) {
+        return ApiResponse.success(emailChangeService.cancel(jwt.getSubject(), request));
+    }
+
     /**
      * Changes the password while the user is authenticated (RF 2.1.7).
      * 
@@ -119,7 +139,7 @@ public class UserController {
             @AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(required = false) String cursor) {
-        SessionPageResponse sessions = profileService.listSessions(jwt.getSubject(), limit, cursor);
+        SessionPageResponse sessions = profileService.listSessions(jwt.getSubject(), jwt.getId(), limit, cursor);
         return new ApiResponse<>(sessions, null, Instant.now());
     }
 
@@ -194,17 +214,17 @@ public class UserController {
     /**
      * Revokes a specific session (RF 2.1.8).
      */
-    @DeleteMapping("/sessions/{jti}")
+    @DeleteMapping("/sessions/{sessionId}")
     public ApiResponse<String> revokeSession(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable String jti,
+            @PathVariable String sessionId,
             @Valid @RequestBody(required = false) MfaOptionalVerificationRequest request) {
-        profileService.revokeSession(jwt.getSubject(), jti, request == null ? null : request.code());
+        profileService.revokeSession(jwt.getSubject(), sessionId, request == null ? null : request.code());
         return new ApiResponse<>("Session revoked successfully.", null, Instant.now());
     }
 
     /**
-     * Requests account deletion and immediately anonymizes direct PII.
+     * Requests account deletion. Direct PII is anonymized after the configured grace period.
      */
     @DeleteMapping
     public ApiResponse<AccountDeletionResponse> deleteMyAccount(

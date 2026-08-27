@@ -1,8 +1,12 @@
 package io.github.brenomega.authkit.service;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +27,8 @@ import io.github.brenomega.authkit.repository.UserRepository;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 public class PasswordRecoveryIntegrationTest {
+
+    private static final Pattern FRAGMENT_TOKEN = Pattern.compile("#token=([A-Za-z0-9_-]+)");
 
     @Autowired
     private MockMvc mockMvc;
@@ -83,7 +89,9 @@ public class PasswordRecoveryIntegrationTest {
         String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
                 .orElseThrow()
                 .getBody();
-        String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("&email="));
+        Matcher tokenMatcher = FRAGMENT_TOKEN.matcher(htmlBody);
+        assertTrue(tokenMatcher.find());
+        String token = tokenMatcher.group(1);
 
         // 3. Reset password using the captured token
         mockMvc.perform(post("/api/v1/auth/password-recovery/reset")

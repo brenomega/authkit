@@ -61,10 +61,10 @@ public class EmailOutboxService {
 
     @SuppressWarnings("null")
     @Transactional
-    public void markSent(UUID messageId, String providerMessageId) {
-        repository.markSent(messageId,
+    public void markAccepted(UUID messageId, String providerMessageId) {
+        repository.markAccepted(messageId,
                 List.of(EmailOutboxStatus.PROCESSING, EmailOutboxStatus.QUEUED),
-                EmailOutboxStatus.SENT,
+                EmailOutboxStatus.ACCEPTED,
                 providerMessageId,
                 Instant.now());
     }
@@ -73,7 +73,7 @@ public class EmailOutboxService {
     @Transactional
     public void markFailed(UUID messageId, String error) {
         EmailOutboxMessage message = repository.findById(messageId).orElse(null);
-        if (message == null || message.getStatus() == EmailOutboxStatus.SENT
+        if (message == null || message.getStatus() == EmailOutboxStatus.ACCEPTED
                 || message.getStatus() == EmailOutboxStatus.DEAD) {
             return;
         }

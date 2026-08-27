@@ -4,10 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +31,9 @@ import io.github.brenomega.authkit.repository.UserRepository;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 public class RegistrationIntegrationTest {
+
+    private static final String QUERY_TOKEN_MARKER = "?" + "token=";
+    private static final Pattern FRAGMENT_TOKEN = Pattern.compile("#token=([A-Za-z0-9_-]+)");
 
     @Autowired
     private MockMvc mockMvc;
@@ -122,13 +129,27 @@ public class RegistrationIntegrationTest {
         String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc("confirm-flow@example.com")
                 .orElseThrow()
                 .getBody();
-        String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("'>here"));
+        assertTrue(htmlBody.contains("#token="));
+        assertFalse(htmlBody.contains(QUERY_TOKEN_MARKER));
+        Matcher tokenMatcher = FRAGMENT_TOKEN.matcher(htmlBody);
+        assertTrue(tokenMatcher.find());
+        String token = tokenMatcher.group(1);
         assertNotEquals(storedTokenHash, token);
 
         mockMvc.perform(post("/api/v1/auth/email-confirmation/confirm")
                         .param("token", token))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/auth/email-confirmation/confirm")
+                        .contentType("application/json")
+                        .content("{\"token\":\"" + token + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").value("Email confirmed successfully."));
+
+        mockMvc.perform(post("/api/v1/auth/email-confirmation/confirm")
+                        .contentType("application/json")
+                        .content("{\"token\":\"" + token + "\"}"))
+                .andExpect(status().isBadRequest());
 
         var confirmedUser = userRepository.findByEmail("confirm-flow@example.com").orElseThrow();
         assertTrue(confirmedUser.isEmailConfirmed());

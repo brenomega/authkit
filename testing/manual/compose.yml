@@ -1,0 +1,35 @@
+name: authkit-manual-proof
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: authkit
+      POSTGRES_USER: authkit
+      POSTGRES_PASSWORD: local-proof-postgres-password
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authkit -d authkit"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data:size=256m
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "local-proof-redis-password"]
+    ports:
+      - "127.0.0.1:16379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=local-proof-redis-password redis-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:11025:1025"
+      - "127.0.0.1:18026:8025"

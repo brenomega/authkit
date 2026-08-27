@@ -67,7 +67,7 @@ public class TenantFilterAspect {
     private String currentTenantId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getAuthorities().stream()
-                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()))) {
+                .anyMatch(authority -> "ROLE_PLATFORM_ADMIN".equals(authority.getAuthority()))) {
             return null;
         }
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {

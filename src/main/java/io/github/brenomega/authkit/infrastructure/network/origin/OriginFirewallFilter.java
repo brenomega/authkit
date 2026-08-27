@@ -72,6 +72,15 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
 
         String remoteIp = request.getRemoteAddr();
 
+        // Container orchestrators must be able to evaluate the application's
+        // real readiness endpoint without adding loopback to the production
+        // reverse-proxy allowlist. This exception is intentionally restricted
+        // to the safe GET health resource; every API route remains protected.
+        if (isLocalHealthCheck(request, remoteIp)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (!trustedOriginProvider.isTrusted(remoteIp)) {
             meterRegistry.counter("firewall.origin.rejected").increment();
             String traceId = request.getHeader("CF-RAY");
@@ -88,13 +97,22 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
             response.setContentType("application/json");
             response.setCharacterEncoding("UTF-8");
             String jsonResponse = String.format(
-                "{\"timestamp\":\"%s\",\"status\":403,\"error\":\"Forbidden\",\"message\":\"Invalid Origin\"}",
-                java.time.Instant.now().toString()
+                "{\"errors\":[\"Invalid Origin\"],\"timestamp\":\"%s\",\"code\":\"invalid_origin\",\"requestId\":\"%s\"}",
+                java.time.Instant.now(), io.github.brenomega.authkit.response.RequestContext.currentRequestId()
             );
             response.getWriter().write(jsonResponse);
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isLocalHealthCheck(HttpServletRequest request, String remoteIp) {
+        boolean loopback = "127.0.0.1".equals(remoteIp)
+                || "::1".equals(remoteIp)
+                || "0:0:0:0:0:0:0:1".equals(remoteIp);
+        return loopback
+                && "GET".equals(request.getMethod())
+                && "/actuator/health".equals(request.getRequestURI());
     }
 }

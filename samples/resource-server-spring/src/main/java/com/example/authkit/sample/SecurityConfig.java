@@ -74,10 +74,8 @@ public class SecurityConfig {
                 }
             }
         }
-        String role = jwt.getClaimAsString("role");
-        if (role != null && !role.isBlank()) {
-            authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase(java.util.Locale.ROOT)));
-        }
+        // AuthKit's PLATFORM_ADMIN role authorizes the AuthKit control plane only.
+        // Host-product authorization must use client scopes or its own policy data.
         return authorities;
     }
 

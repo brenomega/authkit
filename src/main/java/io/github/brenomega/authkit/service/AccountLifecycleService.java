@@ -7,23 +7,20 @@ import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 
-import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
-import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
+import io.github.brenomega.authkit.domain.user.enums.AccountState;
+import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
-import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEvent;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
@@ -35,12 +32,17 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
-import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.repository.SocialIdentityRepository;
+import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
+import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
+import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
+import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
@@ -55,15 +57,18 @@ public class AccountLifecycleService {
     private final OAuthConsentRepository oauthConsentRepository;
     private final SecurityEventService securityEventService;
     private final TokenStorage tokenStorage;
-    private final PasswordEncoder passwordEncoder;
     private final AuthProperties authProperties;
-    private final MeterRegistry meterRegistry;
-    private final Argon2ConcurrencyLimiter argon2Limiter;
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final MfaService mfaService;
     private final StepUpService stepUpService;
     private final EmailOutboxService emailOutboxService;
     private final AbuseThrottleService abuseThrottleService;
+    private final SocialIdentityRepository socialIdentityRepository;
+    private final SocialLoginTransactionRepository socialLoginTransactionRepository;
+    private final SocialIdentityProviderRepository socialIdentityProviderRepository;
+    private final PasskeyCredentialRepository passkeyCredentialRepository;
+    private final MfaTotpCredentialRepository mfaTotpCredentialRepository;
+    private final PasswordHistoryRepository passwordHistoryRepository;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
@@ -71,30 +76,36 @@ public class AccountLifecycleService {
                                    OAuthConsentRepository oauthConsentRepository,
                                    SecurityEventService securityEventService,
                                    TokenStorage tokenStorage,
-                                   PasswordEncoder passwordEncoder,
                                    AuthProperties authProperties,
-                                   MeterRegistry meterRegistry,
-                                   Argon2ConcurrencyLimiter argon2Limiter,
                                    UserAuthoritiesFilter userAuthoritiesFilter,
                                    MfaService mfaService,
                                    StepUpService stepUpService,
                                    EmailOutboxService emailOutboxService,
-                                   AbuseThrottleService abuseThrottleService) {
+                                   AbuseThrottleService abuseThrottleService,
+                                   SocialIdentityRepository socialIdentityRepository,
+                                   SocialLoginTransactionRepository socialLoginTransactionRepository,
+                                   SocialIdentityProviderRepository socialIdentityProviderRepository,
+                                   PasskeyCredentialRepository passkeyCredentialRepository,
+                                   MfaTotpCredentialRepository mfaTotpCredentialRepository,
+                                   PasswordHistoryRepository passwordHistoryRepository) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
         this.oauthConsentRepository = oauthConsentRepository;
         this.securityEventService = securityEventService;
         this.tokenStorage = tokenStorage;
-        this.passwordEncoder = passwordEncoder;
         this.authProperties = authProperties;
-        this.meterRegistry = meterRegistry;
-        this.argon2Limiter = argon2Limiter;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.mfaService = mfaService;
         this.stepUpService = stepUpService;
         this.emailOutboxService = emailOutboxService;
         this.abuseThrottleService = abuseThrottleService;
+        this.socialIdentityRepository = socialIdentityRepository;
+        this.socialLoginTransactionRepository = socialLoginTransactionRepository;
+        this.socialIdentityProviderRepository = socialIdentityProviderRepository;
+        this.passkeyCredentialRepository = passkeyCredentialRepository;
+        this.mfaTotpCredentialRepository = mfaTotpCredentialRepository;
+        this.passwordHistoryRepository = passwordHistoryRepository;
     }
 
     @Transactional(readOnly = true)
@@ -120,9 +131,8 @@ public class AccountLifecycleService {
                 "data_export_step_up_failed");
         mfaService.requireMfaIfEnabled(user, stepUpRequest.mfaCode(), "data_export");
 
-        var page = PageRequest.of(0, authProperties.getCompliance().getDataExportSecurityEventLimit());
         var securityEvents = securityEventRepository
-                .findByTargetUserIdOrderByOccurredAtDesc(user.getId(), page)
+                .findByTargetUserIdOrderByOccurredAtDesc(user.getId())
                 .stream()
                 .map(this::toExportEvent)
                 .toList();
@@ -136,6 +146,25 @@ public class AccountLifecycleService {
                 .stream()
                 .map(this::toExportOAuthConsent)
                 .toList();
+        var passwordHistory = passwordHistoryRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+                .map(entry -> new UserDataExportResponse.PasswordHistoryData(entry.getCreatedAt())).toList();
+        var totp = mfaTotpCredentialRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+                .map(entry -> new UserDataExportResponse.TotpData(entry.getId().toString(), entry.getCreatedAt(),
+                        entry.getConfirmedAt(), entry.getDisabledAt())).toList();
+        var passkeys = passkeyCredentialRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+                .map(entry -> new UserDataExportResponse.PasskeyData(entry.getId().toString(), entry.getLabel(),
+                        entry.getTransports(), entry.isDiscoverable(), entry.getSignatureCount(), entry.getCreatedAt(),
+                        entry.getLastUsedAt(), entry.getDisabledAt())).toList();
+        var socialIdentities = socialIdentityRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
+                .map(entry -> new UserDataExportResponse.SocialIdentityData(entry.getId().toString(),
+                        socialIdentityProviderRepository.findById(entry.getProviderId())
+                                .map(provider -> provider.getProviderKey()).orElse("disabled"),
+                        entry.getIssuer(), entry.getEmailAtLink(), entry.isEmailVerified(), entry.getCreatedAt(),
+                        entry.getLastLoginAt())).toList();
+        var sessions = allSessionMetadata(user.getId().toString()).stream()
+                .map(entry -> new UserDataExportResponse.SessionData(entry.publicSessionId(), entry.createdAt(),
+                        entry.lastSeenAt(), entry.expiresAt(), entry.initialAmr(), entry.userAgentSummary(),
+                        entry.deviceLabel(), entry.creationIpMasked(), entry.lastIpMasked())).toList();
 
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.DATA_EXPORT_REQUESTED,
@@ -145,14 +174,21 @@ public class AccountLifecycleService {
                 "user_data_export_requested");
 
         return new UserDataExportResponse(
+                "authkit-user-data-export/v1",
+                Instant.now(),
                 new UserDataExportResponse.ProfileData(
                         user.getId().toString(),
                         user.getEmail(),
                         user.getName(),
-                        user.getPhone(),
                         user.getRole().name(),
                         user.getTenantId().toString(),
-                        user.isEmailConfirmed()),
+                        user.isEmailConfirmed(),
+                        user.getAccountState().name(),
+                        user.getSuspendedAt(),
+                        user.getSuspensionReason(),
+                        user.getPendingEmail(),
+                        user.getEmailChangeRequestedAt(),
+                        user.getEmailChangeExpiresAt()),
                 new UserDataExportResponse.ConsentData(
                         user.isTermsAccepted(),
                         user.isPrivacyPolicyAccepted(),
@@ -162,11 +198,28 @@ public class AccountLifecycleService {
                         user.getLawfulBasis()),
                 consentEvents,
                 oauthConsents,
+                new UserDataExportResponse.CredentialData(user.getPassword() != null, passwordHistory,
+                        totp, passkeys, socialIdentities),
+                sessions,
                 new UserDataExportResponse.DeletionData(
                         user.getDeletionRequestedAt(),
                         user.getDeletedAt(),
                         user.getAnonymizedAt()),
                 securityEvents);
+    }
+
+    private List<io.github.brenomega.authkit.service.spi.SessionMetadata> allSessionMetadata(String userId) {
+        List<io.github.brenomega.authkit.service.spi.SessionMetadata> result = new java.util.ArrayList<>();
+        String cursor = null;
+        do {
+            var page = tokenStorage.listSessions(userId, 100, cursor);
+            result.addAll(page.items());
+            cursor = page.nextCursor();
+            if (result.size() > 10_000) {
+                throw new IllegalStateException("Session export exceeds the supported safety bound");
+            }
+        } while (cursor != null);
+        return List.copyOf(result);
     }
 
     @Transactional
@@ -180,15 +233,25 @@ public class AccountLifecycleService {
                 "account_deletion_step_up_failed");
         mfaService.requireMfaIfEnabled(user, stepUpRequest.mfaCode(), "account_deletion");
 
+        if (user.getRole() == Role.PLATFORM_ADMIN
+                && userRepository.countByRoleAndAccountState(Role.PLATFORM_ADMIN, AccountState.ACTIVE) <= 1) {
+            throw new AccessDeniedException("Cannot delete the last active platform administrator");
+        }
+
         Instant now = Instant.now();
         String originalEmail = user.getEmail();
         UUID userUuid = user.getId();
         UUID tenantId = user.getTenantId();
 
         user.requestDeletion(now);
-        String anonymizedEmail = "deleted+" + userUuid.toString().replace("-", "") + "@deleted.authkit.local";
-        String anonymizedPassword = encodeWithCapacity(SecureTokenGenerator.randomUrlSafeToken(32));
-        user.anonymizeForDeletion(anonymizedEmail, anonymizedPassword, now);
+        int graceDays = authProperties.getCompliance().getDeletionGracePeriodDays();
+        Instant graceExpiresAt = now.plus(java.time.Duration.ofDays(graceDays));
+        if (graceDays == 0) {
+            socialLoginTransactionRepository.deleteByUserId(userUuid);
+            socialIdentityRepository.deleteByUserId(userUuid);
+            String anonymizedEmail = "deleted+" + userUuid.toString().replace("-", "") + "@deleted.authkit.local";
+            user.anonymizeForDeletion(anonymizedEmail, now);
+        }
         userRepository.save(user);
 
         securityEventService.record(
@@ -200,36 +263,28 @@ public class AccountLifecycleService {
                 tenantId,
                 originalEmail,
                 "account_deletion_requested",
-                java.util.Map.of("policy", "immediate_anonymization"));
-        securityEventService.record(
-                SecurityEventType.ACCOUNT_ANONYMIZED,
-                SecurityEventOutcome.SUCCESS,
-                SecurityEventSeverity.HIGH,
-                userUuid,
-                userUuid,
-                tenantId,
-                originalEmail,
-                "account_anonymized",
-                java.util.Map.of("direct_pii", "email_name_phone"));
+                java.util.Map.of("grace_days", Integer.toString(graceDays)));
+        if (graceDays == 0) {
+            securityEventService.record(
+                    SecurityEventType.ACCOUNT_ANONYMIZED,
+                    SecurityEventOutcome.SUCCESS,
+                    SecurityEventSeverity.HIGH,
+                    userUuid,
+                    userUuid,
+                    tenantId,
+                    originalEmail,
+                    "account_anonymized",
+                    java.util.Map.of("direct_pii", "email_name"));
+            emailOutboxService.deleteByRecipients(java.util.List.of(originalEmail));
+        }
 
-        afterCommit(() -> {
-            userAuthoritiesFilter.evict(userUuid);
-            try {
-                tokenStorage.revokeAllSessions(userUuid.toString());
-            } catch (RuntimeException ex) {
-                meterRegistry.counter("security.infrastructure.failure", "component", "token_storage").increment();
-            }
-            try {
-                emailOutboxService.deleteByRecipients(java.util.List.of(originalEmail));
-            } catch (RuntimeException ex) {
-                meterRegistry.counter("security.infrastructure.failure", "component", "email_outbox").increment();
-            }
-
-        });
+        tokenStorage.revokeAllSessions(userUuid.toString());
+        userAuthoritiesFilter.evict(userUuid);
 
         return new AccountDeletionResponse(
-                "deleted",
+                graceDays == 0 ? "anonymized" : "deletion_pending",
                 user.getDeletionRequestedAt(),
+                graceExpiresAt,
                 user.getDeletedAt(),
                 user.getAnonymizedAt());
     }
@@ -302,30 +357,4 @@ public class AccountLifecycleService {
                 failureReason);
     }
 
-    private String encodeWithCapacity(String rawPassword) {
-        boolean acquired = argon2Limiter.tryAcquire();
-        if (!acquired) {
-            throw new AuthenticationCapacityExceededException();
-        }
-
-        try {
-            return passwordEncoder.encode(rawPassword);
-        } finally {
-            argon2Limiter.release();
-        }
-    }
-
-    private void afterCommit(Runnable action) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            action.run();
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                action.run();
-            }
-        });
-    }
 }

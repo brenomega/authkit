@@ -40,19 +40,20 @@ class SmtpEmailProviderTest {
     }
 
     @Test
-    void send_retriesTransientFailure() {
+    void send_doesNotRetryBecauseSmtpAcceptanceCanBeAmbiguous() {
         CapturingTransport transport = new CapturingTransport(1);
         AuthProperties properties = properties();
         properties.getEmailProvider().setRetryBackoffMs(0);
         SmtpEmailProvider provider = new SmtpEmailProvider(properties, transport);
 
-        provider.send(new EmailPayload("user@example.com", "Confirm account", "<p>Hello</p>"));
+        assertThrows(RuntimeException.class, () ->
+                provider.send(new EmailPayload("user@example.com", "Confirm account", "<p>Hello</p>")));
 
-        assertEquals(2, transport.attempts);
+        assertEquals(1, transport.attempts);
     }
 
     @Test
-    void send_throwsWhenAttemptsExhausted() {
+    void send_throwsAfterOneTransportAttemptEvenWhenProviderAttemptsIsHigher() {
         CapturingTransport transport = new CapturingTransport(3);
         AuthProperties properties = properties();
         properties.getEmailProvider().setRetryBackoffMs(0);
@@ -60,7 +61,7 @@ class SmtpEmailProviderTest {
 
         assertThrows(RuntimeException.class, () ->
                 provider.send(new EmailPayload("user@example.com", "Confirm account", "<p>Hello</p>")));
-        assertEquals(3, transport.attempts);
+        assertEquals(1, transport.attempts);
     }
 
     private AuthProperties properties() {

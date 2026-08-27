@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
@@ -37,6 +38,8 @@ import io.github.brenomega.authkit.repository.UserRepository;
 @ExtendWith(MockitoExtension.class)
 class RegistrationServiceTest {
 
+    private static final String QUERY_TOKEN_MARKER = "?" + "token=";
+
     @Mock
     private UserRepository userRepository;
 
@@ -52,10 +55,12 @@ class RegistrationServiceTest {
     private ConsentEventService consentEventService;
     private AbuseThrottleService abuseThrottleService;
     private PasswordPolicyService passwordPolicyService;
+    private io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer emailTemplateRenderer;
 
     @BeforeEach
     void setUp() {
         authProperties = new AuthProperties();
+        authProperties.getRegistration().setMode("public");
         authProperties.getFrontend().setActivationUrl("https://frontend.example.test/activate");
         authProperties.getCompliance().setTermsVersion("terms-2026");
         authProperties.getCompliance().setPrivacyPolicyVersion("privacy-2026");
@@ -63,6 +68,8 @@ class RegistrationServiceTest {
         consentEventService = org.mockito.Mockito.mock(ConsentEventService.class);
         abuseThrottleService = org.mockito.Mockito.mock(AbuseThrottleService.class);
         passwordPolicyService = org.mockito.Mockito.mock(PasswordPolicyService.class);
+        emailTemplateRenderer = org.mockito.Mockito.mock(
+                io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer.class);
         service = new RegistrationService(
                 userRepository,
                 passwordEncoder,
@@ -71,13 +78,15 @@ class RegistrationServiceTest {
                 securityEventService,
                 consentEventService,
                 abuseThrottleService,
-                passwordPolicyService);
+                passwordPolicyService,
+                emailTemplateRenderer);
     }
 
     @SuppressWarnings("null")
     @Test
     @DisplayName("Registers user successfully, hashes password, generates tenantId and queues email")
     void registerUser_success() {
+        stubEmailTemplateRenderer();
         RegisterRequest request = new RegisterRequest(
                 "new@example.com", "Password123!", true, true);
 
@@ -98,7 +107,8 @@ class RegistrationServiceTest {
 
         verify(emailOutboxService).enqueue(argThat(payload ->
                 payload.to().equals("new@example.com") &&
-                payload.htmlBody().contains("https://frontend.example.test/activate?token=")
+                payload.htmlBody().contains("https://frontend.example.test/activate#token=") &&
+                !payload.htmlBody().contains(QUERY_TOKEN_MARKER)
         ));
         verify(consentEventService).recordCurrentConsent(user);
     }
@@ -109,7 +119,7 @@ class RegistrationServiceTest {
         RegisterRequest request = new RegisterRequest(
                 "existing@example.com", "Password123!", true, true);
 
-        User existingUser = new User("existing@example.com", "pw", null, null, true, true, null);
+        User existingUser = new User("existing@example.com", "pw", null, true, true, null);
         when(userRepository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
 
         assertThrows(UserAlreadyExistsException.class, () -> service.registerUser(request));
@@ -120,9 +130,9 @@ class RegistrationServiceTest {
     void confirmEmail_success() {
         String rawToken = "activation-token";
         String tokenHash = TokenHasher.sha256Hex(rawToken);
-        User user = new User("confirm@example.com", "pw", null, null, true, true, tokenHash);
+        User user = new User("confirm@example.com", "pw", null, true, true, tokenHash);
         user.setEmailConfirmationExpiresAt(Instant.now().plusSeconds(300));
-        when(userRepository.findByEmailConfirmationToken(tokenHash)).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailConfirmationTokenForUpdate(tokenHash)).thenReturn(Optional.of(user));
 
         service.confirmEmail(rawToken);
 
@@ -137,9 +147,9 @@ class RegistrationServiceTest {
     void confirmEmail_expiredToken() {
         String rawToken = "expired-token";
         String tokenHash = TokenHasher.sha256Hex(rawToken);
-        User user = new User("expired@example.com", "pw", null, null, true, true, tokenHash);
+        User user = new User("expired@example.com", "pw", null, true, true, tokenHash);
         user.setEmailConfirmationExpiresAt(Instant.now().minusSeconds(1));
-        when(userRepository.findByEmailConfirmationToken(tokenHash)).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailConfirmationTokenForUpdate(tokenHash)).thenReturn(Optional.of(user));
 
         assertThrows(InvalidTokenException.class, () -> service.confirmEmail(rawToken));
 
@@ -151,7 +161,8 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("Resending email confirmation rotates the token and queues a new message")
     void resendEmailConfirmation_rotatesToken() {
-        User user = new User("resend@example.com", "pw", null, null, true, true, "old-token-hash");
+        stubEmailTemplateRenderer();
+        User user = new User("resend@example.com", "pw", null, true, true, "old-token-hash");
         user.setEmailConfirmationExpiresAt(Instant.now().plusSeconds(60));
         when(userRepository.findByEmail("resend@example.com")).thenReturn(Optional.of(user));
 
@@ -163,16 +174,37 @@ class RegistrationServiceTest {
         verify(userRepository).save(user);
         verify(emailOutboxService).enqueue(argThat(payload ->
                 payload.to().equals("resend@example.com")
-                        && payload.htmlBody().contains("https://frontend.example.test/activate?token=")));
+                        && payload.htmlBody().contains("https://frontend.example.test/activate#token=")
+                        && !payload.htmlBody().contains(QUERY_TOKEN_MARKER)));
     }
 
     @Test
     @DisplayName("Email confirmation rejects invalid or expired tokens")
     void confirmEmail_invalidToken() {
         String rawToken = "bad-token";
-        when(userRepository.findByEmailConfirmationToken(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
+        when(userRepository.findByEmailConfirmationTokenForUpdate(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
 
         assertThrows(InvalidTokenException.class,
                 () -> service.confirmEmail(rawToken));
+    }
+
+    @Test
+    @DisplayName("Restricted registration mode rejects public account creation before any side effect")
+    void restrictedRegistrationRejectsPublicSignup() {
+        authProperties.getRegistration().setMode("restricted");
+
+        assertThrows(io.github.brenomega.authkit.exception.RegistrationRestrictedException.class,
+                () -> service.registerUser(new RegisterRequest(
+                        "restricted@example.com", "Password123!", true, true)));
+
+        verify(userRepository, never()).save(any());
+        verify(emailOutboxService, never()).enqueue(any());
+    }
+
+    private void stubEmailTemplateRenderer() {
+        when(emailTemplateRenderer.render(any(), any(), any())).thenAnswer(invocation ->
+                new io.github.brenomega.authkit.service.spi.EmailPayload(
+                        invocation.getArgument(1), "subject",
+                        ((java.util.Map<?, ?>) invocation.getArgument(2)).get("action_url").toString()));
     }
 }

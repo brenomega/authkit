@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AuthKit API
-  version: 0.1.0
+  version: 0.1.0-rc.1
   description: Static integration contract. Runtime documentation endpoints are intentionally disabled.
 servers:
   - url: https://auth.example.com
@@ -13,15 +13,25 @@ paths:
   /.well-known/jwks.json:
     get: {security: [], responses: {'200': {description: Public signing keys}}}
   /api/v1/auth/login:
-    post: &publicPost
+    post:
       security: []
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {description: Rate limited}, '503': {description: Dependency unavailable}}
+      requestBody: {$ref: '#/components/requestBodies/Login'}
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/mfa/verify-login:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/MfaLoginVerification'}
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/passkeys/options:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/PasskeyAssertionOptions'}
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/passkeys/verify:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/PasskeyAssertionFinish'}
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/refresh:
     post:
       security: [{refreshCookie: [], csrfHeader: []}]
@@ -31,29 +41,86 @@ paths:
       security: [{refreshCookie: [], csrfHeader: []}]
       responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/logout-all:
-    post: &authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
       responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
   /api/v1/auth/register:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/Register'}
+      responses: {'201': {description: Created in non-stealth mode}, '202': {description: Accepted without account-enumeration disclosure}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/email-confirmation/confirm:
-    post: *publicPost
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailConfirmationConfirmRequest'}
+      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/email-confirmation/resend:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/EmailConfirmationResend'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+  /api/v1/auth/email-change/confirm:
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/EmailChangeConfirm'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/password-recovery/request:
-    post: *publicPost
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/PasswordRecovery'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
   /api/v1/auth/password-recovery/reset:
-    post: *publicPost
+    post:
+      security: []
+      parameters:
+        - {name: email, in: query, required: true, schema: {type: string, format: email, maxLength: 255}}
+      requestBody: {$ref: '#/components/requestBodies/PasswordReset'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+  /api/v1/auth/social/{providerKey}/start:
+    post:
+      security: []
+      parameters: [{$ref: '#/components/parameters/ProviderKey'}]
+      requestBody:
+        content: {application/json: {schema: {$ref: '#/components/schemas/SocialLoginStartRequest'}}}
+      responses: {'200': {description: 'OIDC authorization URL with server-bound state, nonce and PKCE'}, '400': {$ref: '#/components/responses/Error'}}
+  /api/v1/auth/social/{providerKey}/callback:
+    get:
+      security: []
+      parameters:
+        - {$ref: '#/components/parameters/ProviderKey'}
+        - {name: state, in: query, required: true, schema: {type: string, minLength: 32, maxLength: 256}}
+        - {name: code, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 4096}}
+      responses: {'200': {description: Federated authentication or explicit linking completed}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me:
     get: &authGet
       responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
-    patch: *authPost
-    delete: *authPost
+    patch:
+      requestBody: {$ref: '#/components/requestBodies/ProfileUpdate'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+    delete:
+      requestBody: {$ref: '#/components/requestBodies/StepUp'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/consent:
     get: *authGet
   /api/v1/users/me/export:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/StepUp'}
+      responses: {'200': {$ref: '#/components/responses/UserDataExport'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/password:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/PasswordChange'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+  /api/v1/users/me/email-change:
+    post:
+      requestBody: {$ref: '#/components/requestBodies/EmailChange'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
+    delete:
+      requestBody: {$ref: '#/components/requestBodies/StepUp'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/sessions:
     get:
       parameters:
@@ -66,62 +133,210 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SessionPageApiResponse'}
         '400': {$ref: '#/components/responses/Error'}
-  /api/v1/users/me/sessions/{jti}:
+  /api/v1/users/me/sessions/{sessionId}:
     delete:
-      parameters: [{$ref: '#/components/parameters/Jti'}]
+      parameters: [{$ref: '#/components/parameters/SessionId'}]
+      requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
       responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/internal/tokens/introspect:
+    post:
+      description: Authenticated live introspection for first-party access tokens. Requires the trusted-origin worker credential.
+      security: [{workerToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FirstPartyIntrospectionRequest'}
+      responses:
+        '200':
+          description: Live first-party token state
+          content: {application/json: {schema: {$ref: '#/components/schemas/FirstPartyIntrospectionApiResponse'}}}
   /api/v1/users/me/mfa:
     get: *authGet
   /api/v1/users/me/mfa/totp/enroll:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/StepUp'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp/confirm:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/MfaTotpConfirm'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp:
-    delete: *authPost
+    delete:
+      requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/backup-codes:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys:
     get: *authGet
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/PasskeyRegistrationFinish'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/options:
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/{credentialId}:
     delete:
       parameters: [{$ref: '#/components/parameters/CredentialId'}]
+      requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
       responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/users/me/social-identities:
+    get: *authGet
+  /api/v1/users/me/social-identities/{providerKey}/link/start:
+    post:
+      parameters: [{$ref: '#/components/parameters/ProviderKey'}]
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
+      responses: {'200': {description: OIDC authorization URL for an explicit link ceremony}, '401': {$ref: '#/components/responses/Error'}}
+  /api/v1/users/me/social-identities/{identityId}:
+    delete:
+      parameters: [{$ref: '#/components/parameters/IdentityId'}]
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '409': {description: Last usable authenticator cannot be removed}}
   /api/v1/oauth2/authorize:
-    post: *authPost
+    description: Deprecated JSON compatibility endpoint. New clients use the conventional browser endpoint below.
+    post:
+      requestBody: {$ref: '#/components/requestBodies/OAuthAuthorize'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+  /oauth2/authorize:
+    get:
+      security: []
+      description: Starts an Authorization Code flow and redirects to the operator login/consent UI with an opaque signed transaction handle.
+      parameters:
+        - {name: response_type, in: query, required: true, schema: {type: string, enum: [code]}}
+        - {name: client_id, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 128}}
+        - {name: redirect_uri, in: query, required: true, schema: {type: string, format: uri, maxLength: 512}}
+        - {name: scope, in: query, required: true, schema: {type: string, minLength: 1}}
+        - {name: state, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 255}}
+        - {name: code_challenge, in: query, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{43,128}$'}}
+        - {name: code_challenge_method, in: query, required: true, schema: {type: string, enum: [S256]}}
+        - {name: nonce, in: query, required: false, schema: {type: string, maxLength: 255}, description: Required when scope contains openid}
+      responses:
+        '302': {description: 'Redirect to the operator UI, or a validated client redirect carrying a standard OAuth error', headers: {Location: {schema: {type: string, format: uri}}}}
+        '400': {$ref: '#/components/responses/OAuthError'}
+  /api/v1/oauth2/authorize/transactions/{transaction}:
+    parameters:
+      - {name: transaction, in: path, required: true, schema: {type: string, minLength: 32, maxLength: 512}}
+    get:
+      responses:
+        '200': {description: Login and consent transaction details, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizationTransactionApiResponse'}}}}
+        '400': {$ref: '#/components/responses/OAuthError'}
+    post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizationDecisionRequest'}}}
+      responses:
+        '302': {description: Exact registered client redirect with code/state or access_denied/state, headers: {Location: {schema: {type: string, format: uri}}}}
+        '400': {$ref: '#/components/responses/OAuthError'}
   /oauth2/token:
-    post: &oauthFormPost
+    post:
       security: [{oauthClientBasic: []}]
-      responses: {'200': {description: OAuth response}, '400': {description: Invalid request}, '503': {description: Dependency unavailable}}
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: {$ref: '#/components/schemas/OAuthTokenRequest'}
+      responses:
+        '200': {description: Standard OAuth token response, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthTokenResponse'}}}}
+        '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/OAuthError'}
+        '503': {description: Dependency unavailable}
   /oauth2/revoke:
-    post: *oauthFormPost
+    post:
+      security: [{oauthClientBasic: []}]
+      requestBody: {$ref: '#/components/requestBodies/OAuthRevocation'}
+      responses: {'200': {description: Token revoked or already inactive}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}}
   /oauth2/introspect:
-    post: *oauthFormPost
+    post:
+      security: [{oauthClientBasic: []}]
+      requestBody: {$ref: '#/components/requestBodies/OAuthIntrospection'}
+      responses: {'200': {description: Standard OAuth introspection response, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthIntrospectionResponse'}}}}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}}
   /oauth2/userinfo:
     get:
       security: [{oauthAccessBearer: []}]
       description: Requires an AuthKit OAuth access token with `token_use=oauth_access`; ID tokens and first-party access tokens are rejected.
       responses: {'200': {description: OIDC userinfo claims}, '400': {description: Invalid token class or malformed bearer token}, '401': {description: Unauthorized}}
   /api/v1/admin/users:
-    get: *authGet
+    get:
+      parameters:
+        - {name: search, in: query, required: false, schema: {type: string, maxLength: 255}, description: Case-insensitive email or display-name search}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+        - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 1024}, description: Signed short-lived cursor bound to search and limit}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+  /api/v1/admin/users/{userId}:
+    get:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      description: Safe account and authenticator status; no password hashes, provider subjects, credential IDs, public keys, or MFA secrets are returned.
+      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
+  /api/v1/admin/users/{userId}/sessions/revoke:
+    post:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      description: Revokes every AuthKit session for the target after recent local administrator step-up.
+      requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/role:
     patch:
       parameters: [{$ref: '#/components/parameters/UserId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminUpdateRole'}
       responses: {'200': {$ref: '#/components/responses/Success'}}
-  /api/v1/admin/tenants:
-    get: *authGet
+  /api/v1/admin/users/{userId}/suspension:
+    post:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+    delete:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/admin/users/{userId}/deletion:
+    delete:
+      parameters: [{$ref: '#/components/parameters/UserId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
+      responses: {'200': {$ref: '#/components/responses/Success'}}
   /api/v1/admin/oauth-clients:
     get: *authGet
-    post: *authPost
+    post:
+      requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientCreate'}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/oauth-clients/{clientId}:
     patch:
       parameters: [{$ref: '#/components/parameters/ClientId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientUpdate'}
       responses: {'200': {$ref: '#/components/responses/Success'}}
     delete:
       parameters: [{$ref: '#/components/parameters/ClientId'}]
+      requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
       responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/admin/social-providers:
+    get: *authGet
+    post:
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderCreateRequest'}}}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+  /api/v1/admin/social-providers/{providerId}:
+    patch:
+      parameters: [{$ref: '#/components/parameters/ProviderId'}]
+      requestBody: {$ref: '#/components/requestBodies/AdminSocialProviderUpdate'}
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+    delete:
+      parameters: [{$ref: '#/components/parameters/ProviderId'}]
+      requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /api/v1/admin/security-events:
+    get:
+      parameters:
+        - {name: userId, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
+        - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 1024}}
+      description: Privacy-minimized security-event view with masked network and identity fields.
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+  /api/v1/admin/operations:
+    get:
+      description: Non-secret operational posture and provider-acceptance outbox counts.
+      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
 components:
   securitySchemes:
     bearerAuth:
@@ -148,32 +363,461 @@ components:
       type: http
       scheme: basic
       description: OAuth client authentication for token, introspection, and revocation endpoints. Public clients may use approved body credentials where supported.
+    workerToken:
+      type: apiKey
+      in: header
+      name: X-Worker-Token
+      description: Rotatable internal credential accepted only from explicitly trusted network peers.
   parameters:
-    Jti: {name: jti, in: path, required: true, schema: {type: string}}
+    SessionId: {name: sessionId, in: path, required: true, schema: {type: string, format: uuid}}
     UserId: {name: userId, in: path, required: true, schema: {type: string, format: uuid}}
     ClientId: {name: clientId, in: path, required: true, schema: {type: string}}
     CredentialId: {name: credentialId, in: path, required: true, schema: {type: string, format: uuid}}
+    ProviderKey: {name: providerKey, in: path, required: true, schema: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{1,63}$'}}
+    ProviderId: {name: providerId, in: path, required: true, schema: {type: string, format: uuid}}
+    IdentityId: {name: identityId, in: path, required: true, schema: {type: string, format: uuid}}
+  requestBodies:
+    Login: &requiredLoginBody {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}}}}
+    MfaLoginVerification: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaLoginVerificationRequest'}}}}
+    PasskeyAssertionOptions: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyAssertionOptionsRequest'}}}}
+    PasskeyAssertionFinish: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyAssertionFinishRequest'}}}}
+    Register: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RegisterRequest'}}}}
+    EmailConfirmationResend: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EmailConfirmationResendRequest'}}}}
+    EmailChangeConfirm: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EmailChangeConfirmRequest'}}}}
+    PasswordRecovery: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordRecoveryRequest'}}}}
+    PasswordReset: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordResetRequest'}}}}
+    ProfileUpdate: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProfileUpdateRequest'}}}}
+    StepUp: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
+    StepUpOptional: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
+    MfaOptionalVerification: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/MfaOptionalVerificationRequest'}}}}
+    MfaOptionalVerificationRequired: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaOptionalVerificationRequest'}}}}
+    PasswordChange: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordChangeRequest'}}}}
+    EmailChange: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/EmailChangeRequest'}}}}
+    MfaTotpConfirm: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaTotpConfirmRequest'}}}}
+    MfaVerification: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaVerificationRequest'}}}}
+    PasskeyRegistrationFinish: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyRegistrationFinishRequest'}}}}
+    OAuthAuthorize: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizeRequest'}}}}
+    OAuthIntrospection: {required: true, content: {application/x-www-form-urlencoded: {schema: {$ref: '#/components/schemas/OAuthIntrospectionRequest'}}}}
+    OAuthRevocation: {required: true, content: {application/x-www-form-urlencoded: {schema: {$ref: '#/components/schemas/OAuthRevocationRequest'}}}}
+    AdminUpdateRole: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUpdateRoleRequest'}}}}
+    AdminAccountState: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminAccountStateRequest'}}}}
+    AdminOAuthClientCreate: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminOAuthClientCreateRequest'}}}}
+    AdminOAuthClientUpdate: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminOAuthClientUpdateRequest'}}}}
+    AdminSocialProviderUpdate: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderUpdateRequest'}}}}
+  headers:
+    XRequestId:
+      required: true
+      schema: {type: string, format: uuid}
+      description: Request correlation identifier; a valid inbound X-Request-ID is preserved, otherwise AuthKit generates one.
   responses:
     Success:
       description: Successful response
+      headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
       content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
     Error:
       description: Opaque error response
+      headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
       content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
+    OAuthError:
+      description: Standard OAuth protocol error; never wrapped in the AuthKit envelope
+      headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/OAuthError'}}}
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After: {required: true, schema: {type: integer, minimum: 1}, description: Seconds before retrying}
+        X-Request-ID: {$ref: '#/components/headers/XRequestId'}
+      content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
+    UserDataExport:
+      description: Versioned data-subject export; credential and provider secrets are omitted
+      headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/UserDataExportApiResponse'}}}
   schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 255, example: person@example.com}
+        password: {type: string, minLength: 1, maxLength: 128, writeOnly: true, example: correct-horse-battery-staple}
+    MfaLoginVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [mfaToken, code]
+      properties:
+        mfaToken: {type: string, minLength: 1, maxLength: 512, writeOnly: true}
+        code: {type: string, minLength: 6, maxLength: 32, writeOnly: true}
+    PasskeyAssertionOptionsRequest:
+      type: object
+      additionalProperties: false
+      properties: {email: {type: string, format: email, maxLength: 255}}
+    PasskeyAssertionFinishRequest:
+      type: object
+      additionalProperties: false
+      required: [challengeId, credentialJson]
+      properties:
+        challengeId: {type: string, format: uuid}
+        credentialJson: {type: string, minLength: 1, maxLength: 20000, writeOnly: true}
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, termsAccepted, privacyPolicyAccepted]
+      properties:
+        email: {type: string, format: email, maxLength: 255}
+        password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+        termsAccepted: {type: boolean, enum: [true]}
+        privacyPolicyAccepted: {type: boolean, enum: [true]}
+    EmailConfirmationResendRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties: {email: {type: string, format: email, maxLength: 255}}
+    EmailChangeConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties: {token: {type: string, minLength: 1, maxLength: 512, writeOnly: true}}
+    PasswordRecoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties: {email: {type: string, format: email, maxLength: 255}}
+    PasswordResetRequest:
+      type: object
+      additionalProperties: false
+      required: [token, newPassword]
+      properties:
+        token: {type: string, minLength: 1, maxLength: 512, writeOnly: true}
+        newPassword: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+    ProfileUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties: {name: {type: string, maxLength: 100, nullable: true}}
+    PasswordChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [newPassword]
+      properties:
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        newPassword: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+        mfaCode: {type: string, minLength: 6, maxLength: 32, nullable: true, writeOnly: true}
+    EmailChangeRequest:
+      type: object
+      additionalProperties: false
+      required: [newEmail, currentPassword]
+      properties:
+        newEmail: {type: string, format: email, maxLength: 255}
+        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        mfaCode: {type: string, minLength: 6, maxLength: 32, nullable: true, writeOnly: true}
+    MfaTotpConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [credentialId, currentPassword, code]
+      properties:
+        credentialId: {type: string, format: uuid}
+        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        code: {type: string, minLength: 6, maxLength: 8, writeOnly: true}
+    MfaVerificationRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, code]
+      properties:
+        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        code: {type: string, minLength: 6, maxLength: 32, writeOnly: true}
+    PasskeyRegistrationFinishRequest:
+      type: object
+      additionalProperties: false
+      required: [challengeId, label, credentialJson]
+      properties:
+        challengeId: {type: string, format: uuid}
+        label: {type: string, minLength: 1, maxLength: 100}
+        credentialJson: {type: string, minLength: 1, maxLength: 20000, writeOnly: true}
+    OAuthAuthorizeRequest:
+      type: object
+      additionalProperties: false
+      required: [responseType, clientId, redirectUri, scope, codeChallenge, codeChallengeMethod]
+      properties:
+        responseType: {type: string, enum: [code]}
+        clientId: {type: string, minLength: 1, maxLength: 128}
+        redirectUri: {type: string, format: uri, maxLength: 512}
+        scope: {type: string, minLength: 1, maxLength: 512}
+        state: {type: string, maxLength: 255, nullable: true}
+        codeChallenge: {type: string, pattern: '^[A-Za-z0-9_-]{43,128}$'}
+        codeChallengeMethod: {type: string, enum: [S256]}
+        nonce: {type: string, maxLength: 255, nullable: true}
+        consentAccepted: {type: boolean, nullable: true}
+    OAuthIntrospectionRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string, minLength: 1, maxLength: 8192, writeOnly: true}
+        token_type_hint: {type: string, enum: [access_token, refresh_token], nullable: true}
+        client_id: {type: string, maxLength: 128, nullable: true}
+        client_secret: {type: string, maxLength: 2048, nullable: true, writeOnly: true}
+    OAuthRevocationRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string, minLength: 1, maxLength: 8192, writeOnly: true}
+        token_type_hint: {type: string, enum: [access_token, refresh_token], nullable: true}
+        client_id: {type: string, maxLength: 128, nullable: true}
+        client_secret: {type: string, maxLength: 2048, nullable: true, writeOnly: true}
+    OAuthIntrospectionResponse:
+      type: object
+      additionalProperties: false
+      required: [active]
+      properties:
+        active: {type: boolean}
+        sub: {type: string, format: uuid}
+        client_id: {type: string}
+        scope: {type: string}
+        token_type: {type: string, enum: [Bearer]}
+        exp: {type: integer, format: int64}
+        iat: {type: integer, format: int64}
+        iss: {type: string, format: uri}
+        aud: {type: array, items: {type: string}}
+        token_use: {type: string, enum: [oauth_access]}
+    AdminUpdateRoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role: {type: string, enum: [USER, PLATFORM_ADMIN]}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
+    AdminAccountStateRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
+    AdminOAuthClientCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, publicClient, redirectUris, scopes, requirePkce]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 120}
+        publicClient: {type: boolean}
+        redirectUris: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, format: uri, maxLength: 512}}
+        scopes: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, maxLength: 80}}
+        requirePkce: {type: boolean}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
+    AdminOAuthClientUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, redirectUris, scopes, requirePkce, rotateSecret]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 120}
+        redirectUris: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, format: uri, maxLength: 512}}
+        scopes: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, maxLength: 80}}
+        requirePkce: {type: boolean}
+        rotateSecret: {type: boolean, description: Returns a new secret exactly once for confidential clients}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
+    AdminSocialProviderUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [displayName, clientId, scopes, clientAuthMethod]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 120}
+        clientId: {type: string, minLength: 1, maxLength: 255}
+        clientSecret: {type: string, maxLength: 2048, nullable: true, writeOnly: true}
+        scopes: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, maxLength: 80}}
+        clientAuthMethod: {type: string, enum: [CLIENT_SECRET_BASIC, CLIENT_SECRET_POST]}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
+    OAuthError:
+      type: object
+      additionalProperties: false
+      required: [error, error_description]
+      properties:
+        error: {type: string, enum: [invalid_request, invalid_client, invalid_grant, invalid_token, unsupported_grant_type, unsupported_response_type, invalid_scope, access_denied]}
+        error_description: {type: string}
+    OAuthTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type]
+      properties:
+        grant_type: {type: string, enum: [authorization_code, refresh_token]}
+        code: {type: string}
+        redirect_uri: {type: string, format: uri}
+        code_verifier: {type: string, pattern: '^[A-Za-z0-9._~-]{43,128}$'}
+        refresh_token: {type: string, description: Opaque rotating bearer credential}
+        client_id: {type: string}
+        client_secret: {type: string, writeOnly: true}
+    OAuthTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token: {type: string, description: JWT with token_use=oauth_access}
+        id_token: {type: string, nullable: true, description: JWT with token_use=id_token}
+        refresh_token: {type: string, nullable: true, description: 'Opaque, rotating and family-bound'}
+        token_type: {type: string, enum: [Bearer]}
+        expires_in: {type: integer, format: int64, minimum: 1}
+        scope: {type: string}
+    OAuthAuthorizationDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [approved]
+      properties: {approved: {type: boolean}}
+    OAuthAuthorizationTransactionApiResponse:
+      type: object
+      required: [data, timestamp, requestId]
+      properties:
+        data:
+          type: object
+          required: [clientId, clientDisplayName, scopes, consentRequired, expiresInSeconds]
+          properties:
+            clientId: {type: string}
+            clientDisplayName: {type: string}
+            scopes: {type: array, items: {type: string}}
+            consentRequired: {type: boolean}
+            expiresInSeconds: {type: integer, format: int64, minimum: 0}
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+        requestId: {type: string}
     ApiResponse:
       type: object
+      additionalProperties: false
+      required: [timestamp, requestId]
       properties:
         data: {}
         errors: {type: array, items: {type: string}, nullable: true}
         timestamp: {type: string, format: date-time}
+        code: {type: string, pattern: '^[a-z0-9_]+$', nullable: true, description: Stable machine-readable error code}
+        requestId: {type: string, minLength: 1, maxLength: 128}
+    UserDataExportApiResponse:
+      type: object
+      additionalProperties: false
+      required: [data, timestamp, requestId]
+      properties:
+        data: {$ref: '#/components/schemas/UserDataExportResponse'}
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+        code: {type: string, pattern: '^[a-z0-9_]+$', nullable: true}
+        requestId: {type: string, minLength: 1, maxLength: 128}
+    UserDataExportResponse:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, generatedAt, profile, consent, consentHistory, oauthConsents, credentials, sessions, deletion, securityEvents]
+      properties:
+        schemaVersion: {type: string, enum: [authkit-user-data-export/v1]}
+        generatedAt: {type: string, format: date-time}
+        profile:
+          type: object
+          additionalProperties: false
+          required: [id, email, role, tenantId, emailConfirmed, accountState]
+          properties:
+            id: {type: string, format: uuid}
+            email: {type: string, format: email}
+            name: {type: string, nullable: true}
+            role: {type: string, enum: [USER, PLATFORM_ADMIN]}
+            tenantId: {type: string, format: uuid, description: Opaque per-person partition}
+            emailConfirmed: {type: boolean}
+            accountState: {type: string, enum: [ACTIVE, SUSPENDED, DELETION_PENDING, ANONYMIZED]}
+            suspendedAt: {type: string, format: date-time, nullable: true}
+            suspensionReason: {type: string, nullable: true}
+            pendingEmail: {type: string, format: email, nullable: true}
+            emailChangeRequestedAt: {type: string, format: date-time, nullable: true}
+            emailChangeExpiresAt: {type: string, format: date-time, nullable: true}
+        consent:
+          type: object
+          additionalProperties: false
+          required: [termsAccepted, privacyPolicyAccepted]
+          properties:
+            termsAccepted: {type: boolean}
+            privacyPolicyAccepted: {type: boolean}
+            termsVersion: {type: string, nullable: true}
+            privacyPolicyVersion: {type: string, nullable: true}
+            consentAcceptedAt: {type: string, format: date-time, nullable: true}
+            lawfulBasis: {type: string, nullable: true}
+        consentHistory:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [acceptedAt, recordedAt, eventHash]
+            properties:
+              termsVersion: {type: string, nullable: true}
+              privacyPolicyVersion: {type: string, nullable: true}
+              lawfulBasis: {type: string, nullable: true}
+              acceptedAt: {type: string, format: date-time}
+              recordedAt: {type: string, format: date-time}
+              eventHash: {type: string, description: Integrity evidence; not a secret}
+        oauthConsents:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [clientId, scopes, grantedAt]
+            properties:
+              clientId: {type: string}
+              scopes: {type: array, items: {type: string}}
+              grantedAt: {type: string, format: date-time}
+              revokedAt: {type: string, format: date-time, nullable: true}
+        credentials:
+          type: object
+          additionalProperties: false
+          required: [localPasswordConfigured, passwordHistory, totp, passkeys, socialIdentities]
+          properties:
+            localPasswordConfigured: {type: boolean, description: Boolean only; password hash is never exported}
+            passwordHistory: {type: array, items: {type: object, additionalProperties: false, required: [recordedAt], properties: {recordedAt: {type: string, format: date-time}}}}
+            totp: {type: array, items: {type: object, additionalProperties: false, required: [id, createdAt], properties: {id: {type: string, format: uuid}, createdAt: {type: string, format: date-time}, confirmedAt: {type: string, format: date-time, nullable: true}, disabledAt: {type: string, format: date-time, nullable: true}}}}
+            passkeys: {type: array, items: {type: object, additionalProperties: false, required: [id, discoverable, signatureCount, createdAt], properties: {id: {type: string, format: uuid}, label: {type: string, nullable: true}, transports: {type: string, nullable: true}, discoverable: {type: boolean}, signatureCount: {type: integer, format: int64, minimum: 0}, createdAt: {type: string, format: date-time}, lastUsedAt: {type: string, format: date-time, nullable: true}, disabledAt: {type: string, format: date-time, nullable: true}}}}
+            socialIdentities: {type: array, items: {type: object, additionalProperties: false, required: [id, providerKey, issuer, emailVerified, createdAt], properties: {id: {type: string, format: uuid}, providerKey: {type: string}, issuer: {type: string, format: uri}, emailAtLink: {type: string, format: email, nullable: true}, emailVerified: {type: boolean}, createdAt: {type: string, format: date-time}, lastLoginAt: {type: string, format: date-time, nullable: true}}}}
+        sessions:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [sessionId, createdAt, lastSeenAt, expiresAt, initialAmr, userAgentSummary, creationIpMasked, lastIpMasked]
+            properties:
+              sessionId: {type: string, format: uuid}
+              createdAt: {type: string, format: date-time}
+              lastSeenAt: {type: string, format: date-time}
+              expiresAt: {type: string, format: date-time}
+              initialAmr: {type: array, items: {type: string}}
+              userAgentSummary: {type: string}
+              deviceLabel: {type: string, nullable: true}
+              creationIpMasked: {type: string}
+              lastIpMasked: {type: string}
+        deletion:
+          type: object
+          additionalProperties: false
+          properties:
+            deletionRequestedAt: {type: string, format: date-time, nullable: true}
+            deletedAt: {type: string, format: date-time, nullable: true}
+            anonymizedAt: {type: string, format: date-time, nullable: true}
+        securityEvents:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [occurredAt, type, outcome, severity]
+            properties:
+              occurredAt: {type: string, format: date-time}
+              type: {type: string}
+              outcome: {type: string, enum: [SUCCESS, FAILURE, DENIED]}
+              severity: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
+              emailMasked: {type: string, nullable: true}
+              clientIpMasked: {type: string, nullable: true}
+              requestMethod: {type: string, nullable: true}
+              requestPath: {type: string, nullable: true}
+              reason: {type: string, nullable: true}
     SessionPageApiResponse:
       type: object
-      required: [data, timestamp]
+      required: [data, timestamp, requestId]
       properties:
         data: {$ref: '#/components/schemas/SessionPageResponse'}
         errors: {type: array, items: {type: string}, nullable: true}
         timestamp: {type: string, format: date-time}
+        requestId: {type: string}
     SessionPageResponse:
       type: object
       required: [items]
@@ -185,6 +829,81 @@ components:
         nextCursor: {type: string, nullable: true, description: Opaque single-use cursor}
     SessionResponse:
       type: object
-      required: [jti]
+      required: [sessionId, createdAt, lastSeenAt, expiresAt, current, initialAmr, userAgentSummary, creationIpMasked, lastIpMasked]
       properties:
-        jti: {type: string}
+        sessionId: {type: string, format: uuid, description: Opaque public session identifier; never a JWT JTI or refresh secret}
+        createdAt: {type: string, format: date-time}
+        lastSeenAt: {type: string, format: date-time, description: 'Approximate activity, persisted at a bounded frequency'}
+        expiresAt: {type: string, format: date-time}
+        current: {type: boolean}
+        initialAmr: {type: array, items: {type: string}}
+        userAgentSummary: {type: string, maxLength: 200}
+        deviceLabel: {type: string, maxLength: 80, nullable: true}
+        creationIpMasked: {type: string}
+        lastIpMasked: {type: string}
+    FirstPartyIntrospectionRequest:
+      type: object
+      required: [token]
+      additionalProperties: false
+      properties:
+        token: {type: string, minLength: 1, maxLength: 8192}
+    SocialLoginStartRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        termsAccepted: {type: boolean, default: false}
+        privacyPolicyAccepted: {type: boolean, default: false}
+    StepUpRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword: {type: string, maxLength: 128, nullable: true}
+        mfaCode: {type: string, minLength: 6, maxLength: 32, nullable: true}
+    MfaOptionalVerificationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
+        code: {type: string, minLength: 6, maxLength: 32, nullable: true, writeOnly: true}
+    AdminSocialProviderCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [providerKey, displayName, providerType, issuer, clientId, clientSecret, scopes, clientAuthMethod]
+      properties:
+        providerKey: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{1,63}$'}
+        displayName: {type: string, maxLength: 120}
+        providerType: {type: string, enum: [GOOGLE, GENERIC_OIDC, GOVBR_EXPERIMENTAL]}
+        issuer: {type: string, format: uri, description: Exact HTTPS issuer from the operator allowlist}
+        clientId: {type: string, maxLength: 255}
+        clientSecret: {type: string, maxLength: 2048, writeOnly: true}
+        scopes: {type: array, minItems: 1, maxItems: 20, items: {type: string}}
+        clientAuthMethod: {type: string, enum: [CLIENT_SECRET_BASIC, CLIENT_SECRET_POST]}
+        currentPassword: {type: string, maxLength: 128, writeOnly: true}
+        mfaCode: {type: string, maxLength: 32, writeOnly: true}
+    FirstPartyIntrospectionApiResponse:
+      type: object
+      required: [data, timestamp, requestId]
+      properties:
+        data:
+          type: object
+          required: [active]
+          properties:
+            active: {type: boolean}
+            subject: {type: string, format: uuid, nullable: true}
+            tenantId: {type: string, format: uuid, nullable: true, description: Opaque per-person partition identifier}
+            expiresAt: {type: string, format: date-time, nullable: true}
+            tokenUse: {type: string, enum: [first_party_access], nullable: true}
+            amr: {type: array, items: {type: string}, nullable: true}
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+        requestId: {type: string}
+    EmailConfirmationConfirmRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: One-time activation token read by the frontend from the URL fragment and submitted in the JSON body.

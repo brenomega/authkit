@@ -1,0 +1,22 @@
+.git
+.github
+.agents
+.idea
+.vscode
+.env
+*.env
+!*.env.example
+target
+**/target
+src/test
+**/application-test.yml
+**/test-keys
+*.key
+*.pem
+AUTHKIT_V0.1_RELEASE_SPEC.md
+AUTHKIT_V0.1_RELEASE_SPEC-ptBR.md
+release_audit.md
+docs/audits
+docs/proof/reports
+skills-lock.json
+Análise de Requisitos.pdf

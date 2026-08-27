@@ -15,10 +15,7 @@ public final class JwtTokenUse {
 
     public static boolean isFirstPartyAccess(Jwt jwt, String apiAudience) {
         String tokenUse = jwt.getClaimAsString(CLAIM);
-        if (FIRST_PARTY_ACCESS.equals(tokenUse)) {
-            return hasAudience(jwt, apiAudience);
-        }
-        return tokenUse == null
+        return FIRST_PARTY_ACCESS.equals(tokenUse)
                 && hasAudience(jwt, apiAudience)
                 && jwt.getClaimAsString("client_id") == null
                 && jwt.getClaimAsString("scope") == null;
@@ -26,13 +23,15 @@ public final class JwtTokenUse {
 
     public static boolean isOAuthAccess(Jwt jwt) {
         String tokenUse = jwt.getClaimAsString(CLAIM);
-        if (OAUTH_ACCESS.equals(tokenUse)) {
-            return jwt.getClaimAsString("client_id") != null
-                    && jwt.getClaimAsString("scope") != null;
-        }
-        return tokenUse == null
+        return OAUTH_ACCESS.equals(tokenUse)
                 && jwt.getClaimAsString("client_id") != null
                 && jwt.getClaimAsString("scope") != null;
+    }
+
+    public static boolean isIdToken(Jwt jwt) {
+        return ID_TOKEN.equals(jwt.getClaimAsString(CLAIM))
+                && jwt.getClaimAsString("client_id") == null
+                && jwt.getClaimAsString("scope") == null;
     }
 
     private static boolean hasAudience(Jwt jwt, String audience) {

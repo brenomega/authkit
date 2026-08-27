@@ -245,10 +245,19 @@ public class SecurityEventService {
 
     private boolean isCritical(SecurityEventType type, String reason) {
         return switch (type) {
-            case ACCOUNT_LOCKED, REFRESH_TOKEN_REUSE_DETECTED, ADMIN_ACTION,
+            case BOOTSTRAP, ACCOUNT_LOCKED, REFRESH_TOKEN_REUSE_DETECTED, ADMIN_ACTION,
                     OAUTH_CLIENT_CREATED, OAUTH_CLIENT_UPDATED,
-                    ACCOUNT_DELETION_REQUESTED, ACCOUNT_ANONYMIZED -> true;
-            case MFA_CHANGED -> "totp_disabled".equals(reason);
+                    PASSWORD_CHANGED, PASSWORD_RESET_COMPLETED, EMAIL_VERIFIED,
+                    EMAIL_CHANGE_REQUESTED, EMAIL_CHANGE_FAILED,
+                    EMAIL_CHANGE_COMPLETED, EMAIL_CHANGE_CANCELLED,
+                    MFA_CHANGED, MFA_BACKUP_CODES_REGENERATED, MFA_BACKUP_CODE_USED,
+                    PASSKEY_REGISTERED, PASSKEY_DISABLED,
+                    SOCIAL_IDENTITY_LINKED, SOCIAL_IDENTITY_UNLINKED,
+                    SOCIAL_PROVIDER_CREATED, SOCIAL_PROVIDER_UPDATED,
+                    OAUTH_CONSENT_GRANTED,
+                    ACCOUNT_SUSPENDED, ACCOUNT_REACTIVATED,
+                    ACCOUNT_DELETION_REQUESTED, ACCOUNT_DELETION_CANCELLED,
+                    ACCOUNT_ANONYMIZED, LOGOUT_ALL -> true;
             default -> false;
         };
     }

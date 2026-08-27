@@ -13,20 +13,33 @@ import org.springframework.security.oauth2.jwt.Jwt;
 class JwtTokenUseTest {
 
     @Test
-    void tokenClassesAreMutuallyExclusiveAndLegacyFallbackIsUnambiguous() {
+    void tokenClassesAreExplicitAndMutuallyExclusive() {
         assertTrue(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
                 "aud", List.of("api"), "token_use", "first_party_access")), "api"));
         assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
                 "aud", List.of("api"), "token_use", "oauth_access", "client_id", "client", "scope", "openid")), "api"));
         assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
                 "aud", List.of("api"), "token_use", "id_token")), "api"));
-        assertTrue(JwtTokenUse.isFirstPartyAccess(jwt(Map.of("aud", List.of("api"))), "api"));
+        assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of("aud", List.of("api"))), "api"));
         assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
                 "aud", List.of("api"), "client_id", "client", "scope", "openid")), "api"));
+        assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
+                "aud", List.of("api"), "token_use", "first_party_access", "client_id", "client")), "api"));
+        assertFalse(JwtTokenUse.isFirstPartyAccess(jwt(Map.of(
+                "aud", List.of("api"), "token_use", "first_party_access", "scope", "openid")), "api"));
         assertTrue(JwtTokenUse.isOAuthAccess(jwt(Map.of(
                 "aud", List.of("client"), "token_use", "oauth_access", "client_id", "client", "scope", "openid"))));
         assertFalse(JwtTokenUse.isOAuthAccess(jwt(Map.of(
+                "aud", List.of("client"), "client_id", "client", "scope", "openid"))));
+        assertFalse(JwtTokenUse.isOAuthAccess(jwt(Map.of(
+                "aud", List.of("client"), "token_use", "oauth_access", "client_id", "client"))));
+        assertFalse(JwtTokenUse.isOAuthAccess(jwt(Map.of(
                 "aud", List.of("client"), "token_use", "id_token"))));
+        assertTrue(JwtTokenUse.isIdToken(jwt(Map.of(
+                "aud", List.of("client"), "token_use", "id_token"))));
+        assertFalse(JwtTokenUse.isIdToken(jwt(Map.of(
+                "aud", List.of("client"), "token_use", "id_token", "scope", "openid"))));
+        assertFalse(JwtTokenUse.isIdToken(jwt(Map.of("aud", List.of("client")))));
     }
 
     private Jwt jwt(Map<String, Object> claims) {

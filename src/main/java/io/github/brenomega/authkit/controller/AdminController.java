@@ -23,27 +23,68 @@ import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientResponse;
 import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUserResponse;
-import io.github.brenomega.authkit.domain.user.dto.TenantSummaryResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminUserPageResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminUserDetailResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminSecurityEventPageResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminOperationalStatusResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminAccountStateRequest;
+import io.github.brenomega.authkit.domain.social.dto.AdminSocialProviderCreateRequest;
+import io.github.brenomega.authkit.domain.social.dto.AdminSocialProviderResponse;
+import io.github.brenomega.authkit.domain.social.dto.AdminSocialProviderUpdateRequest;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AdminService;
+import io.github.brenomega.authkit.service.SocialProviderAdminService;
 import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/v1/admin")
-@PreAuthorize("hasAnyRole('ADMIN', 'TENANT_ADMIN')")
+@PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class AdminController {
 
     private final AdminService adminService;
+    private final SocialProviderAdminService socialProviderAdminService;
 
-    public AdminController(AdminService adminService) {
+    public AdminController(AdminService adminService, SocialProviderAdminService socialProviderAdminService) {
         this.adminService = adminService;
+        this.socialProviderAdminService = socialProviderAdminService;
     }
 
     @GetMapping("/users")
-    public ApiResponse<List<AdminUserResponse>> listUsers(
+    public ApiResponse<AdminUserPageResponse> listUsers(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(defaultValue = "100") int limit) {
-        return new ApiResponse<>(adminService.listUsers(jwt, limit), null, Instant.now());
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(required = false) String cursor) {
+        return ApiResponse.success(adminService.listUsers(jwt, search, limit, cursor));
+    }
+
+    @GetMapping("/users/{userId}")
+    public ApiResponse<AdminUserDetailResponse> getUser(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable UUID userId) {
+        return ApiResponse.success(adminService.getUser(jwt, userId));
+    }
+
+    @PostMapping("/users/{userId}/sessions/revoke")
+    public ApiResponse<String> revokeAllUserSessions(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID userId,
+            @Valid @RequestBody MfaOptionalVerificationRequest request) {
+        adminService.revokeAllUserSessions(jwt, userId, request.currentPassword(), request.code());
+        return ApiResponse.success("All user sessions revoked successfully.");
+    }
+
+    @GetMapping("/security-events")
+    public ApiResponse<AdminSecurityEventPageResponse> listSecurityEvents(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) UUID userId,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(required = false) String cursor) {
+        return ApiResponse.success(adminService.listSecurityEvents(jwt, userId, limit, cursor));
+    }
+
+    @GetMapping("/operations")
+    public ApiResponse<AdminOperationalStatusResponse> operationalStatus(@AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.success(adminService.operationalStatus(jwt));
     }
 
     @PatchMapping("/users/{userId}/role")
@@ -54,11 +95,28 @@ public class AdminController {
         return new ApiResponse<>(adminService.updateRole(jwt, userId, request), null, Instant.now());
     }
 
-    @GetMapping("/tenants")
-    public ApiResponse<List<TenantSummaryResponse>> listTenants(
+    @PostMapping("/users/{userId}/suspension")
+    public ApiResponse<AdminUserResponse> suspendUser(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(defaultValue = "100") int limit) {
-        return new ApiResponse<>(adminService.listTenants(jwt, limit), null, Instant.now());
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminAccountStateRequest request) {
+        return new ApiResponse<>(adminService.suspendUser(jwt, userId, request), null, Instant.now());
+    }
+
+    @DeleteMapping("/users/{userId}/suspension")
+    public ApiResponse<AdminUserResponse> reactivateUser(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminAccountStateRequest request) {
+        return new ApiResponse<>(adminService.reactivateUser(jwt, userId, request), null, Instant.now());
+    }
+
+    @DeleteMapping("/users/{userId}/deletion")
+    public ApiResponse<AdminUserResponse> cancelDeletion(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID userId,
+            @Valid @RequestBody AdminAccountStateRequest request) {
+        return new ApiResponse<>(adminService.cancelDeletion(jwt, userId, request), null, Instant.now());
     }
 
     @GetMapping("/oauth-clients")
@@ -92,5 +150,29 @@ public class AdminController {
                 request == null ? null : request.currentPassword(),
                 request == null ? null : request.code());
         return new ApiResponse<>("OAuth client disabled successfully.", null, Instant.now());
+    }
+
+    @GetMapping("/social-providers")
+    public ApiResponse<List<AdminSocialProviderResponse>> listSocialProviders(@AuthenticationPrincipal Jwt jwt) {
+        return ApiResponse.success(socialProviderAdminService.list(jwt));
+    }
+
+    @PostMapping("/social-providers")
+    public ApiResponse<AdminSocialProviderResponse> createSocialProvider(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody AdminSocialProviderCreateRequest request) {
+        return ApiResponse.success(socialProviderAdminService.create(jwt, request));
+    }
+
+    @PatchMapping("/social-providers/{providerId}")
+    public ApiResponse<AdminSocialProviderResponse> updateSocialProvider(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID providerId, @Valid @RequestBody AdminSocialProviderUpdateRequest request) {
+        return ApiResponse.success(socialProviderAdminService.update(jwt, providerId, request));
+    }
+
+    @DeleteMapping("/social-providers/{providerId}")
+    public ApiResponse<String> disableSocialProvider(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID providerId, @Valid @RequestBody MfaOptionalVerificationRequest request) {
+        socialProviderAdminService.disable(jwt, providerId, request.currentPassword(), request.code());
+        return ApiResponse.success("Social provider disabled successfully.");
     }
 }

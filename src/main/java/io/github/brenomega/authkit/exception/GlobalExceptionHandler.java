@@ -73,7 +73,8 @@ public class GlobalExceptionHandler {
         log.warn("Malformed JSON request: {}", ex.getClass().getSimpleName());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error("Malformed JSON request or unknown properties provided"));
+                .body(ApiResponse.error("malformed_json",
+                        "Malformed JSON request or unknown properties provided"));
     }
 
     /**
@@ -93,7 +94,21 @@ public class GlobalExceptionHandler {
         log.warn("Domain exception [{}]: {}", ex.getStatus(), ex.getMessage());
         return ResponseEntity
                 .status(ex.getStatus())
-                .body(ApiResponse.error(ex.getMessage()));
+                .headers(headersFor(ex.getStatus()))
+                .body(ApiResponse.error(machineCode(ex), ex.getMessage()));
+    }
+
+    @ExceptionHandler(OAuthProtocolException.class)
+    public ResponseEntity<java.util.Map<String, String>> handleOAuthProtocol(OAuthProtocolException ex) {
+        var builder = ResponseEntity.status(ex.protocolStatus())
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .header(org.springframework.http.HttpHeaders.PRAGMA, "no-cache");
+        if ("invalid_client".equals(ex.getError())) {
+            builder.header(org.springframework.http.HttpHeaders.WWW_AUTHENTICATE,
+                    "Basic realm=\"oauth2/client\"");
+        }
+        return builder.body(java.util.Map.of(
+                "error", ex.getError(), "error_description", ex.getDescription()));
     }
 
     /**
@@ -106,7 +121,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error("Resource not found"));
+                .body(ApiResponse.error("resource_not_found", "Resource not found"));
     }
 
     /**
@@ -118,7 +133,7 @@ public class GlobalExceptionHandler {
         log.error("Persistence failure", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Internal Server Error"));
+                .body(ApiResponse.error("persistence_unavailable", "Internal Server Error"));
     }
 
     @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
@@ -127,7 +142,7 @@ public class GlobalExceptionHandler {
         log.warn("Access denied: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error("Forbidden"));
+                .body(ApiResponse.error("forbidden", "Forbidden"));
     }
 
     /**
@@ -145,6 +160,19 @@ public class GlobalExceptionHandler {
         log.error("Unhandled exception", ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("Internal Server Error"));
+                .body(ApiResponse.error("internal_error", "Internal Server Error"));
+    }
+
+    private org.springframework.http.HttpHeaders headersFor(HttpStatus status) {
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        if (status == HttpStatus.TOO_MANY_REQUESTS) {
+            headers.set(org.springframework.http.HttpHeaders.RETRY_AFTER, "60");
+        }
+        return headers;
+    }
+
+    private String machineCode(ApiBaseException ex) {
+        String simple = ex.getClass().getSimpleName().replaceFirst("Exception$", "");
+        return simple.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
     }
 }

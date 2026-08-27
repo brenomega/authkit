@@ -4,6 +4,9 @@
 
 ### Build artifacts ###
 target/
+deploy/golden/.env
+deploy/golden/secrets/*
+!deploy/golden/secrets/README.md
 !**/src/main/**/target/
 !**/src/test/**/target/
 build/
@@ -14,9 +17,9 @@ build/
 *.key
 *.pub
 *.pem
-# Exception: test-only keys used by @ActiveProfiles("test") are safe to commit
-!src/main/resources/test-keys/*.key
-!src/main/resources/test-keys/*.pub
+# Exception: deterministic test-only keys are confined to test resources.
+!src/test/resources/test-keys/*.key
+!src/test/resources/test-keys/*.pub
 
 ### Environment and secrets ###
 .env

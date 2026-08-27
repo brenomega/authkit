@@ -9,10 +9,11 @@ Do not paste secrets, raw tokens, passwords, reset links, private keys, or full 
 - Branch:
 - Commit:
 - Dirty tree: yes/no
-- Tier:
+- Topology: v0.1 golden path
 - Backend:
 - Email provider:
-- Go/no-go:
+- Evidence disposition: VERIFIED / FAILED / NOT PROVEN
+- Release authority exercised: no
 
 ## Environment
 
@@ -26,7 +27,6 @@ Do not paste secrets, raw tokens, passwords, reset links, private keys, or full 
 - PostgreSQL version:
 - PostgreSQL plan:
 - Redis version, if used:
-- RabbitMQ version, if used:
 - SMTP/Resend mode:
 - Reverse proxy/TLS:
 
@@ -100,8 +100,11 @@ Do not paste secrets, raw tokens, passwords, reset links, private keys, or full 
 - Owner:
 - Due date:
 
-## Decision
+## Evidence disposition
 
-- Go:
-- No-go:
-- Conditions:
+- Verified gates:
+- Failed gates:
+- Not-proven gates and exact dependency:
+- Residual risks for independent audit:
+
+This report is evidence only. It cannot authorize release, publication, promotion, tagging, deployment, or risk acceptance.

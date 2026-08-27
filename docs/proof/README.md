@@ -1,48 +1,11 @@
-# AuthKit Proof Pack
+# Candidate proof harnesses
 
-The proof pack records evidence that a selected AuthKit deployment tier behaves correctly before it is trusted with real users.
+[Português (Brasil)](README-ptBR.md) | English is normative.
 
-## Tier Matrix
+The proof harnesses exercise the v0.1 golden path but never self-approve a release. Bind each report to HEAD, the tracked patch checksum, untracked-file manifest, candidate version, and immutable OCI digest. Do not record raw passwords, tokens, reset/action URLs, provider secrets, private keys, or full environment files.
 
-Capacity ranges must come from `docs/strategy/authkit-cost-model.md`. The rows below are proof targets, not measured claims.
+Use `testing/release/build-candidate-evidence.sh` for the clean build, sample, artifact inspection, local image, SBOM/checksums and scanner inventory. Use `testing/proof/run-proof.sh` for functional smoke/negative/chaos orchestration and `testing/proof/run-reference-load.sh` for the mandatory four-hour reference-host run. The golden production proof uses only `docs/INSTALL.md`, not the development Compose files.
 
-| Tier | Token backend | Email mode | Typical proof target | Current status |
-| --- | --- | --- | --- | --- |
-| 00H Redis direct | Redis | Direct SMTP/Resend | Micro VPS baseline from the cost model | Estimated, unproven |
-| 0S Redis direct | Redis | Direct SMTP/Resend | Solo VPS baseline from the cost model | Estimated, unproven |
-| 1S Redis direct | Redis | Direct or queue if proven necessary | Larger solo VPS baseline from the cost model | Estimated, unproven |
-| 0P JDBC direct | PostgreSQL | Direct SMTP/Resend | Lowest-cost single-instance baseline from the cost model | Estimated, unproven |
+Every report records actual commands/results, hardware, non-secret configuration, provider acceptance separately from inbox observation, p50/p95/p99/errors/saturation/backlog, fault invariants, RPO/RTO, and alert routing. A missing tool, credential, public DNS/TLS environment, provider account, signing identity, or independent operator remains `NOT PROVEN` with the exact dependency named in `docs/release/RELEASE_GATES.md`.
 
-## Proof Commands
-
-Smoke only:
-
-```bash
-AUTHKIT_BASE_URL=http://localhost:8080 testing/proof/run-proof.sh --tier 0s --backend redis --email-provider smtp
-```
-
-Smoke plus load:
-
-```bash
-AUTHKIT_BASE_URL=http://localhost:8080 testing/proof/run-proof.sh --tier 1s --backend redis --email-provider smtp --load true
-```
-
-Chaos scripts are opt-in and refuse production-looking hosts by default:
-
-```bash
-AUTHKIT_BASE_URL=http://localhost:8080 COMPOSE_FILE=deploy/compose/docker-compose.redis-direct.yml testing/proof/run-proof.sh --tier 0s --backend redis --email-provider smtp --chaos true
-```
-
-## Required Evidence
-
-Every proof report should include:
-
-- Git commit and dirty status.
-- Tier, backend, host size, JVM heap, Hikari size, email mode, and token backend.
-- Smoke script results.
-- Load results when the tier claims user capacity.
-- Metrics snapshots before and after proof.
-- Dependency failure behavior when chaos scripts are run.
-- Go/no-go decision and unresolved risks.
-
-Never paste secrets, raw passwords, refresh tokens, access tokens, reset tokens, or private keys into proof reports.
+The report template is `templates/proof-report-template.md`. Historical local reports are not current-candidate evidence and are intentionally not retained in the public tree.

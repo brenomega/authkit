@@ -8,11 +8,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.UUID;
 
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -20,6 +23,12 @@ public class RedisTokenStorageTest {
 
     @Autowired
     private RedisTokenStorage redisTokenStorage;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private AuditDigestService auditDigestService;
 
     @Test
     @DisplayName("Hash values safely and match using constant time (DT 3.2.4 & DT 3.2.13)")
@@ -83,13 +92,33 @@ public class RedisTokenStorageTest {
     @Test
     @DisplayName("Recovery token consume validates and revokes atomically")
     void testConsumeRecoveryToken() {
-        String email = "reset@example.com";
+        String email = "Reset@Example.com";
+        String normalizedEmail = "reset@example.com";
         String rawToken = UUID.randomUUID().toString();
 
         redisTokenStorage.storeRecoveryToken(email, rawToken, 15);
 
-        assertTrue(redisTokenStorage.consumeRecoveryToken(email, rawToken));
-        assertFalse(redisTokenStorage.consumeRecoveryToken(email, rawToken));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + normalizedEmail)));
+        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + TokenHasher.sha256Hex(normalizedEmail))));
+        assertTrue(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + auditDigestService.hmacHex(normalizedEmail))));
+
+        assertTrue(redisTokenStorage.consumeRecoveryToken(normalizedEmail, rawToken));
+        assertFalse(redisTokenStorage.consumeRecoveryToken(normalizedEmail, rawToken));
+        assertFalse(redisTokenStorage.validateRecoveryToken(normalizedEmail, rawToken));
+    }
+
+    @Test
+    @DisplayName("Recovery claim is exclusive, releasable, and only completion consumes the token")
+    void testRecoveryTokenClaimLifecycle() {
+        String email = "claim@example.com";
+        String rawToken = "recovery-" + UUID.randomUUID();
+        redisTokenStorage.storeRecoveryToken(email, rawToken, 15);
+
+        assertTrue(redisTokenStorage.claimRecoveryToken(email, rawToken, "claim-1", 300));
+        assertFalse(redisTokenStorage.claimRecoveryToken(email, rawToken, "claim-2", 300));
+        redisTokenStorage.releaseRecoveryTokenClaim(email, "claim-1");
+        assertTrue(redisTokenStorage.claimRecoveryToken(email, rawToken, "claim-2", 300));
+        redisTokenStorage.completeRecoveryTokenClaim(email, "claim-2");
         assertFalse(redisTokenStorage.validateRecoveryToken(email, rawToken));
     }
 

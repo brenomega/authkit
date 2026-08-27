@@ -62,7 +62,9 @@ public class PasswordPolicyService {
     public void validateForUser(User user, String rawPassword) {
         validateComposition(user.getEmail(), user.getName(), rawPassword);
         rejectIfCompromised(rawPassword);
-        rejectIfMatches(rawPassword, user.getPassword());
+        if (user.getPassword() != null) {
+            rejectIfMatches(rawPassword, user.getPassword());
+        }
         List<PasswordHistoryEntry> recent = passwordHistoryRepository.findByUserIdOrderByCreatedAtDesc(
                 user.getId(),
                 PageRequest.of(0, HISTORY_DEPTH));
@@ -73,7 +75,9 @@ public class PasswordPolicyService {
 
     @Transactional
     public void recordCurrentPassword(User user) {
-        passwordHistoryRepository.save(new PasswordHistoryEntry(user.getId(), user.getPassword(), Instant.now()));
+        if (user.getPassword() != null) {
+            passwordHistoryRepository.save(new PasswordHistoryEntry(user.getId(), user.getPassword(), Instant.now()));
+        }
     }
 
     private void validateComposition(String email, String name, String rawPassword) {

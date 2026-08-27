@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,182 +11,152 @@ import java.util.Map;
 import java.util.Set;
 
 import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientCreateRequest;
-import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateRequest;
-import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
+import io.github.brenomega.authkit.domain.user.dto.AdminAccountStateRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.domain.user.enums.AccountState;
 import io.github.brenomega.authkit.domain.user.enums.Role;
-import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
-import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@Transactional
 class AdminServiceTest {
 
-    @Autowired
-    private AdminService adminService;
+    @Autowired private AdminService adminService;
+    @Autowired private UserRepository userRepository;
+    @Autowired private OAuthClientRepository oauthClientRepository;
+    @Autowired private PasskeyCredentialRepository passkeyCredentialRepository;
+    @Autowired private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+    @Autowired private TokenStorage tokenStorage;
 
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private OAuthClientRepository oauthClientRepository;
-
-    @Autowired
-    private PasskeyCredentialRepository passkeyCredentialRepository;
-
-    @Autowired
-    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
-
-    @SuppressWarnings("null")
     @Test
-    @DisplayName("Admin role changes are server-side enforced and audited")
-    void adminCanUpdateUserRole() {
-        User admin = confirmedUser("admin-plane@example.com", Role.ADMIN);
+    @DisplayName("A platform administrator can grant the only administrative role")
+    void platformAdminCanUpdateUserRole() {
+        User admin = confirmedUser("admin-plane@example.com", Role.PLATFORM_ADMIN);
         User target = confirmedUser("target-plane@example.com", Role.USER);
         activePasskey(admin);
 
         var response = adminService.updateRole(
-                jwt(admin),
-                target.getId(),
-                new AdminUpdateRoleRequest(Role.OWNER, "AdminPass12345!", null));
+                jwt(admin), target.getId(),
+                new AdminUpdateRoleRequest(Role.PLATFORM_ADMIN, "AdminPass12345!", null));
 
-        assertEquals(Role.OWNER, response.role());
-        assertEquals(Role.OWNER, userRepository.findById(target.getId()).orElseThrow().getRole());
+        assertEquals(Role.PLATFORM_ADMIN, response.role());
+        assertEquals(Role.PLATFORM_ADMIN, userRepository.findById(target.getId()).orElseThrow().getRole());
     }
 
     @Test
-    @DisplayName("Admin client creation returns the secret once and stores only its hash")
-    void adminCanCreateConfidentialOauthClient() {
-        User admin = confirmedUser("client-admin@example.com", Role.ADMIN);
+    @DisplayName("The final active platform administrator cannot be demoted")
+    void lastPlatformAdminCannotBeDemoted() {
+        User admin = confirmedUser("last-admin@example.com", Role.PLATFORM_ADMIN);
+        activePasskey(admin);
+
+        assertThrows(AccessDeniedException.class, () -> adminService.updateRole(
+                jwt(admin), admin.getId(),
+                new AdminUpdateRoleRequest(Role.USER, "AdminPass12345!", null)));
+    }
+
+    @Test
+    @DisplayName("OAuth clients are global and confidential secrets are returned once")
+    void platformAdminCreatesGlobalConfidentialOauthClient() {
+        User admin = confirmedUser("client-admin@example.com", Role.PLATFORM_ADMIN);
         activePasskey(admin);
 
         var response = adminService.createOAuthClient(jwt(admin), new AdminOAuthClientCreateRequest(
-                admin.getTenantId(),
-                "Production App",
-                false,
-                Set.of("https://app.example/callback"),
-                Set.of("openid", "email"),
-                true,
-                "AdminPass12345!",
-                null));
+                "Production App", false,
+                Set.of("https://app.example/callback"), Set.of("openid", "email"),
+                true, "AdminPass12345!", null));
 
         assertNotNull(response.clientSecret());
         var stored = oauthClientRepository.findByClientId(response.clientId()).orElseThrow();
         assertNotNull(stored.getClientSecretHash());
-        assertTrue(stored.getClientSecretHash().startsWith("$argon2"),
-                "Confidential OAuth client secrets must use the configured slow password hash");
+        assertTrue(stored.getClientSecretHash().startsWith("$argon2"));
         assertNull(response.disabledAt());
+        assertEquals(1, adminService.listOAuthClients(jwt(admin)).size());
     }
 
     @Test
-    @DisplayName("Tenant admin reads are scoped to their tenant")
-    void tenantAdminListsOnlyOwnTenantUsersAndOauthClients() {
-        User tenantAdmin = confirmedUser("tenant-admin-list@example.com", Role.TENANT_ADMIN);
-        User otherTenantUser = confirmedUser("tenant-admin-list-other@example.com", Role.USER);
-        oauthClientRepository.save(new OAuthClient(
-                tenantAdmin.getTenantId(),
-                "tenant-owned-client",
-                null,
-                true,
-                "Tenant Owned",
-                Set.of("https://tenant.example/callback"),
-                Set.of("openid"),
-                true,
-                java.time.Instant.now()));
-        oauthClientRepository.save(new OAuthClient(
-                otherTenantUser.getTenantId(),
-                "other-owned-client",
-                null,
-                true,
-                "Other Owned",
-                Set.of("https://other.example/callback"),
-                Set.of("openid"),
-                true,
-                java.time.Instant.now()));
+    @DisplayName("Suspension changes durable state and reactivation does not restore sessions")
+    void platformAdminSuspendsAndReactivatesUser() {
+        User admin = confirmedUser("state-admin@example.com", Role.PLATFORM_ADMIN);
+        User target = confirmedUser("state-target@example.com", Role.USER);
+        activePasskey(admin);
+        var request = new AdminAccountStateRequest("abuse investigation", "AdminPass12345!", null);
 
-        var users = adminService.listUsers(jwt(tenantAdmin), 100);
-        var clients = adminService.listOAuthClients(jwt(tenantAdmin));
+        var suspended = adminService.suspendUser(jwt(admin), target.getId(), request);
+        assertEquals(AccountState.SUSPENDED, suspended.accountState());
+        assertNotNull(suspended.suspendedAt());
 
-        assertEquals(1, users.size());
-        assertEquals(tenantAdmin.getId(), users.getFirst().id());
-        assertEquals(1, clients.size());
-        assertEquals("tenant-owned-client", clients.getFirst().clientId());
+        var reactivated = adminService.reactivateUser(jwt(admin), target.getId(), request);
+        assertEquals(AccountState.ACTIVE, reactivated.accountState());
+        assertNull(reactivated.suspendedAt());
     }
 
     @Test
-    @DisplayName("Tenant admin cannot change roles outside their tenant")
-    void tenantAdminCannotUpdateCrossTenantRole() {
-        User tenantAdmin = confirmedUser("tenant-admin-role@example.com", Role.TENANT_ADMIN);
-        User otherTenantUser = confirmedUser("tenant-admin-role-target@example.com", Role.USER);
-        activePasskey(tenantAdmin);
+    @DisplayName("A strongly authenticated platform administrator can cancel deletion during grace")
+    void platformAdminCancelsPendingDeletion() {
+        User admin = confirmedUser("cancel-admin@example.com", Role.PLATFORM_ADMIN);
+        User target = confirmedUser("cancel-target@example.com", Role.USER);
+        target.requestDeletion(java.time.Instant.now());
+        userRepository.save(target);
+        activePasskey(admin);
 
-        assertThrows(UserNotFoundException.class, () -> adminService.updateRole(
-                jwt(tenantAdmin),
-                otherTenantUser.getId(),
-                new AdminUpdateRoleRequest(Role.OWNER, "AdminPass12345!", null)));
+        var response = adminService.cancelDeletion(
+                jwt(admin), target.getId(),
+                new AdminAccountStateRequest("identity owner recovered access", "AdminPass12345!", null));
+
+        assertEquals(AccountState.ACTIVE, response.accountState());
+        assertNull(response.deletionRequestedAt());
     }
 
     @Test
-    @DisplayName("Tenant admin cannot create or mutate cross-tenant OAuth clients")
-    void tenantAdminCannotManageCrossTenantOauthClients() {
-        User tenantAdmin = confirmedUser("tenant-admin-oauth@example.com", Role.TENANT_ADMIN);
-        User otherTenantUser = confirmedUser("tenant-admin-oauth-other@example.com", Role.USER);
-        activePasskey(tenantAdmin);
-        OAuthClient otherClient = oauthClientRepository.save(new OAuthClient(
-                otherTenantUser.getTenantId(),
-                "other-tenant-client",
-                null,
-                true,
-                "Other Tenant",
-                Set.of("https://other-client.example/callback"),
-                Set.of("openid"),
-                true,
-                java.time.Instant.now()));
+    @DisplayName("Admin inventory uses bound cursors and exposes safe authenticator and operational status")
+    void adminInventoryAndSessionRevocationAreComplete() {
+        User admin = confirmedUser("inventory-admin@example.com", Role.PLATFORM_ADMIN);
+        User first = confirmedUser("inventory-first@example.com", Role.USER);
+        confirmedUser("inventory-second@example.com", Role.USER);
+        activePasskey(admin);
 
-        assertThrows(InvalidOAuthRequestException.class, () -> adminService.createOAuthClient(
-                jwt(tenantAdmin),
-                new AdminOAuthClientCreateRequest(
-                        otherTenantUser.getTenantId(),
-                        "Cross Tenant",
-                        true,
-                        Set.of("https://cross.example/callback"),
-                        Set.of("openid"),
-                        true,
-                        "AdminPass12345!",
-                        null)));
+        var firstPage = adminService.listUsers(jwt(admin), "inventory", 1, null);
+        assertEquals(1, firstPage.items().size());
+        assertNotNull(firstPage.nextCursor());
+        var secondPage = adminService.listUsers(jwt(admin), "inventory", 1, firstPage.nextCursor());
+        assertEquals(1, secondPage.items().size());
+        assertFalse(firstPage.items().getFirst().id().equals(secondPage.items().getFirst().id()));
+        assertThrows(RuntimeException.class,
+                () -> adminService.listUsers(jwt(admin), "different-query", 1, firstPage.nextCursor()));
 
-        assertThrows(InvalidOAuthRequestException.class, () -> adminService.updateOAuthClient(
-                jwt(tenantAdmin),
-                otherClient.getId(),
-                new AdminOAuthClientUpdateRequest(
-                        "Mutated",
-                        Set.of("https://mutated.example/callback"),
-                        Set.of("openid"),
-                        true,
-                        false,
-                        "AdminPass12345!",
-                        null)));
+        var detail = adminService.getUser(jwt(admin), first.getId());
+        assertTrue(detail.authenticators().password());
+        assertEquals(0, detail.authenticators().activeTotpCredentials());
+        assertEquals(0, detail.authenticators().activePasskeys());
+        assertEquals(0, detail.authenticators().linkedSocialIdentities());
 
-        assertThrows(InvalidOAuthRequestException.class, () -> adminService.disableOAuthClient(
-                jwt(tenantAdmin),
-                otherClient.getId(),
-                "AdminPass12345!",
-                null));
+        String sessionJti = java.util.UUID.randomUUID().toString();
+        var refresh = RefreshTokenCodec.issue(first.getId().toString(), sessionJti);
+        tokenStorage.storeRefreshToken(first.getId().toString(), sessionJti, refresh.rawToken(), 1);
+        assertTrue(tokenStorage.isSessionActive(first.getId().toString(), sessionJti));
+        adminService.revokeAllUserSessions(jwt(admin), first.getId(), "AdminPass12345!", null);
+        assertFalse(tokenStorage.isSessionActive(first.getId().toString(), sessionJti));
+        assertFalse(adminService.listSecurityEvents(jwt(admin), first.getId(), 20, null).items().isEmpty());
+        assertTrue(adminService.operationalStatus(jwt(admin)).emailOutbox().containsKey("ACCEPTED"));
     }
 
     private User confirmedUser(String email, Role role) {
-        User user = new User(email, passwordEncoder.encode("AdminPass12345!"), "Test User", null, true, true, "token");
+        User user = new User(email, passwordEncoder.encode("AdminPass12345!"), "Test User", true, true, "token");
         user.setEmailConfirmed(true);
         user.setRole(role);
         return userRepository.save(user);
@@ -193,23 +164,16 @@ class AdminServiceTest {
 
     private void activePasskey(User user) {
         passkeyCredentialRepository.save(new PasskeyCredential(
-                user.getId(),
-                user.getTenantId(),
-                "credential-" + user.getId(),
-                "public-key-cose",
-                0,
-                "internal",
-                "Admin Passkey",
-                true,
+                user.getId(), user.getTenantId(), "credential-" + user.getId(),
+                "public-key-cose", 0, "internal", "Admin Passkey", true,
                 java.time.Instant.now()));
     }
 
     private Jwt jwt(User user) {
         return new Jwt(
-                "token",
-                java.time.Instant.now(),
-                java.time.Instant.now().plusSeconds(900),
+                "token", java.time.Instant.now(), java.time.Instant.now().plusSeconds(900),
                 Map.of("alg", "none"),
-                Map.of("sub", user.getId().toString(), "tenant_id", user.getTenantId().toString(), "amr", java.util.List.of("webauthn")));
+                Map.of("sub", user.getId().toString(), "tenant_id", user.getTenantId().toString(),
+                        "amr", java.util.List.of("webauthn")));
     }
 }

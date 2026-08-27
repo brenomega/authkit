@@ -13,6 +13,7 @@ import io.github.brenomega.authkit.domain.user.entity.PasswordHistoryEntry;
 public interface PasswordHistoryRepository extends JpaRepository<PasswordHistoryEntry, UUID> {
 
     List<PasswordHistoryEntry> findByUserIdOrderByCreatedAtDesc(UUID userId, Pageable pageable);
+    List<PasswordHistoryEntry> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     long deleteByUserId(UUID userId);
 }

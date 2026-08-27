@@ -2,49 +2,29 @@
 set -euo pipefail
 
 backup_dir="${AUTHKIT_BACKUP_DIR:-}"
+postgres_container="${AUTHKIT_POSTGRES_CONTAINER:-}"
 if [[ -z "${backup_dir}" || "${backup_dir}" == "/" ]]; then
   echo "FAIL: AUTHKIT_BACKUP_DIR must be a non-empty directory path." >&2
   exit 1
 fi
-mkdir -p "${backup_dir}"
-
-db_url="${DB_URL:-}"
-db_user="${DB_USERNAME:-${PGUSER:-}}"
-db_password="${DB_PASSWORD:-${PGPASSWORD:-}}"
-if [[ -z "${db_url}" || -z "${db_user}" || -z "${db_password}" ]]; then
-  echo "FAIL: DB_URL, DB_USERNAME, and DB_PASSWORD are required." >&2
+if [[ -z "${postgres_container}" ]]; then
+  echo "FAIL: AUTHKIT_POSTGRES_CONTAINER is required." >&2
   exit 1
 fi
 
-if [[ "${db_url}" != jdbc:postgresql://* ]]; then
-  echo "FAIL: DB_URL must be a PostgreSQL JDBC URL." >&2
-  exit 1
-fi
-
-url="${db_url#jdbc:postgresql://}"
-hostport="${url%%/*}"
-database="${url#*/}"
-database="${database%%\?*}"
-host="${hostport%%:*}"
-port="${hostport#*:}"
-if [[ "${port}" == "${hostport}" ]]; then
-  port="5432"
-fi
-
+install -d -m 0700 "${backup_dir}"
+backup_dir="$(realpath "${backup_dir}")"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-outfile="${backup_dir}/authkit-postgres-${timestamp}.dump"
+snapshot="${backup_dir}/authkit-postgres-${timestamp}.dump"
+umask 077
 
-echo "Creating PostgreSQL backup ${outfile}"
-PGPASSWORD="${db_password}" pg_dump \
-  --host "${host}" \
-  --port "${port}" \
-  --username "${db_user}" \
-  --dbname "${database}" \
-  --format custom \
-  --no-owner \
-  --no-privileges \
-  --file "${outfile}"
-
-sha256sum "${outfile}" > "${outfile}.sha256"
-chmod 0600 "${outfile}" "${outfile}.sha256"
-echo "Backup complete. Verify restore with deploy/scripts/restore-postgres-check.sh before trusting this backup set."
+# Roles and passwords are recreated from the golden init script and mounted
+# secrets during restore. Avoid exporting password hashes with pg_dumpall.
+docker exec "${postgres_container}" \
+  pg_dump -U authkit_owner -d authkit -Fc >"${snapshot}"
+test -s "${snapshot}"
+(
+  cd "${backup_dir}"
+  sha256sum "$(basename "${snapshot}")" >"$(basename "${snapshot}").sha256"
+)
+echo "PostgreSQL backup and checksum created in ${backup_dir}."

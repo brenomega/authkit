@@ -329,7 +329,7 @@ public class MfaService {
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
-        if (user.isDeleted()) {
+        if (!user.isActive()) {
             throw new UserNotFoundException();
         }
         user.requireEmailConfirmed();

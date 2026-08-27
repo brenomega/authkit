@@ -19,6 +19,8 @@ import jakarta.persistence.LockModeType;
 @Repository
 public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage, UUID> {
 
+    long countByStatus(EmailOutboxStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select message
@@ -58,18 +60,18 @@ public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage,
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update EmailOutboxMessage message
-            set message.status = :sent,
+            set message.status = :accepted,
                 message.lockedAt = null,
                 message.lastError = null,
                 message.providerMessageId = coalesce(message.providerMessageId, :providerMessageId),
-                message.deliveredAt = coalesce(message.deliveredAt, :deliveredAt)
-            where message.id = :id and message.status in :sentEligible
+                message.acceptedAt = coalesce(message.acceptedAt, :acceptedAt)
+            where message.id = :id and message.status in :acceptanceEligible
             """)
-    int markSent(@Param("id") UUID id,
-                 @Param("sentEligible") Collection<EmailOutboxStatus> sentEligible,
-                 @Param("sent") EmailOutboxStatus sent,
-                 @Param("providerMessageId") String providerMessageId,
-                 @Param("deliveredAt") Instant deliveredAt);
+    int markAccepted(@Param("id") UUID id,
+                     @Param("acceptanceEligible") Collection<EmailOutboxStatus> acceptanceEligible,
+                     @Param("accepted") EmailOutboxStatus accepted,
+                     @Param("providerMessageId") String providerMessageId,
+                     @Param("acceptedAt") Instant acceptedAt);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

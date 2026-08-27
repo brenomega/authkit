@@ -14,5 +14,4 @@ public interface OAuthClientRepository extends JpaRepository<OAuthClient, UUID> 
 
     List<OAuthClient> findByOrderByCreatedAtDesc();
 
-    List<OAuthClient> findByTenantIdOrderByCreatedAtDesc(UUID tenantId);
 }

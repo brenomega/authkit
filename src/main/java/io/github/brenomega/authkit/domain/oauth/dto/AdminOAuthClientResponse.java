@@ -6,7 +6,6 @@ import java.util.UUID;
 
 public record AdminOAuthClientResponse(
         UUID id,
-        UUID tenantId,
         String clientId,
         String clientSecret,
         boolean publicClient,

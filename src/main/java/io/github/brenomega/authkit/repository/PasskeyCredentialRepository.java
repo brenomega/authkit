@@ -17,6 +17,7 @@ import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCredential, UUID> {
 
     List<PasskeyCredential> findByUserIdAndDisabledAtIsNullOrderByCreatedAtDesc(UUID userId);
+    List<PasskeyCredential> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<PasskeyCredential> findByCredentialIdAndDisabledAtIsNull(String credentialId);
 
@@ -24,7 +25,7 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
 
     long countByUserIdAndDisabledAtIsNull(UUID userId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update PasskeyCredential credential
                set credential.signatureCount = :signatureCount,
@@ -32,6 +33,8 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
              where credential.credentialId = :credentialId
                and credential.userId = :userId
                and credential.disabledAt is null
+               and ((credential.signatureCount = 0 and :signatureCount = 0)
+                    or :signatureCount > credential.signatureCount)
             """)
     int markUsed(@Param("credentialId") String credentialId,
                  @Param("userId") UUID userId,

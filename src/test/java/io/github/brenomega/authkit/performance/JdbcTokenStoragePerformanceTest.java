@@ -14,6 +14,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.persistence.JdbcTokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
@@ -34,7 +35,12 @@ class JdbcTokenStoragePerformanceTest {
         properties.getTokenStorage().setBackend("jdbc");
         properties.getTokenStorage().setSingleInstanceMode(true);
         properties.getTokenStorage().getJdbc().setSessionCursorTtlSeconds(300);
-        storage = new JdbcTokenStorage(jdbcTemplate, new DataSourceTransactionManager(dataSource), properties);
+        properties.getAudit().setHashPepper("jdbc-perf-audit-hash-pepper-32-bytes");
+        storage = new JdbcTokenStorage(
+                jdbcTemplate,
+                new DataSourceTransactionManager(dataSource),
+                properties,
+                new AuditDigestService(properties));
     }
 
     @Test
@@ -77,10 +83,18 @@ class JdbcTokenStoragePerformanceTest {
                     expires_at timestamp not null,
                     created_at timestamp not null,
                     updated_at timestamp not null,
+                    public_session_id uuid not null,
+                    last_seen_at timestamp not null,
+                    initial_amr varchar(160) not null,
+                    user_agent_summary varchar(200) not null,
+                    device_label varchar(80),
+                    creation_ip_masked varchar(64) not null,
+                    last_ip_masked varchar(64) not null,
                     primary key (user_id, jti)
                 )
                 """);
         jdbc.execute("create unique index uq_auth_refresh_sessions_jti on auth_refresh_sessions (jti)");
+        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on auth_refresh_sessions (public_session_id)");
         jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on auth_refresh_sessions (user_id, expires_at, jti)");
         jdbc.execute("""
                 create table auth_recovery_tokens (

@@ -34,7 +34,7 @@ class RabbitMqEmailListenerTest {
 
         listener.processEmail(payload);
 
-        verify(outboxService).markSent(messageId, "provider-123");
+        verify(outboxService).markAccepted(messageId, "provider-123");
     }
 
     @Test

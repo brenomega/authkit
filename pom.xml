@@ -12,24 +12,44 @@
 	<artifactId>authkit</artifactId>
 	<version>${revision}${changelist}</version>
 	<name>AuthKit</name>
-	<description>Generic Authentication System — secure, scalable, production-ready auth service</description>
-	<url/>
+	<description>Headless, standalone, self-hosted authentication and identity service</description>
+	<url>https://github.com/brenomega/authkit</url>
 	<licenses>
-		<license/>
+		<license>
+			<name>Apache License, Version 2.0</name>
+			<url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+			<distribution>repo</distribution>
+		</license>
 	</licenses>
 	<developers>
-		<developer/>
+		<developer>
+			<id>brenomega</id>
+			<name>Breno</name>
+			<url>https://github.com/brenomega</url>
+			<roles>
+				<role>maintainer</role>
+			</roles>
+		</developer>
 	</developers>
 	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
+		<connection>scm:git:https://github.com/brenomega/authkit.git</connection>
+		<developerConnection>scm:git:ssh://git@github.com/brenomega/authkit.git</developerConnection>
+		<tag>HEAD</tag>
+		<url>https://github.com/brenomega/authkit</url>
 	</scm>
+	<issueManagement>
+		<system>GitHub</system>
+		<url>https://github.com/brenomega/authkit/issues</url>
+	</issueManagement>
+	<ciManagement>
+		<system>GitHub Actions</system>
+		<url>https://github.com/brenomega/authkit/actions</url>
+	</ciManagement>
 	<properties>
 		<revision>0.1.0</revision>
-		<changelist>-SNAPSHOT</changelist>
+		<changelist>-rc.1</changelist>
 		<java.version>21</java.version>
+		<project.build.outputTimestamp>2026-08-25T00:00:00Z</project.build.outputTimestamp>
 		<postgresql.version>42.7.11</postgresql.version>
 		<spring-security.version>6.5.10</spring-security.version>
 		<!-- Override versions to fix CVEs -->
@@ -203,6 +223,17 @@
 	</dependencies>
 
 	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+				<excludes>
+					<exclude>application-test.yml</exclude>
+					<exclude>test-keys/**</exclude>
+					<exclude>**/*.key</exclude>
+					<exclude>**/*.pem</exclude>
+				</excludes>
+			</resource>
+		</resources>
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -247,34 +278,5 @@
 			</plugin>
 		</plugins>
 	</build>
-
-	<profiles>
-		<profile>
-			<id>dependency-check</id>
-			<build>
-				<plugins>
-					<plugin>
-						<groupId>org.owasp</groupId>
-						<artifactId>dependency-check-maven</artifactId>
-						<version>12.2.2</version>
-						<executions>
-							<execution>
-								<goals>
-									<goal>check</goal>
-								</goals>
-							</execution>
-						</executions>
-						<configuration>
-							<failBuildOnCVSS>9</failBuildOnCVSS>
-							<!-- Read the NVD key from the environment so Maven debug logs cannot expose it. -->
-							<nvdApiKeyEnvironmentVariable>NVD_API_KEY</nvdApiKeyEnvironmentVariable>
-							<!-- Keep the vulnerability DB scoped to this build to avoid stale shared H2 locks. -->
-							<dataDirectory>${project.build.directory}/dependency-check-data</dataDirectory>
-						</configuration>
-					</plugin>
-				</plugins>
-			</build>
-		</profile>
-	</profiles>
 
 </project>

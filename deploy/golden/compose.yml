@@ -1,0 +1,246 @@
+name: authkit-golden
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: authkit
+      POSTGRES_USER: authkit_owner
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_owner_password
+    secrets:
+      - postgres_owner_password
+      - postgres_app_password
+      - postgres_retention_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-database-roles.sh:/docker-entrypoint-initdb.d/10-authkit-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authkit_owner -d authkit"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 172.30.0.30
+
+  redis:
+    image: redis:7.4-alpine
+    user: "redis:redis"
+    entrypoint: ["/usr/local/bin/authkit-redis-entrypoint.sh"]
+    secrets:
+      - redis_password
+    volumes:
+      - redis-data:/data
+      - ./redis-entrypoint.sh:/usr/local/bin/authkit-redis-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 172.30.0.40
+
+  authkit:
+    image: ${AUTHKIT_IMAGE:-authkit:local}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/authkit
+      DB_USERNAME: authkit_app
+      DB_PASSWORD_FILE: /run/secrets/postgres_app_password
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/authkit
+      SPRING_FLYWAY_USER: authkit_owner
+      SPRING_FLYWAY_PASSWORD_FILE: /run/secrets/postgres_owner_password
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      AUTH_RETENTION_DB_URL: jdbc:postgresql://postgres:5432/authkit
+      AUTH_RETENTION_DB_USERNAME: authkit_retention_worker
+      AUTH_RETENTION_DB_PASSWORD_FILE: /run/secrets/postgres_retention_password
+      AUTH_AUDIT_HASH_PEPPER_FILE: /run/secrets/audit_hash_pepper
+      AUTH_MFA_SECRET_ENCRYPTION_KEY_FILE: /run/secrets/mfa_encryption_key
+      WORKER_TOKEN_FILE: /run/secrets/worker_token
+      # The selected provider alone consumes this credential file.
+      AUTH_EMAIL_SMTP_PASSWORD_FILE: /run/secrets/email_provider_credential
+      RESEND_API_KEY_FILE: /run/secrets/email_provider_credential
+      AUTH_EMAIL_TEMPLATE_DIRECTORY: /run/config/email-templates
+      AUTH_JWT_ISSUER: https://${AUTHKIT_PUBLIC_HOST:?Set AUTHKIT_PUBLIC_HOST}
+      AUTH_JWT_AUDIENCE: ${AUTHKIT_JWT_AUDIENCE:?Set AUTHKIT_JWT_AUDIENCE}
+      AUTH_JWT_KEY_ID: ${AUTHKIT_JWT_KEY_ID:?Set AUTHKIT_JWT_KEY_ID}
+      AUTH_FRONTEND_ACTIVATION_URL: ${AUTHKIT_FRONTEND_ACTIVATION_URL:?Set AUTHKIT_FRONTEND_ACTIVATION_URL}
+      AUTH_FRONTEND_PASSWORD_RESET_URL: ${AUTHKIT_FRONTEND_PASSWORD_RESET_URL:?Set AUTHKIT_FRONTEND_PASSWORD_RESET_URL}
+      AUTH_FRONTEND_EMAIL_CHANGE_URL: ${AUTHKIT_FRONTEND_EMAIL_CHANGE_URL:?Set AUTHKIT_FRONTEND_EMAIL_CHANGE_URL}
+      AUTH_REGISTRATION_MODE: ${AUTHKIT_REGISTRATION_MODE:-restricted}
+      AUTH_REGISTRATION_STEALTH_CONFLICTS: "true"
+      AUTH_TERMS_VERSION: ${AUTHKIT_TERMS_VERSION:?Set AUTHKIT_TERMS_VERSION}
+      AUTH_PRIVACY_POLICY_VERSION: ${AUTHKIT_PRIVACY_POLICY_VERSION:?Set AUTHKIT_PRIVACY_POLICY_VERSION}
+      AUTH_LAWFUL_BASIS: ${AUTHKIT_LAWFUL_BASIS:-consent}
+      AUTH_EMAIL_OUTBOX_DISPATCH_MODE: direct
+      AUTH_EMAIL_OUTBOX_PRESERVE_RABBIT_OBSERVABILITY: "false"
+      AUTH_EMAIL_PROVIDER_TYPE: ${AUTHKIT_EMAIL_PROVIDER_TYPE:-smtp}
+      AUTH_EMAIL_PROVIDER_FROM: ${AUTHKIT_EMAIL_FROM:?Set AUTHKIT_EMAIL_FROM}
+      AUTH_EMAIL_SMTP_HOST: ${AUTHKIT_SMTP_HOST:-}
+      AUTH_EMAIL_SMTP_PORT: ${AUTHKIT_SMTP_PORT:-587}
+      AUTH_EMAIL_SMTP_AUTH: ${AUTHKIT_SMTP_AUTH:-true}
+      AUTH_EMAIL_SMTP_USERNAME: ${AUTHKIT_SMTP_USERNAME:-}
+      AUTH_EMAIL_SMTP_STARTTLS_ENABLED: "true"
+      AUTH_EMAIL_SMTP_STARTTLS_REQUIRED: "true"
+      AUTH_EMAIL_SMTP_SSL_ENABLED: "false"
+      AUTH_ACCESS_TOKEN_TTL_SECONDS: "300"
+      AUTH_PASSWORD_HIBP_ENABLED: "true"
+      AUTH_ABUSE_FAIL_CLOSED_HIGH_RISK: "true"
+      AUTH_TOKEN_STORAGE_BACKEND: redis
+      AUTH_TOKEN_STORAGE_SINGLE_INSTANCE_MODE: "false"
+      AUTH_CORS_ENABLED: "true"
+      AUTH_CORS_ALLOWED_ORIGINS: ${AUTHKIT_CORS_ALLOWED_ORIGINS:?Set AUTHKIT_CORS_ALLOWED_ORIGINS}
+      AUTH_CORS_ALLOW_CREDENTIALS: "true"
+      AUTH_REFRESH_COOKIE_SECURE: "true"
+      AUTH_REFRESH_COOKIE_HTTP_ONLY: "true"
+      AUTH_REFRESH_COOKIE_SAME_SITE: Strict
+      AUTH_CSRF_ENABLED: "true"
+      AUTH_PASSKEY_RP_ID: ${AUTHKIT_PASSKEY_RP_ID:?Set AUTHKIT_PASSKEY_RP_ID}
+      AUTH_PASSKEY_RP_NAME: ${AUTHKIT_PASSKEY_RP_NAME:-AuthKit}
+      AUTH_PASSKEY_ORIGINS: ${AUTHKIT_PASSKEY_ORIGINS:?Set AUTHKIT_PASSKEY_ORIGINS}
+      AUTH_PASSKEY_ALLOW_ORIGIN_PORT: "false"
+      AUTH_OAUTH_AUTHORIZATION_UI_URL: ${AUTHKIT_OAUTH_AUTHORIZATION_UI_URL:?Set AUTHKIT_OAUTH_AUTHORIZATION_UI_URL}
+      AUTH_SOCIAL_ENABLED: ${AUTHKIT_SOCIAL_ENABLED:-false}
+      AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED: "true"
+      AUTH_RETENTION_JOB_ENABLED: "true"
+      AUTH_MFA_SECRET_ENCRYPTION_KEY_ID: ${AUTHKIT_MFA_KEY_ID:-mfa-key-1}
+      NETWORK_SECURITY_TRUSTED_ORIGINS: 172.30.0.10/32
+      NETWORK_STRATEGY_CLOUDFLARE_ENABLED: "false"
+      NETWORK_STRATEGY_X_FORWARDED_FOR_ENABLED: "true"
+      NETWORK_PROXY_DEPTH: "1"
+      SERVER_FORWARD_HEADERS_STRATEGY: none
+      SECURITY_ARGON2_MAX_CONCURRENT: ${AUTHKIT_ARGON2_MAX_CONCURRENT:-2}
+    secrets:
+      - postgres_owner_password
+      - postgres_app_password
+      - postgres_retention_password
+      - redis_password
+      - jwt_public_key
+      - jwt_private_key
+      - audit_hash_pepper
+      - mfa_encryption_key
+      - worker_token
+      - email_provider_credential
+    volumes:
+      - type: bind
+        source: ${AUTHKIT_EMAIL_TEMPLATES_DIRECTORY:?Set AUTHKIT_EMAIL_TEMPLATES_DIRECTORY}
+        target: /run/config/email-templates
+        read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    restart: unless-stopped
+    networks:
+      internal: {}
+      egress: {}
+
+  tls-proxy:
+    image: caddy:2.10-alpine
+    environment:
+      AUTHKIT_PUBLIC_HOST: ${AUTHKIT_PUBLIC_HOST:?Set AUTHKIT_PUBLIC_HOST}
+    secrets:
+      - tls_certificate
+      - tls_private_key
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "${AUTHKIT_HTTPS_PORT:-443}:443"
+    depends_on:
+      authkit:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      internal:
+        ipv4_address: 172.30.0.10
+      edge: {}
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  egress:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  postgres_owner_password:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/postgres_owner_password
+  postgres_app_password:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/postgres_app_password
+  postgres_retention_password:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/postgres_retention_password
+  redis_password:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/redis_password
+  jwt_public_key:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/jwt_public.pem
+  jwt_private_key:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/jwt_private.pem
+  audit_hash_pepper:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/audit_hash_pepper
+  mfa_encryption_key:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/mfa_encryption_key
+  worker_token:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/worker_token
+  email_provider_credential:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/email_provider_credential
+  tls_certificate:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/tls_certificate.pem
+  tls_private_key:
+    file: ${AUTHKIT_SECRETS_DIRECTORY:-./secrets}/tls_private_key.pem

@@ -112,7 +112,7 @@ class MfaServiceTest {
                         abuseThrottleService),
                 abuseThrottleService);
 
-        user = new User("mfa@example.com", "hashed-pass", "Mfa User", "555", true, true, null);
+        user = new User("mfa@example.com", "hashed-pass", "Mfa User", true, true, null);
         user.setEmailConfirmed(true);
         ReflectionTestUtils.setField(user, "id", USER_ID);
         ReflectionTestUtils.setField(user, "tenantId", TENANT_ID);

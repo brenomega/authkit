@@ -57,7 +57,7 @@ public class DirectEmailDispatchStrategy implements EmailDispatchStrategy {
         try {
             outboxService.markQueued(message.getId(), EmailOutboxTiming.deliveryAckTimeout(authProperties));
             EmailDeliveryResult result = emailProvider.send(message.toPayload());
-            outboxService.markSent(message.getId(), result.providerMessageId());
+            outboxService.markAccepted(message.getId(), result.providerMessageId());
         } catch (RuntimeException ex) {
             log.warn("Direct email dispatch failed for message {}.", message.getId());
             recordProviderFailure();

@@ -52,7 +52,7 @@ class DirectEmailDispatchStrategyTest {
         executor.runCapturedTask();
 
         verify(outboxService).markQueued(eq(messageId), eq(Duration.ofSeconds(600)));
-        verify(outboxService).markSent(messageId, "provider-123");
+        verify(outboxService).markAccepted(messageId, "provider-123");
     }
 
     @Test
@@ -76,7 +76,7 @@ class DirectEmailDispatchStrategyTest {
         InOrder inOrder = inOrder(outboxService, emailProvider);
         inOrder.verify(outboxService).markQueued(messageId, Duration.ofSeconds(600));
         inOrder.verify(emailProvider).send(payload);
-        inOrder.verify(outboxService).markSent(messageId, "provider-123");
+        inOrder.verify(outboxService).markAccepted(messageId, "provider-123");
     }
 
     @Test

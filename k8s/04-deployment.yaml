@@ -3,7 +3,8 @@ kind: Deployment
 metadata:
   name: authkit
 spec:
-  replicas: 2
+  # Unsupported example only. The v0.1 golden path is single-instance Compose.
+  replicas: 1
   selector:
     matchLabels:
       app: authkit
@@ -22,8 +23,9 @@ spec:
           type: RuntimeDefault
       containers:
         - name: authkit
-          # CI/CD must replace this tag with the immutable digest of the promoted release.
-          image: brenomega/authkit:0.0.1-SNAPSHOT
+          # Load a locally reviewed candidate image. Never deploy a mutable tag in production.
+          image: authkit:local
+          imagePullPolicy: Never
           # Container-level security hardening
           securityContext:
             allowPrivilegeEscalation: false

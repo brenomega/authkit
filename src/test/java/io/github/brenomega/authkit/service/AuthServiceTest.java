@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -74,7 +76,15 @@ class AuthServiceTest {
         mfaService = mock(MfaService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         when(mfaService.isMfaEnabled(any(User.class))).thenReturn(false);
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService, abuseThrottleService);
+        SessionMetadataFactory sessionMetadataFactory = mock(SessionMetadataFactory.class);
+        when(sessionMetadataFactory.create(anyString(), anyList(), anyLong())).thenAnswer(invocation -> {
+            String jti = invocation.getArgument(0);
+            java.time.Instant now = java.time.Instant.now();
+            return new io.github.brenomega.authkit.service.spi.SessionMetadata(
+                    java.util.UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(604800),
+                    invocation.getArgument(1), "JUnit", null, "127.0.0.***", "127.0.0.***");
+        });
+        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService, abuseThrottleService, sessionMetadataFactory);
     }
 
     /**
@@ -106,7 +116,7 @@ class AuthServiceTest {
         assertEquals("mock-access-token", result.response().accessToken());
         assertEquals(900L, result.response().expiresIn());
         assertNotNull(result.refreshToken());
-        verify(tokenStorage).storeRefreshToken(any(), any(), any(), eq(7L));
+        verify(tokenStorage).storeRefreshToken(any(), any(), any(), eq(7L), any());
         verify(lockoutService).clearLockout(email);
     }
 
@@ -138,7 +148,7 @@ class AuthServiceTest {
         AuthService.LoginResult result = authService.login(new LoginRequest(email, pass));
 
         assertEquals(1200L, result.response().expiresIn());
-        verify(tokenStorage).storeRefreshToken(anyString(), anyString(), anyString(), eq(14L));
+        verify(tokenStorage).storeRefreshToken(anyString(), anyString(), anyString(), eq(14L), any());
 
         ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
         verify(jwtEncoder).encode(parameters.capture());
@@ -192,6 +202,7 @@ class AuthServiceTest {
         when(user.getEmail()).thenReturn("mfa-login@example.com");
         when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.isActive()).thenReturn(true);
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
@@ -207,7 +218,7 @@ class AuthServiceTest {
 
         assertEquals("mfa-access-token", result.response().accessToken());
         assertNotNull(result.refreshToken());
-        verify(tokenStorage).storeRefreshToken(eq(userId), anyString(), anyString(), eq(7L));
+        verify(tokenStorage).storeRefreshToken(eq(userId), anyString(), anyString(), eq(7L), any());
 
         ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
         verify(jwtEncoder).encode(parameters.capture());
@@ -227,6 +238,7 @@ class AuthServiceTest {
         when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
         when(user.getEmail()).thenReturn("mfa-fail@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.isActive()).thenReturn(true);
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
@@ -329,6 +341,7 @@ class AuthServiceTest {
         when(user.getEmail()).thenReturn("refresh@example.com");
         when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.isActive()).thenReturn(true);
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.rotateRefreshToken(
                 eq(userId),
@@ -388,7 +401,7 @@ class AuthServiceTest {
 
         authService.logout(token.rawToken());
 
-        verify(tokenStorage).revokeSession(userId, jti);
+        verify(tokenStorage).revokeSessionByJti(userId, jti);
     }
 
     @Test
@@ -405,6 +418,7 @@ class AuthServiceTest {
     void logoutAll_RequiresMfaWhenEnabled() {
         String userId = "00000000-0000-0000-0000-000000000014";
         User user = mock(User.class);
+        when(user.isActive()).thenReturn(true);
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         authService.logoutAll(userId, "123456");

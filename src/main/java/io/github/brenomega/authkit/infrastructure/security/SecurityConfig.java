@@ -1,7 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 
@@ -27,6 +26,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter;
+import io.github.brenomega.authkit.infrastructure.network.RequestIdFilter;
+import io.github.brenomega.authkit.infrastructure.network.DuplicateParameterFilter;
 import io.github.brenomega.authkit.infrastructure.network.rateLimit.EndpointAbuseRateLimitingFilter;
 import io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter;
 
@@ -58,6 +59,8 @@ public class SecurityConfig {
     private final EndpointAbuseRateLimitingFilter endpointAbuseRateLimitingFilter;
     private final WorkerAuthFilter workerAuthFilter;
     private final RequestBodySizeLimitFilter requestBodySizeLimitFilter;
+    private final RequestIdFilter requestIdFilter;
+    private final DuplicateParameterFilter duplicateParameterFilter;
     private final AuthProperties authProperties;
 
     /**
@@ -74,6 +77,8 @@ public class SecurityConfig {
             EndpointAbuseRateLimitingFilter endpointAbuseRateLimitingFilter,
             WorkerAuthFilter workerAuthFilter,
             RequestBodySizeLimitFilter requestBodySizeLimitFilter,
+            RequestIdFilter requestIdFilter,
+            DuplicateParameterFilter duplicateParameterFilter,
             AuthProperties authProperties) {
         this.objectMapper = objectMapper;
         this.userAuthoritiesFilter = userAuthoritiesFilter;
@@ -82,6 +87,8 @@ public class SecurityConfig {
         this.endpointAbuseRateLimitingFilter = endpointAbuseRateLimitingFilter;
         this.workerAuthFilter = workerAuthFilter;
         this.requestBodySizeLimitFilter = requestBodySizeLimitFilter;
+        this.requestIdFilter = requestIdFilter;
+        this.duplicateParameterFilter = duplicateParameterFilter;
         this.authProperties = authProperties;
     }
 
@@ -120,6 +127,8 @@ public class SecurityConfig {
             // DT 3.2.8 — Authorization rules (Enforcing Deny-by-Default pattern)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/social/*/start").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/auth/social/*/callback").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/mfa/verify-login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/passkeys/options").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/passkeys/verify").permitAll()
@@ -128,15 +137,17 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout-all").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/email-confirmation/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/auth/email-change/confirm").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/password-recovery/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/oauth2/token").permitAll()
+                .requestMatchers(HttpMethod.GET, "/oauth2/authorize").permitAll()
                 .requestMatchers(HttpMethod.POST, "/oauth2/revoke", "/oauth2/introspect").permitAll()
                 .requestMatchers(HttpMethod.GET, "/oauth2/userinfo").permitAll()
                 .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/.well-known/**").permitAll()
                 .requestMatchers("/api/v1/internal/**").hasRole("WORKER")
-                .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "TENANT_ADMIN")
+                .requestMatchers("/api/v1/admin/**").hasRole("PLATFORM_ADMIN")
                 .requestMatchers("/api/v1/oauth2/**").authenticated()
-                .requestMatchers("/api/v1/users/me", "/api/v1/users/me/**").hasAnyRole("USER", "OWNER", "TENANT_ADMIN", "ADMIN")
+                .requestMatchers("/api/v1/users/me", "/api/v1/users/me/**").hasAnyRole("USER", "PLATFORM_ADMIN")
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/actuator/prometheus").hasRole("WORKER")
                 .anyRequest().denyAll()
@@ -151,11 +162,13 @@ public class SecurityConfig {
 
             // DT 3.2.19 — Firewall dropping untrusted direct origins
             .addFilterBefore(originFirewallFilter, DisableEncodeUrlFilter.class)
+            .addFilterBefore(requestIdFilter, OriginFirewallFilter.class)
+            .addFilterAfter(duplicateParameterFilter, OriginFirewallFilter.class)
 
             // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
             .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)
 
-            // Prompt 2 — Endpoint-specific abuse throttles using IP and device/user-agent dimensions.
+            // Endpoint-specific abuse throttles use IP and device/user-agent dimensions.
             .addFilterAfter(endpointAbuseRateLimitingFilter, RateLimitingFilter.class)
 
             // DT 3.1.30 — Reject oversized bodies before JSON parsing or password hashing.
@@ -237,8 +250,8 @@ public class SecurityConfig {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-        ApiResponse<Void> body = new ApiResponse<>(null,
-                java.util.List.of(message), Instant.now());
+        ApiResponse<Void> body = ApiResponse.error(
+                status == HttpStatus.UNAUTHORIZED ? "unauthorized" : "forbidden", message);
 
         objectMapper.writeValue(response.getOutputStream(), body);
     }

@@ -2,12 +2,16 @@ package io.github.brenomega.authkit.service;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
@@ -22,6 +26,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateId;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
@@ -60,6 +66,7 @@ public class PasswordRecoveryService {
     private final SecurityEventService securityEventService;
     private final AbuseThrottleService abuseThrottleService;
     private final PasswordPolicyService passwordPolicyService;
+    private final EmailTemplateRenderer emailTemplateRenderer;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
@@ -71,7 +78,8 @@ public class PasswordRecoveryService {
             Argon2ConcurrencyLimiter argon2Limiter,
             SecurityEventService securityEventService,
             AbuseThrottleService abuseThrottleService,
-            PasswordPolicyService passwordPolicyService) {
+            PasswordPolicyService passwordPolicyService,
+            EmailTemplateRenderer emailTemplateRenderer) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailOutboxService = emailOutboxService;
@@ -82,6 +90,7 @@ public class PasswordRecoveryService {
         this.securityEventService = securityEventService;
         this.abuseThrottleService = abuseThrottleService;
         this.passwordPolicyService = passwordPolicyService;
+        this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
     /**
@@ -93,13 +102,23 @@ public class PasswordRecoveryService {
      * @param email the email to send the recovery link to
      */
     @LogExecutionTime
+    @Transactional
     public void requestRecovery(String email) {
         String normalizedEmail = EmailNormalizer.normalize(email);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RECOVERY_EMAIL_COOLDOWN, normalizedEmail);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RECOVERY_EMAIL_DAILY, normalizedEmail);
 
-        userRepository.findByEmail(normalizedEmail).ifPresentOrElse(
+        userRepository.findByEmailForUpdate(normalizedEmail).ifPresentOrElse(
                 user -> {
+                    if (user.getPassword() == null) {
+                        securityEventService.recordForTargetUser(
+                                SecurityEventType.PASSWORD_RESET_REQUESTED,
+                                SecurityEventOutcome.INFO,
+                                SecurityEventSeverity.MEDIUM,
+                                user,
+                                "password_reset_unavailable_for_social_only_account");
+                        return;
+                    }
                     securityEventService.recordForTargetUser(
                             SecurityEventType.PASSWORD_RESET_REQUESTED,
                             SecurityEventOutcome.INFO,
@@ -109,15 +128,13 @@ public class PasswordRecoveryService {
                     String token = SecureTokenGenerator.randomUrlSafeToken(32);
                     long ttlMinutes = authProperties.getToken().getRecoveryTokenTtlMinutes();
                     tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
+                    registerRecoveryRequestCompensation(normalizedEmail, token);
                     
                     String resetLink = authProperties.getFrontend().getPasswordResetUrl()
                             + "#token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
                             + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
-                    EmailPayload emailPayload = new EmailPayload(
-                            normalizedEmail,
-                            "Password Recovery",
-                            "Click here to reset your password: " + resetLink
-                    );
+                    EmailPayload emailPayload = emailTemplateRenderer.render(
+                            EmailTemplateId.PASSWORD_RECOVERY, normalizedEmail, Map.of("action_url", resetLink));
                     emailOutboxService.enqueue(emailPayload);
                     log.info("Password recovery requested for existing user. Token generated and event published.");
                 },
@@ -147,7 +164,10 @@ public class PasswordRecoveryService {
         String normalizedEmail = EmailNormalizer.normalize(email);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSWORD_RESET_EMAIL, normalizedEmail);
 
-        if (!tokenStorage.consumeRecoveryToken(normalizedEmail, token)) {
+        String claimId = UUID.randomUUID().toString();
+        long claimTtlSeconds = Math.multiplyExact(
+                authProperties.getToken().getRecoveryTokenTtlMinutes(), 60L);
+        if (!tokenStorage.claimRecoveryToken(normalizedEmail, token, claimId, claimTtlSeconds)) {
             log.warn("Invalid or expired password recovery token.");
             securityEventService.recordForEmail(
                     SecurityEventType.PASSWORD_RESET_FAILED,
@@ -157,6 +177,7 @@ public class PasswordRecoveryService {
                     "invalid_or_expired_reset_token");
             throw new InvalidTokenException();
         }
+        registerRecoveryClaimCompletion(normalizedEmail, claimId);
 
         User user = userRepository.findByEmail(normalizedEmail)
                 .orElseThrow(() -> {
@@ -179,6 +200,18 @@ public class PasswordRecoveryService {
             throw new UserNotFoundException();
         }
 
+        // Password recovery proves control of an email channel, not authority to add a
+        // new local authenticator to a social-only account.
+        if (user.getPassword() == null) {
+            securityEventService.recordForTargetUser(
+                    SecurityEventType.PASSWORD_RESET_FAILED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "password_recovery_cannot_add_authenticator");
+            throw new InvalidTokenException();
+        }
+
         passwordPolicyService.validateForUser(user, newPassword);
         passwordPolicyService.recordCurrentPassword(user);
         user.setPassword(encodeWithCapacity(newPassword));
@@ -190,11 +223,8 @@ public class PasswordRecoveryService {
         // RF 2.1.12: Revoke all active sessions to force re-authentication
         tokenStorage.revokeAllSessions(user.getId().toString());
 
-        EmailPayload confirmation = new EmailPayload(
-                normalizedEmail,
-                "Password Changed",
-                "Your password has been successfully changed."
-        );
+        EmailPayload confirmation = emailTemplateRenderer.render(
+                EmailTemplateId.PASSWORD_CHANGED, normalizedEmail, Map.of());
         emailOutboxService.enqueue(confirmation);
 
         securityEventService.recordForTargetUser(
@@ -218,5 +248,45 @@ public class PasswordRecoveryService {
         } finally {
             argon2Limiter.release();
         }
+    }
+
+    private void registerRecoveryClaimCompletion(String email, String claimId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            tokenStorage.releaseRecoveryTokenClaim(email, claimId);
+            throw new IllegalStateException("Password recovery requires an active transaction");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                try {
+                    if (status == STATUS_COMMITTED) {
+                        tokenStorage.completeRecoveryTokenClaim(email, claimId);
+                    } else {
+                        tokenStorage.releaseRecoveryTokenClaim(email, claimId);
+                    }
+                } catch (RuntimeException ex) {
+                    log.error("Recovery-token claim reconciliation failed after transaction completion.", ex);
+                }
+            }
+        });
+    }
+
+    private void registerRecoveryRequestCompensation(String email, String rawToken) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            tokenStorage.revokeRecoveryTokenIfMatches(email, rawToken);
+            throw new IllegalStateException("Password recovery request requires an active transaction");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    try {
+                        tokenStorage.revokeRecoveryTokenIfMatches(email, rawToken);
+                    } catch (RuntimeException ex) {
+                        log.error("Recovery-token rollback compensation failed.", ex);
+                    }
+                }
+            }
+        });
     }
 }

@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.infrastructure.network.rateLimit;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.DisplayName;
@@ -70,7 +71,10 @@ public class NetworkSecurityIntegrationTest {
                         .header("CF-Connecting-IP", uniqueIp)
                         .contentType("application/json")
                         .content(payload))
-                .andExpect(status().isTooManyRequests());
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "60"))
+                .andExpect(jsonPath("$.code").value("rate_limit_exceeded"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @SuppressWarnings("null")
@@ -85,7 +89,7 @@ public class NetworkSecurityIntegrationTest {
                 }
                 """.formatted(email);
 
-        userRepository.save(new User(email, "Hash123", null, null, true, true, null));
+        userRepository.save(new User(email, "Hash123", null, true, true, null));
 
         // 5 failed attempts usually return 401 Unauthorized
         for (int i = 0; i < 5; i++) {

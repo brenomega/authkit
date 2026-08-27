@@ -99,7 +99,7 @@ public class ProfileService {
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
         requireActive(user);
-        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
+        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
     /**
@@ -136,12 +136,8 @@ public class ProfileService {
         if (request.name() != null) {
             user.setName(request.name());
         }
-        if (request.phone() != null) {
-            user.setPhone(request.phone());
-        }
-
         userRepository.save(user);
-        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName(), user.getPhone());
+        return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
     /**
@@ -220,7 +216,7 @@ public class ProfileService {
      * @param userId the authenticated user's ID
      * @return a list of active session identifiers (JTIs)
      */
-    public SessionPageResponse listSessions(String userId, int limit, String cursor) {
+    public SessionPageResponse listSessions(String userId, String currentJti, int limit, String cursor) {
         if (limit < 1 || limit > 100) {
             throw new InvalidSessionCursorException();
         }
@@ -233,9 +229,13 @@ public class ProfileService {
 
         var page = tokenStorage.listSessions(userId, limit, cursor);
         List<SessionResponse> sessions = page.items().stream()
-                .map(SessionResponse::new)
+                .map(session -> SessionResponse.from(session, currentJti))
                 .toList();
         return new SessionPageResponse(sessions, page.nextCursor());
+    }
+
+    public SessionPageResponse listSessions(String userId, int limit, String cursor) {
+        return listSessions(userId, null, limit, cursor);
     }
 
     /**
@@ -247,7 +247,7 @@ public class ProfileService {
      * @param jti    the JTI of the session to revoke
      * @throws AccountLockedException if the account is locked
      */
-    public void revokeSession(String userId, String jti, String mfaCode) {
+    public void revokeSession(String userId, String publicSessionId, String mfaCode) {
         @SuppressWarnings("null")
         User user = userRepository.findById(java.util.UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
@@ -262,7 +262,7 @@ public class ProfileService {
         }
 
         mfaService.requireMfaIfEnabled(user, mfaCode, "session_revocation");
-        tokenStorage.revokeSession(userId, jti);
+        tokenStorage.revokeSession(userId, publicSessionId);
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGOUT,
                 SecurityEventOutcome.SUCCESS,
@@ -271,14 +271,12 @@ public class ProfileService {
                 "session_revoked");
     }
 
-    public void revokeSession(String userId, String jti) {
-        revokeSession(userId, jti, null);
+    public void revokeSession(String userId, String publicSessionId) {
+        revokeSession(userId, publicSessionId, null);
     }
 
     private void requireActive(User user) {
-        if (user.isDeleted()) {
-            throw new UserNotFoundException();
-        }
+        user.requireActive();
     }
 
     private void requireTenantAccess(User user) {

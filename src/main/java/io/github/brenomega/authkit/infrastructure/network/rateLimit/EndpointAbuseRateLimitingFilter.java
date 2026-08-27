@@ -111,8 +111,12 @@ public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
     private void sendApiExceptionResponse(HttpServletResponse response, ApiBaseException ex) throws IOException {
         response.resetBuffer();
         response.setStatus(ex.getStatus().value());
+        if (ex.getStatus().value() == 429) {
+            response.setHeader("Retry-After", "60");
+        }
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), ApiResponse.error(ex.getMessage()));
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(
+                ex.getStatus().value() == 429 ? "rate_limit_exceeded" : "request_rejected", ex.getMessage()));
     }
 }

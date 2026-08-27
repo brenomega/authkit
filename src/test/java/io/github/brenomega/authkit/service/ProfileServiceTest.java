@@ -221,7 +221,7 @@ class ProfileServiceTest {
     @DisplayName("Update: Modifying other user's profile throws 404 (IDOR protection)")
     void updateProfile_IdMismatch_Throws404() {
         assertThrows(UserNotFoundException.class, () -> 
-            profileService.updateProfile("00000000-0000-0000-0000-000000000001", new ProfileUpdateRequest("Name", "123"), "00000000-0000-0000-0000-000000000000"));
+            profileService.updateProfile("00000000-0000-0000-0000-000000000001", new ProfileUpdateRequest("Name"), "00000000-0000-0000-0000-000000000000"));
     }
 
     /**
@@ -238,11 +238,10 @@ class ProfileServiceTest {
 
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
-        ProfileUpdateRequest request = new ProfileUpdateRequest("New Name", "999");
+        ProfileUpdateRequest request = new ProfileUpdateRequest("New Name");
         profileService.updateProfile(userId, request, userId);
 
         verify(user).setName("New Name");
-        verify(user).setPhone("999");
         verify(userRepository).findById(java.util.UUID.fromString(userId));
     }
 
@@ -257,7 +256,7 @@ class ProfileServiceTest {
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         assertThrows(EmailNotConfirmedException.class, () ->
-                profileService.updateProfile(userId, new ProfileUpdateRequest("Name", "123"), userId));
+                profileService.updateProfile(userId, new ProfileUpdateRequest("Name"), userId));
 
         verify(user, never()).setName(org.mockito.ArgumentMatchers.any());
     }
@@ -273,7 +272,7 @@ class ProfileServiceTest {
         when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> 
-            profileService.updateProfile(userId, new ProfileUpdateRequest("Any", "123"), userId));
+            profileService.updateProfile(userId, new ProfileUpdateRequest("Any"), userId));
     }
 
     private void authenticateAsTenant(UUID tenantId) {

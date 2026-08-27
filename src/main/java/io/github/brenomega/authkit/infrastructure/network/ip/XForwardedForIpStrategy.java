@@ -19,12 +19,12 @@ import jakarta.servlet.http.HttpServletRequest;
  * {@code trustedProxyDepth} algorithm to prevent IP spoofing:</p>
  *
  * <pre>
- * X-Forwarded-For: spoofed, real-client, proxy1, proxy2
- *                  ^^^^^^^^  ^^^^^^^^^^^  ^^^^^^  ^^^^^^
- *                  untrusted  client IP   trusted trusted
+ * X-Forwarded-For: spoofed, real-client, proxy1
+ *                  ^^^^^^^^  ^^^^^^^^^^^  ^^^^^^
+ *                  untrusted  client IP   trusted
  *
  * With proxy-depth=2:
- *   index = length - proxyDepth - 1 = 4 - 2 - 1 = 1
+ *   index = length - proxyDepth = 3 - 2 = 1
  *   result = "real-client" ✓
  * </pre>
  *
@@ -67,7 +67,7 @@ public class XForwardedForIpStrategy implements IpResolutionStrategy {
      * Resolves the client IP from the {@code X-Forwarded-For} header using
      * the trusted proxy depth algorithm (DT 3.2.20).
      *
-     * <p>Selects the IP at index {@code length - proxyDepth - 1}, which is the
+     * <p>Selects the IP at index {@code length - proxyDepth}, which is the
      * IP appended by the outermost trusted proxy (the real client). If the header
      * doesn't contain enough entries for the configured depth, the first IP is
      * returned as a safe fallback.</p>
@@ -87,8 +87,8 @@ public class XForwardedForIpStrategy implements IpResolutionStrategy {
             ips[i] = ips[i].trim();
         }
 
-        // Apply trustedProxyDepth: select ips[length - proxyDepth - 1]
-        int targetIndex = ips.length - proxyDepth - 1;
+        // X-Forwarded-For excludes the direct peer, so select ips[length - proxyDepth].
+        int targetIndex = ips.length - proxyDepth;
 
         if (targetIndex < 0) {
             // Not enough IPs for the configured depth — fail closed to prevent spoofing

@@ -8,7 +8,6 @@ import jakarta.validation.constraints.Size;
  * <p>Includes optional properties (RF 2.1.6) editable via the profile update flow (RF 2.1.7).</p>
  */
 public record ProfileUpdateRequest(
-        @Size(max = 100) String name,
-        @Size(max = 20) String phone
+        @Size(max = 100) String name
 ) {
 }

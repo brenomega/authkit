@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.network.origin;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.DisplayName;
@@ -17,7 +18,6 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.github.brenomega.authkit.util.RsaKeyGenerator;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import java.security.KeyPair;
 
 /**
@@ -44,17 +44,23 @@ import java.security.KeyPair;
     "spring.rabbitmq.port=0",
     "spring.rabbitmq.listener.simple.auto-startup=false",
     "spring.rabbitmq.listener.direct.auto-startup=false",
+    "authkit.auth.token-storage.backend=jdbc",
+    "authkit.auth.token-storage.single-instance-mode=true",
+    "authkit.auth.abuse-control.fail-closed-high-risk=false",
     "app.security.worker-token=prod-firewall-worker-token-32-chars",
     "authkit.auth.jwt.issuer=https://auth.example.test",
     "authkit.auth.jwt.audience=https://api.example.test",
     "authkit.auth.jwt.key-id=authkit-test-key-1",
     "authkit.auth.frontend.activation-url=https://app.example.test/activate",
     "authkit.auth.frontend.password-reset-url=https://app.example.test/reset-password",
+    "authkit.auth.frontend.email-change-url=https://app.example.test/change-email",
+    "authkit.auth.oauth.authorization-ui-url=https://app.example.test/oauth/authorize",
     "authkit.auth.compliance.terms-version=terms-2026",
     "authkit.auth.compliance.privacy-policy-version=privacy-2026",
     "authkit.auth.compliance.lawful-basis=consent",
     "authkit.auth.compliance.retention-job-enabled=false",
     "authkit.auth.email-outbox.enabled=false",
+    "authkit.auth.email-templates.directory=src/test/resources/email-templates",
     "authkit.auth.audit.hash-pepper=production-firewall-test-audit-pepper-32-chars",
     "authkit.auth.audit.async-enabled=false",
     "authkit.auth.mfa.secret-encryption-key=production-firewall-test-mfa-secret-key-32-chars",
@@ -74,9 +80,6 @@ public class ProductionFirewallTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private StringRedisTemplate stringRedisTemplate;
 
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
@@ -102,6 +105,39 @@ public class ProductionFirewallTest {
                             request.setRemoteAddr("0:0:0:0:0:0:0:1");
                             return request;
                         })
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Container readiness may query only the health endpoint over loopback")
+    void firewallAllowsOnlyLocalGetHealthCheck() throws Exception {
+        mockMvc.perform(get("/actuator/health")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        }))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/actuator/health")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        }))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Untrusted peer cannot spoof forwarded or CDN client headers")
+    void firewallValidatesTcpPeerBeforeForwardedHeaders() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .with(request -> {
+                            request.setRemoteAddr("8.8.8.8");
+                            return request;
+                        })
+                        .header("X-Forwarded-For", "127.0.0.1, 10.0.0.10")
+                        .header("CF-Connecting-IP", "127.0.0.1")
                         .contentType("application/json")
                         .content("{}"))
                 .andExpect(status().isForbidden());

@@ -22,9 +22,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.entity.BootstrapState;
+import io.github.brenomega.authkit.domain.user.dto.BootstrapAdminRequest;
+import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
+import io.github.brenomega.authkit.repository.BootstrapStateRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.service.BootstrapAdminService;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 @SpringBootTest
@@ -44,6 +49,12 @@ class CriticalAuditRollbackIntegrationTest {
     @Autowired
     private TokenStorage tokenStorage;
 
+    @Autowired
+    private BootstrapAdminService bootstrapAdminService;
+
+    @Autowired
+    private BootstrapStateRepository bootstrapStateRepository;
+
     @MockitoBean
     private SecurityEventWriter securityEventWriter;
 
@@ -55,7 +66,6 @@ class CriticalAuditRollbackIntegrationTest {
                 "audit-rollback@example.com",
                 passwordEncoder.encode("CurrentPassword123!"),
                 "Still Present",
-                "555-0100",
                 true,
                 true,
                 null);
@@ -70,6 +80,7 @@ class CriticalAuditRollbackIntegrationTest {
 
         mockMvc.perform(delete("/api/v1/users/me")
                         .with(jwt().jwt(builder -> builder
+                                .claims(claims -> claims.remove("scope"))
                                 .subject(persistedUser.getId().toString())
                                 .audience(List.of("authkit-api"))
                                 .claim(JwtTokenUse.CLAIM, JwtTokenUse.FIRST_PARTY_ACCESS)
@@ -85,7 +96,27 @@ class CriticalAuditRollbackIntegrationTest {
         User persisted = userRepository.findById(persistedUser.getId()).orElseThrow();
         Assertions.assertEquals("audit-rollback@example.com", persisted.getEmail());
         Assertions.assertEquals("Still Present", persisted.getName());
-        Assertions.assertEquals("555-0100", persisted.getPhone());
+        Assertions.assertNotNull(persisted.getPassword());
         Assertions.assertFalse(persisted.isDeleted());
+    }
+
+    @Test
+    @DisplayName("Critical bootstrap audit failure rolls back both the admin and one-shot guard")
+    void criticalAuditFailureRollsBackBootstrap() {
+        bootstrapStateRepository.saveAndFlush(new BootstrapState(BootstrapState.SINGLETON_ID));
+        doThrow(new IllegalStateException("audit database unavailable"))
+                .when(securityEventWriter).persistCritical(any(SecurityEvent.class));
+
+        Assertions.assertThrows(RuntimeException.class, () -> bootstrapAdminService.bootstrap(
+                new BootstrapAdminRequest(
+                        "rollback-bootstrap@example.test",
+                        "BootstrapRiver73!",
+                        "Rollback Administrator",
+                        true,
+                        true)));
+
+        Assertions.assertEquals(0, userRepository.countByRole(Role.PLATFORM_ADMIN));
+        Assertions.assertFalse(bootstrapStateRepository.findById(BootstrapState.SINGLETON_ID)
+                .orElseThrow().isCompleted());
     }
 }

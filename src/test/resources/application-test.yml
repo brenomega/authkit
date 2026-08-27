@@ -1,0 +1,229 @@
+# =============================================================================
+# AuthKit — Test Profile Configuration (DT 3.1.24, DT 3.1.27)
+# Uses H2 in-memory database and disables all external dependencies.
+# Activated via @ActiveProfiles("test")
+# =============================================================================
+
+spring:
+  # ---------------------------------------------------------------------------
+  # H2 In-Memory Database (DT 3.1.24)
+  # ---------------------------------------------------------------------------
+  datasource:
+    url: jdbc:h2:mem:authkit-test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  # ---------------------------------------------------------------------------
+  # JPA — Auto-create schema for tests (no Flyway)
+  # ---------------------------------------------------------------------------
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  # ---------------------------------------------------------------------------
+  # Flyway — Disabled for test profile (H2 uses ddl-auto)
+  # ---------------------------------------------------------------------------
+  flyway:
+    enabled: false
+
+  # ---------------------------------------------------------------------------
+  # Redis — Disabled for test profile
+  # ---------------------------------------------------------------------------
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — Disabled for test profile
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    host: localhost
+    port: 0
+    listener:
+      simple:
+        auto-startup: false
+      direct:
+        auto-startup: false
+
+  # ---------------------------------------------------------------------------
+  # Jackson — Same strict settings as production
+  # ---------------------------------------------------------------------------
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+    mapper:
+      accept-case-insensitive-properties: false
+    parser:
+      strict-duplicate-detection: true
+
+resend:
+  api:
+    key: mock-key
+
+app:
+  security:
+    worker-token: test-dummy-worker-token
+
+# =============================================================================
+# Security Configuration (Argon2id)
+# Extremely relaxed for tests to keep test suite execution fast.
+# =============================================================================
+security:
+  argon2:
+    memory: 4096
+    iterations: 1
+    parallelism: 1
+    max-concurrent: 0
+
+# =============================================================================
+# JWT — Test keys loaded from classpath (DT 3.2.2)
+# These are test-only keys, safe to commit. Production keys are env-injected.
+# =============================================================================
+jwt:
+  public:
+    key: classpath:test-keys/app.pub
+  private:
+    key: classpath:test-keys/app.key
+
+# =============================================================================
+# Auth Runtime Configuration — deterministic test defaults
+# =============================================================================
+authkit:
+  auth:
+    scheduler:
+      distributed-lock-enabled: false
+    token:
+      access-token-ttl-seconds: 900
+      refresh-token-ttl-days: 7
+      recovery-token-ttl-minutes: 15
+    token-storage:
+      backend: redis
+      single-instance-mode: false
+      jdbc:
+        cleanup-delay-ms: 300000
+        cleanup-lock-at-most: PT5M
+        session-cursor-ttl-seconds: 300
+    cookie:
+      refresh-name: Refresh-Token
+      path: /api/v1/auth
+      http-only: true
+      secure: true
+      same-site: Strict
+    csrf:
+      enabled: true
+      cookie-name: XSRF-TOKEN
+      header-name: X-XSRF-TOKEN
+      path: /api/v1/auth
+      token-bytes: 32
+    jwt:
+      issuer: authkit
+      audience: authkit-api
+      key-id: authkit-key-1
+    frontend:
+      activation-url: https://authkit.io/activate
+      password-reset-url: https://frontend.url/reset-password
+      email-change-url: https://authkit.io/change-email
+    registration:
+      email-change-ttl-hours: 2
+      mode: public
+      stealth-conflicts: false
+    authority-cache:
+      ttl-seconds: 30
+      max-size: 10000
+    request:
+      max-body-bytes: 65536
+    abuse-control:
+      capacity-multiplier: 1000
+      fail-closed-high-risk: false
+    password:
+      hibp-enabled: false
+    email-outbox:
+      enabled: false
+      dispatch-mode: queue
+      batch-size: 50
+      direct-batch-size: 5
+      poll-delay-ms: 5000
+      lock-ttl-seconds: 300
+      delivery-ack-timeout-seconds: 600
+      scheduler-pool-size: 1
+      direct-core-pool-size: 1
+      direct-max-pool-size: 2
+      direct-queue-capacity: 10
+      preserve-rabbit-observability: false
+    email-provider:
+      type: resend
+    compliance:
+      terms-version: terms-v1
+      privacy-policy-version: privacy-v1
+      lawful-basis: consent
+      security-event-retention-days: 365
+      deleted-account-retention-days: 0
+      data-export-security-event-limit: 100
+      retention-batch-size: 500
+      retention-job-enabled: false
+      retention-job-cron: "0 30 3 * * *"
+    audit:
+      hash-pepper: test-only-authkit-audit-hash-pepper-32-bytes
+      async-enabled: false
+      writer-core-pool-size: 1
+      writer-max-pool-size: 1
+      writer-queue-capacity: 100
+      writer-shutdown-timeout-seconds: 1
+      persist-synchronously-on-overload: true
+    mfa:
+      enabled: true
+      backup-code-count: 10
+      login-challenge-ttl-minutes: 5
+      secret-encryption-key: test-only-authkit-mfa-secret-key-32-bytes
+      secret-encryption-key-id: test-mfa-key-1
+      previous-secret-encryption-keys: ''
+      secret-encryption-kdf-iterations: 1000
+      status-cache-ttl-seconds: 1
+      status-cache-max-size: 1000
+    passkey:
+      enabled: true
+      rp-id: localhost
+      rp-name: AuthKit Test
+      origins: http://localhost:8080,https://localhost:8443
+      challenge-ttl-minutes: 5
+      allow-origin-port: true
+      allow-origin-subdomain: false
+    oauth:
+      provider-enabled: true
+      authorization-code-ttl-minutes: 5
+      id-token-ttl-seconds: 900
+    email-templates:
+      directory: src/test/resources/email-templates
+      max-body-bytes: 65536
+    cors:
+      enabled: true
+      allowed-origins: http://localhost:3000
+      allowed-methods: GET,POST,PATCH,DELETE,OPTIONS
+      allowed-headers: Authorization,Content-Type,X-XSRF-TOKEN,X-Worker-Token
+      exposed-headers: Location
+      allow-credentials: true
+      max-age-seconds: 3600
+
+# =============================================================================
+# Rate Limiting — Relaxed capacity for integration tests (DT 3.2.21)
+# =============================================================================
+network:
+  security:
+    trusted-origins:
+      ranges: 127.0.0.1/32       # Explicitly trust localhost for tests
+    rate-limit:
+      local-capacity: 1000      # Relaxed for integration tests. NOTE: In prod, keep as fraction of global to prevent Outage Limit Amplification.
+      global-capacity: 5000
+      local-max-size: 100000
+  proxy-depth: 1
+  strategy:
+    cloudflare:
+      enabled: true
+    x-forwarded-for:
+      enabled: true

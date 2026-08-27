@@ -10,6 +10,15 @@ import org.springframework.mock.env.MockEnvironment;
 class ProductionConfigValidatorTest {
 
     @Test
+    @DisplayName("Production validation rejects an omitted registration mode")
+    void run_registrationModeOmitted_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.registration.mode", "");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
     @DisplayName("Production validation rejects non-stealth registration conflicts")
     void run_registrationStealthConflictsDisabled_rejectsStartup() {
         MockEnvironment environment = productionEnvironment()
@@ -23,6 +32,24 @@ class ProductionConfigValidatorTest {
     void run_httpFrontendUrl_rejectsStartup() {
         MockEnvironment environment = productionEnvironment()
                 .withProperty("authkit.auth.frontend.password-reset-url", "http://app.example.com/reset-password");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects an HTTP email-change action URL")
+    void run_httpEmailChangeUrl_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.frontend.email-change-url", "http://app.example.com/change-email");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects an HTTP OAuth authorization UI")
+    void run_httpAuthorizationUi_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.oauth.authorization-ui-url", "http://app.example.com/oauth/authorize");
 
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
@@ -95,7 +122,8 @@ class ProductionConfigValidatorTest {
         MockEnvironment environment = productionEnvironmentBaseWithoutRedis()
                 .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
                 .withProperty("authkit.auth.token-storage.backend", "jdbc")
-                .withProperty("authkit.auth.token-storage.single-instance-mode", "true");
+                .withProperty("authkit.auth.token-storage.single-instance-mode", "true")
+                .withProperty("authkit.auth.abuse-control.fail-closed-high-risk", "false");
 
         assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
     }
@@ -186,6 +214,8 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.jwt.revoked-key-ids", "")
                 .withProperty("authkit.auth.frontend.activation-url", "https://app.example.com/activate")
                 .withProperty("authkit.auth.frontend.password-reset-url", "https://app.example.com/reset-password")
+                .withProperty("authkit.auth.frontend.email-change-url", "https://app.example.com/change-email")
+                .withProperty("authkit.auth.oauth.authorization-ui-url", "https://app.example.com/oauth/authorize")
                 .withProperty("authkit.auth.compliance.terms-version", "terms-2026")
                 .withProperty("authkit.auth.compliance.privacy-policy-version", "privacy-2026")
                 .withProperty("authkit.auth.compliance.lawful-basis", "consent")
@@ -204,6 +234,7 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.csrf.cookie-name", "XSRF-TOKEN")
                 .withProperty("authkit.auth.csrf.header-name", "X-XSRF-TOKEN")
                 .withProperty("authkit.auth.registration.stealth-conflicts", "true")
+                .withProperty("authkit.auth.registration.mode", "public")
                 .withProperty("authkit.auth.passkey.allow-origin-port", "false")
                 .withProperty("authkit.auth.email-provider.type", "resend")
                 .withProperty("authkit.auth.email-provider.from", "AuthKit <auth@example.com>")
@@ -211,6 +242,10 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.email-provider.read-timeout-ms", "5000")
                 .withProperty("authkit.auth.email-provider.max-attempts", "3")
                 .withProperty("authkit.auth.email-provider.retry-backoff-ms", "250")
+                .withProperty("authkit.auth.email-templates.directory", "/run/config/email-templates")
+                .withProperty("authkit.auth.token.access-token-ttl-seconds", "300")
+                .withProperty("authkit.auth.password.hibp-enabled", "true")
+                .withProperty("authkit.auth.abuse-control.fail-closed-high-risk", "true")
                 .withProperty("authkit.auth.token-storage.jdbc.cleanup-delay-ms", "300000")
                 .withProperty("authkit.auth.token-storage.jdbc.session-cursor-ttl-seconds", "300")
                 .withProperty("authkit.auth.email-outbox.delivery-ack-timeout-seconds", "600")

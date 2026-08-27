@@ -14,8 +14,10 @@ import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 public interface MfaTotpCredentialRepository extends JpaRepository<MfaTotpCredential, UUID> {
 
     boolean existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(UUID userId);
+    long countByUserIdAndConfirmedTrueAndDisabledAtIsNull(UUID userId);
 
     List<MfaTotpCredential> findByUserIdAndConfirmedTrueAndDisabledAtIsNull(UUID userId);
+    List<MfaTotpCredential> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<MfaTotpCredential> findByIdAndUserId(UUID id, UUID userId);
 

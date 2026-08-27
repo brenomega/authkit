@@ -1,0 +1,22 @@
+{
+    admin off
+    auto_https disable_redirects
+}
+
+{$AUTHKIT_PUBLIC_HOST} {
+    tls /run/secrets/tls_certificate /run/secrets/tls_private_key
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+
+    reverse_proxy authkit:8080 {
+        header_up -X-Forwarded-For
+        header_up X-Forwarded-For {http.request.remote.host}
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {http.request.host}
+    }
+}

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
 
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationFinishRequest;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
@@ -13,6 +14,7 @@ import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidPasskeyCeremonyException;
+import io.github.brenomega.authkit.exception.LastAuthenticatorException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -21,6 +23,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
@@ -84,12 +89,40 @@ class PasskeyServiceTest {
         assertNull(passkeyCredentialRepository.findById(credential.getId()).orElseThrow().getDisabledAt());
     }
 
+    @Test
+    @DisplayName("Social-only account cannot disable its last passkey without a replacement authenticator")
+    void disable_rejectsLastAuthenticator() {
+        User user = new User("passkey-last@example.com", null, "Passkey Only", true, true, null);
+        user.setEmailConfirmed(true);
+        user = userRepository.save(user);
+        PasskeyCredential credential = passkeyCredentialRepository.save(new PasskeyCredential(
+                user.getId(), user.getTenantId(), "last-credential-" + user.getId(), "public-key-cose",
+                0, "internal", "Only Credential", true, Instant.now()));
+        Jwt jwt = Jwt.withTokenValue("test")
+                .header("alg", "none")
+                .subject(user.getId().toString())
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", user.getTenantId().toString())
+                .claim("amr", List.of("webauthn"))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(jwt, null, List.of()));
+        try {
+            assertThrows(LastAuthenticatorException.class,
+                    () -> passkeyService.disable(jwt.getSubject(), credential.getId(), null));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+        assertNull(passkeyCredentialRepository.findById(credential.getId()).orElseThrow().getDisabledAt());
+    }
+
     private void assertEqualsZero(long value) {
         org.junit.jupiter.api.Assertions.assertEquals(0L, value);
     }
 
     private User confirmedUser(String email) {
-        User user = new User(email, passwordEncoder.encode("Password123!"), "Test User", null, true, true, "token");
+        User user = new User(email, passwordEncoder.encode("Password123!"), "Test User", true, true, "token");
         user.setEmailConfirmed(true);
         return userRepository.save(user);
     }

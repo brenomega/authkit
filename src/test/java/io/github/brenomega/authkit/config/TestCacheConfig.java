@@ -11,6 +11,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.connection.RedisConnection;
 import java.util.Set;
 
 /**
@@ -35,6 +37,31 @@ public class TestCacheConfig {
         Map<String, Map<Object, Object>> hashCache = new HashMap<>();
         Map<String, String> valueCache = new HashMap<>();
         Map<String, Set<String>> setCache = new HashMap<>();
+
+        RedisConnection redisConnection = Mockito.mock(RedisConnection.class);
+        Mockito.when(redisConnection.getNativeConnection()).thenReturn(null);
+        Mockito.doAnswer(invocation -> {
+            Object[] commandArgs = invocation.getArguments();
+            String command = commandArgs[0].toString();
+            if (!"HSCAN".equals(command)) {
+                return null;
+            }
+            byte[] keyBytes = invocation.getArgument(1);
+            String key = new String(keyBytes, java.nio.charset.StandardCharsets.UTF_8);
+            Map<Object, Object> entries = hashCache.getOrDefault(key, Map.of());
+            java.util.List<byte[]> flattened = new java.util.ArrayList<>();
+            entries.forEach((field, value) -> {
+                flattened.add(field.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                flattened.add(value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            });
+            return java.util.List.of("0".getBytes(java.nio.charset.StandardCharsets.UTF_8), flattened);
+        }).when(redisConnection).execute(
+                Mockito.anyString(), Mockito.any(byte[].class), Mockito.any(byte[].class),
+                Mockito.any(byte[].class), Mockito.any(byte[].class));
+        Mockito.doAnswer(invocation -> {
+            RedisCallback<?> callback = invocation.getArgument(0);
+            return callback.doInRedis(redisConnection);
+        }).when(template).execute(Mockito.any(RedisCallback.class));
         
         // Mock ValueOperations — set with TTL
         Mockito.doAnswer(invocation -> {
@@ -100,12 +127,41 @@ public class TestCacheConfig {
         // Mock Template — expire (used by AccountLockoutService DT 3.2.23)
         Mockito.when(template.expire(Mockito.anyString(), Mockito.anyLong(), Mockito.any(java.util.concurrent.TimeUnit.class)))
                .thenReturn(Boolean.TRUE);
+        Mockito.when(template.expire(Mockito.anyString(), Mockito.any(Duration.class)))
+               .thenReturn(Boolean.TRUE);
+
+        Mockito.doAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return valueCache.containsKey(key) || hashCache.containsKey(key) || setCache.containsKey(key);
+        }).when(template).hasKey(Mockito.anyString());
 
         // Mock Template - execute (used by RedisTokenStorage Lua script DT 3.2.4)
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
             Object[] args = invocation.getArguments();
+            org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+
+            if (script.getScriptAsString().contains("current ~= ARGV[2]")) {
+                Map<Object, Object> metadata = hashCache.get(key);
+                String jti = args[2].toString();
+                if (metadata != null && java.util.Objects.equals(metadata.get(jti), args[3])) {
+                    metadata.put(jti, args[4]);
+                    return 1L;
+                }
+                return 0L;
+            }
+
+            if (keys.size() == 2 && script.getScriptAsString().contains("'NX', 'EX'")) {
+                String claimKey = (String) keys.get(1);
+                String inputHash = args[2].toString();
+                String claimId = args[3].toString();
+                if (inputHash.equals(valueCache.get(key)) && !valueCache.containsKey(claimKey)) {
+                    valueCache.put(claimKey, claimId);
+                    return 1L;
+                }
+                return 0L;
+            }
 
             if (args.length == 3) {
                 if (isRefreshTokenKey(key)) {
@@ -144,8 +200,13 @@ public class TestCacheConfig {
             hashCache.computeIfAbsent(tokenKey, k -> new HashMap<>()).put(jti, value);
             valueCache.put(familyKey, jti);
             setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(familyId);
+            hashCache.computeIfAbsent((String) keys.get(3), k -> new HashMap<>())
+                    .put(jti, invocation.getArgument(6).toString());
+            hashCache.computeIfAbsent((String) keys.get(4), k -> new HashMap<>())
+                    .put(invocation.getArgument(7).toString(), jti);
             return Boolean.TRUE;
-        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
 
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
@@ -177,6 +238,20 @@ public class TestCacheConfig {
                 if (currentHash.equals(storedHash)) {
                     sessions.remove(currentJti);
                     sessions.put(nextJti, nextHash + ":" + storedFamily);
+                    Map<Object, Object> metadata = hashCache.get((String) keys.get(3));
+                    if (metadata != null) {
+                        Object serialized = metadata.remove(currentJti);
+                        if (serialized != null) {
+                            String value = serialized.toString();
+                            String[] parts = value.split("\\|", -1);
+                            parts[2] = invocation.getArgument(8).toString();
+                            parts[3] = invocation.getArgument(9).toString();
+                            String updated = String.join("|", parts);
+                            metadata.put(nextJti, updated);
+                            hashCache.computeIfAbsent((String) keys.get(4), ignored -> new HashMap<>())
+                                    .put(parts[0], nextJti);
+                        }
+                    }
                     valueCache.put(familyKey, nextJti);
                     setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(storedFamily);
                     return 1L;
@@ -230,12 +305,34 @@ public class TestCacheConfig {
                 Mockito.any(),
                 Mockito.any(),
                 Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
                 Mockito.any()
         );
 
         Mockito.doAnswer(invocation -> {
             java.util.List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
+            org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+            if (keys.size() == 2 && script.getScriptAsString().contains("redis.call('GET', KEYS[2])")) {
+                String claimKey = (String) keys.get(1);
+                String claimId = invocation.getArgument(2).toString();
+                if (claimId.equals(valueCache.get(claimKey))) {
+                    valueCache.remove(key);
+                    valueCache.remove(claimKey);
+                    return 1L;
+                }
+                return 0L;
+            }
+            if (key.startsWith("recovery:claim:")
+                    && script.getScriptAsString().contains("redis.call('DEL', KEYS[1])")) {
+                String claimId = invocation.getArgument(2).toString();
+                if (claimId.equals(valueCache.get(key))) {
+                    valueCache.remove(key);
+                    return 1L;
+                }
+                return 0L;
+            }
             if (isRefreshTokenKey(key)) {
                 Set<String> families = setCache.remove((String) keys.get(1));
                 if (families != null) {
@@ -243,6 +340,10 @@ public class TestCacheConfig {
                     families.forEach(family -> valueCache.remove(familyKeyPrefix + family));
                 }
                 Map<Object, Object> removed = hashCache.remove(key);
+                if (keys.size() > 2) {
+                    hashCache.remove((String) keys.get(2));
+                    hashCache.remove((String) keys.get(3));
+                }
                 return removed == null ? 0L : Long.valueOf(removed.size());
             }
             String inputHash = invocation.getArgument(2).toString();
@@ -259,7 +360,7 @@ public class TestCacheConfig {
             String key = (String) keys.get(0);
             if (isRefreshTokenKey(key)) {
                 org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
-                String jti = invocation.getArgument(2).toString();
+                String requestedId = invocation.getArgument(2).toString();
                 String familyKeyPrefix = invocation.getArgument(3).toString();
                 Map<Object, Object> sessions = hashCache.get(key);
                 if (sessions == null) {
@@ -268,7 +369,7 @@ public class TestCacheConfig {
                 if (script.getScriptAsString().contains("fields[i] ~= ARGV[1]")) {
                     java.util.List<Object> removed = new java.util.ArrayList<>();
                     sessions.keySet().forEach(existingJti -> {
-                        if (!existingJti.equals(jti)) {
+                        if (!existingJti.equals(requestedId)) {
                             removed.add(existingJti);
                         }
                     });
@@ -279,7 +380,25 @@ public class TestCacheConfig {
                             existingJti,
                             valueCache,
                             setCache));
+                    if (keys.size() > 3) {
+                        Map<Object, Object> metadata = hashCache.get((String) keys.get(2));
+                        Map<Object, Object> publicIndex = hashCache.get((String) keys.get(3));
+                        removed.forEach(existingJti -> removeSessionMetadata(metadata, publicIndex, existingJti));
+                    }
                     return Long.valueOf(removed.size());
+                }
+                String jti = requestedId;
+                if (script.getScriptAsString().contains("HGET', KEYS[4]")) {
+                    Map<Object, Object> publicIndex = hashCache.get((String) keys.get(3));
+                    Object resolved = publicIndex == null ? null : publicIndex.get(requestedId);
+                    if (resolved == null) {
+                        return 0L;
+                    }
+                    jti = resolved.toString();
+                    removeSessionMetadata(hashCache.get((String) keys.get(2)), publicIndex, jti);
+                } else if (keys.size() > 3) {
+                    removeSessionMetadata(hashCache.get((String) keys.get(2)),
+                            hashCache.get((String) keys.get(3)), jti);
                 }
                 return removeRefreshSession(
                         sessions,
@@ -325,5 +444,18 @@ public class TestCacheConfig {
             setCache.remove(familiesKey);
         }
         return 1L;
+    }
+
+    private static void removeSessionMetadata(Map<Object, Object> metadata,
+                                              Map<Object, Object> publicIndex,
+                                              Object jti) {
+        if (metadata == null) {
+            return;
+        }
+        Object serialized = metadata.remove(jti);
+        if (serialized != null && publicIndex != null) {
+            String publicId = serialized.toString().split("\\|", 2)[0];
+            publicIndex.remove(publicId);
+        }
     }
 }

@@ -31,8 +31,14 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 public record ApiResponse<T>(
         T data,
         List<String> errors,
-        Instant timestamp
+        Instant timestamp,
+        String code,
+        String requestId
 ) {
+
+    public ApiResponse(T data, List<String> errors, Instant timestamp) {
+        this(data, errors, timestamp, null, RequestContext.currentRequestId());
+    }
 
     /**
      * Creates a successful response containing the given payload.
@@ -53,7 +59,11 @@ public record ApiResponse<T>(
      * @return a timestamped error envelope
      */
     public static <T> ApiResponse<T> error(String message) {
-        return new ApiResponse<>(null, List.of(message), Instant.now());
+        return error("request_failed", message);
+    }
+
+    public static <T> ApiResponse<T> error(String code, String message) {
+        return new ApiResponse<>(null, List.of(message), Instant.now(), code, RequestContext.currentRequestId());
     }
 
     /**
@@ -64,7 +74,7 @@ public record ApiResponse<T>(
      * @return a timestamped error envelope
      */
     public static <T> ApiResponse<T> errors(List<String> messages) {
-        return new ApiResponse<>(null, messages, Instant.now());
+        return new ApiResponse<>(null, messages, Instant.now(), "request_failed", RequestContext.currentRequestId());
     }
 
     /**
@@ -74,6 +84,7 @@ public record ApiResponse<T>(
      * @return a timestamped error envelope with structured field errors
      */
     public static ApiResponse<List<FieldError>> validationError(List<FieldError> fieldErrors) {
-        return new ApiResponse<>(fieldErrors, List.of("Validation failed"), Instant.now());
+        return new ApiResponse<>(fieldErrors, List.of("Validation failed"), Instant.now(),
+                "validation_failed", RequestContext.currentRequestId());
     }
 }

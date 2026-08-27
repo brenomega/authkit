@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.env.Environment;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +25,7 @@ import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming
  * or default placeholder settings are detected outside of test/dev profiles.</p>
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class ProductionConfigValidator implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ProductionConfigValidator.class);
@@ -54,9 +57,11 @@ public class ProductionConfigValidator implements ApplicationRunner {
             validateCredential("spring.data.redis.password", "redis", "password", "CHANGE-ME-REDIS-PASSWORD");
         }
         validateEmailDispatchMode();
+        validateRegistrationMode();
         validateSchedulerLocks();
         validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
         validateEmailProvider();
+        validateCredential("authkit.auth.email-templates.directory");
         validateCredential("authkit.auth.jwt.issuer", "authkit");
         validateCredential("authkit.auth.jwt.audience", "authkit-api");
         validateCredential("authkit.auth.jwt.key-id");
@@ -64,6 +69,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateOptionalKeyIdList("authkit.auth.jwt.revoked-key-ids");
         validateHttpsUrl("authkit.auth.frontend.activation-url", "https://authkit.io/activate");
         validateHttpsUrl("authkit.auth.frontend.password-reset-url", "https://frontend.url/reset-password");
+        validateHttpsUrl("authkit.auth.frontend.email-change-url");
+        validateHttpsUrl("authkit.auth.oauth.authorization-ui-url");
         validateCredential("authkit.auth.compliance.terms-version");
         validateCredential("authkit.auth.compliance.privacy-policy-version");
         validateCredential("authkit.auth.compliance.lawful-basis");
@@ -88,6 +95,12 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateCredential("authkit.auth.csrf.header-name");
         validateBoolean("authkit.auth.registration.stealth-conflicts", true);
         validateBoolean("authkit.auth.passkey.allow-origin-port", false);
+        validateSocialFederation();
+        validateMaxLong("authkit.auth.token.access-token-ttl-seconds", 300);
+        validateBoolean("authkit.auth.password.hibp-enabled", true);
+        if (usesRedisTokenStorage()) {
+            validateBoolean("authkit.auth.abuse-control.fail-closed-high-risk", true);
+        }
         validateMinLong("authkit.auth.email-provider.connect-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.read-timeout-ms", 100);
         validateMinLong("authkit.auth.email-provider.max-attempts", 1);
@@ -102,6 +115,38 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateNonNegativeLong("security.argon2.max-concurrent");
 
         log.info("Production configuration security checks PASSED successfully.");
+    }
+
+    private void validateRegistrationMode() {
+        String mode = environment.getProperty("authkit.auth.registration.mode", "").trim().toLowerCase(Locale.ROOT);
+        if (!mode.equals("public") && !mode.equals("restricted")) {
+            throw new IllegalStateException(
+                    "AUTH_REGISTRATION_MODE must explicitly be 'public' or 'restricted' outside test/dev profiles");
+        }
+    }
+
+    private void validateSocialFederation() {
+        if (!Boolean.parseBoolean(environment.getProperty("authkit.auth.social.enabled", "false"))) {
+            return;
+        }
+        validateHttpsUrl("authkit.auth.social.callback-base-url", "http://localhost:8080");
+        String issuers = environment.getProperty("authkit.auth.social.issuer-allowlist", "");
+        if (issuers.isBlank()) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Social issuer allowlist must be explicit.");
+        }
+        for (String issuer : issuers.split(",")) {
+            String value = issuer.trim();
+            try {
+                java.net.URI uri = java.net.URI.create(value);
+                if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                        || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
+                    throw new IllegalArgumentException();
+                }
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Every social issuer allowlist entry must be an exact HTTPS issuer.", ex);
+            }
+        }
     }
 
     private void validateTokenStorage() {
@@ -334,6 +379,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
         AuthProperties.EmailProvider provider = properties.getEmailProvider();
         AuthProperties.EmailOutbox outbox = properties.getEmailOutbox();
 
+        provider.setType(environment.getProperty("authkit.auth.email-provider.type", provider.getType()));
         provider.setMaxAttempts((int) getLongProperty("authkit.auth.email-provider.max-attempts", provider.getMaxAttempts()));
         provider.setConnectTimeoutMs((int) getLongProperty("authkit.auth.email-provider.connect-timeout-ms", provider.getConnectTimeoutMs()));
         provider.setReadTimeoutMs((int) getLongProperty("authkit.auth.email-provider.read-timeout-ms", provider.getReadTimeoutMs()));

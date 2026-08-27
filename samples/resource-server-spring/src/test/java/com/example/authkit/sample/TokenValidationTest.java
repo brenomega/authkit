@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -58,7 +57,7 @@ class TokenValidationTest {
     }
 
     @Test
-    void sampleEndpointsEnforceTenantAndScopeServerSide() throws Exception {
+    void sampleEndpointsUseOauthScopeAndNeverTreatTenantAsOrganizationAuthorization() throws Exception {
         mockMvc.perform(get("/sample/me").with(jwt().jwt(token -> token
                         .subject("user-1")
                         .claim("tenant_id", "tenant-a")
@@ -68,40 +67,19 @@ class TokenValidationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tenant_id").value("tenant-a"));
 
-        mockMvc.perform(get("/sample/tenant/tenant-a/profile").with(jwt().jwt(token -> token
+        mockMvc.perform(get("/sample/protected").with(jwt().jwt(token -> token
                         .subject("user-1")
                         .claim("tenant_id", "tenant-a")
-                        .claim("scope", "openid email")
+                        .claim("scope", "openid email sample.read")
                         .claim("token_use", "oauth_access"))))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/sample/tenant/tenant-b/profile").with(jwt().jwt(token -> token
+        mockMvc.perform(get("/sample/protected").with(jwt().jwt(token -> token
                         .subject("user-1")
                         .claim("tenant_id", "tenant-a")
                         .claim("scope", "openid email")
                         .claim("token_use", "oauth_access"))))
                 .andExpect(status().isForbidden());
-
-        mockMvc.perform(get("/sample/tenant/tenant-a/profile").with(jwt().jwt(token -> token
-                        .subject("user-1")
-                        .claim("scope", "openid email")
-                        .claim("token_use", "oauth_access"))))
-                .andExpect(status().isForbidden());
-
-        mockMvc.perform(get("/sample/admin/tenant/tenant-a/users").with(jwt().jwt(token -> token
-                        .subject("user-1")
-                        .claim("tenant_id", "tenant-a")
-                        .claim("scope", "openid email")
-                        .claim("token_use", "oauth_access"))))
-                .andExpect(status().isForbidden());
-
-        mockMvc.perform(get("/sample/admin/tenant/tenant-a/users").with(jwt().jwt(token -> token
-                        .subject("user-1")
-                        .claim("tenant_id", "tenant-a")
-                        .claim("scope", "openid email admin")
-                        .claim("token_use", "oauth_access"))
-                        .authorities(new SimpleGrantedAuthority("SCOPE_admin"))))
-                .andExpect(status().isOk());
     }
 
     private Jwt jwtClaims(Map<String, Object> claims) {

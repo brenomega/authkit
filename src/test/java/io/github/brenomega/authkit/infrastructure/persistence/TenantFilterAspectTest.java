@@ -17,6 +17,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
@@ -62,6 +63,25 @@ class TenantFilterAspectTest {
 
         when(joinPoint.proceed()).thenReturn("done");
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of("tenant_id", "not-a-uuid"))));
+
+        Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
+
+        assertEquals("done", result);
+        verify(entityManager, never()).unwrap(Session.class);
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Platform administrators are not restricted to their personal tenant partition")
+    void enforceTenantFilter_platformAdmin_doesNotEnableFilter() throws Throwable {
+        EntityManager entityManager = mock(EntityManager.class);
+        ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
+        String tenantId = UUID.randomUUID().toString();
+
+        when(joinPoint.proceed()).thenReturn("done");
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
+                jwt(Map.of("tenant_id", tenantId)),
+                java.util.List.of(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"))));
 
         Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
 

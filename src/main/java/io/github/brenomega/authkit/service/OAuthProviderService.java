@@ -33,7 +33,11 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeResponse;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizationTransactionResponse;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationTransaction;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshToken;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
 import io.github.brenomega.authkit.domain.user.entity.User;
@@ -41,6 +45,8 @@ import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
+import io.github.brenomega.authkit.exception.OAuthProtocolException;
+import io.github.brenomega.authkit.exception.OAuthRefreshReplayException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
@@ -53,10 +59,14 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.JwtKeyService;
 import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 import io.github.brenomega.authkit.infrastructure.security.OAuthTokenRevocationService;
+import io.github.brenomega.authkit.infrastructure.security.OAuthTransactionCodec;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.repository.OAuthAuthorizationTransactionRepository;
+import io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository;
+import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -84,6 +94,10 @@ public class OAuthProviderService {
     private final AbuseThrottleService abuseThrottleService;
     private final OAuthTokenRevocationService tokenRevocationService;
     private final JwtDecoder oauthJwtDecoder;
+    private final OAuthAuthorizationTransactionRepository authorizationTransactionRepository;
+    private final OAuthRefreshTokenFamilyRepository refreshFamilyRepository;
+    private final OAuthRefreshTokenRepository refreshTokenRepository;
+    private final OAuthTransactionCodec transactionCodec;
 
     public OAuthProviderService(OAuthClientRepository clientRepository,
                                 OAuthAuthorizationCodeRepository authorizationCodeRepository,
@@ -96,7 +110,11 @@ public class OAuthProviderService {
                                 Argon2ConcurrencyLimiter argon2Limiter,
                                 AbuseThrottleService abuseThrottleService,
                                 OAuthTokenRevocationService tokenRevocationService,
-                                JwtKeyService jwtKeyService) {
+                                JwtKeyService jwtKeyService,
+                                OAuthAuthorizationTransactionRepository authorizationTransactionRepository,
+                                OAuthRefreshTokenFamilyRepository refreshFamilyRepository,
+                                OAuthRefreshTokenRepository refreshTokenRepository,
+                                OAuthTransactionCodec transactionCodec) {
         this.clientRepository = clientRepository;
         this.authorizationCodeRepository = authorizationCodeRepository;
         this.consentRepository = consentRepository;
@@ -108,7 +126,100 @@ public class OAuthProviderService {
         this.argon2Limiter = argon2Limiter;
         this.abuseThrottleService = abuseThrottleService;
         this.tokenRevocationService = tokenRevocationService;
+        this.authorizationTransactionRepository = authorizationTransactionRepository;
+        this.refreshFamilyRepository = refreshFamilyRepository;
+        this.refreshTokenRepository = refreshTokenRepository;
+        this.transactionCodec = transactionCodec;
         this.oauthJwtDecoder = oauthJwtDecoder(jwtKeyService, tokenRevocationService);
+    }
+
+    @Transactional
+    public String beginAuthorization(String responseType, String clientId, String redirectUri, String scope,
+                                     String state, String codeChallenge, String codeChallengeMethod, String nonce) {
+        ensureEnabled();
+        if (clientId == null || clientId.isBlank()) {
+            throw new OAuthProtocolException("invalid_request", "client_id is required");
+        }
+        OAuthClient client = loadEnabledClient(clientId);
+        if (!client.getRedirectUris().contains(redirectUri)) {
+            throw new OAuthProtocolException("invalid_request", "Invalid redirect_uri");
+        }
+        if (!"code".equals(responseType)) {
+            return redirectWithError(redirectUri, "unsupported_response_type", "Only response_type=code is supported", state);
+        }
+        if (state == null || state.isBlank() || state.length() > 255) {
+            return redirectWithError(redirectUri, "invalid_request", "state is required", null);
+        }
+        if (!PKCE_S256.equals(codeChallengeMethod) || codeChallenge == null
+                || !PKCE_CHALLENGE_PATTERN.matcher(codeChallenge).matches()) {
+            return redirectWithError(redirectUri, "invalid_request", "PKCE S256 is required", state);
+        }
+        Set<String> scopes = parseScopes(scope == null ? "" : scope);
+        if (scopes.isEmpty() || !client.getScopes().containsAll(scopes)) {
+            return redirectWithError(redirectUri, "invalid_scope", "Requested scope is not allowed", state);
+        }
+        if (scopes.contains("openid") && (nonce == null || nonce.isBlank() || nonce.length() > 255)) {
+            return redirectWithError(redirectUri, "invalid_request", "nonce is required for OpenID Connect", state);
+        }
+        abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, clientId);
+        var issued = transactionCodec.issue();
+        Instant now = Instant.now();
+        authorizationTransactionRepository.save(new OAuthAuthorizationTransaction(
+                issued.hash(), clientId, redirectUri, scopes, state, nonce, codeChallenge,
+                codeChallengeMethod, now,
+                now.plusSeconds(authProperties.getOauth().getAuthorizationCodeTtlMinutes() * 60)));
+        return authProperties.getOauth().getAuthorizationUiUrl()
+                + (authProperties.getOauth().getAuthorizationUiUrl().contains("?") ? "&" : "?")
+                + "transaction=" + urlEncode(issued.raw());
+    }
+
+    @Transactional(readOnly = true)
+    public OAuthAuthorizationTransactionResponse authorizationTransaction(String rawTransaction, Jwt principal) {
+        OAuthAuthorizationTransaction transaction = loadAuthorizationTransaction(rawTransaction);
+        OAuthClient client = loadEnabledClient(transaction.getClientId());
+        User user = loadActiveUser(principal);
+        OAuthConsent consent = consentRepository.findByUserIdAndClientIdAndRevokedAtIsNull(
+                user.getId(), client.getClientId()).orElse(null);
+        boolean consentRequired = consent == null || !consent.includes(transaction.getScopes());
+        return new OAuthAuthorizationTransactionResponse(client.getClientId(), client.getDisplayName(),
+                transaction.getScopes(), consentRequired,
+                Math.max(0, transaction.getExpiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
+    }
+
+    @Transactional
+    public String resumeAuthorization(String rawTransaction, Jwt principal, boolean approved) {
+        OAuthAuthorizationTransaction transaction = loadAuthorizationTransaction(rawTransaction);
+        Instant now = Instant.now();
+        if (authorizationTransactionRepository.consume(transaction.getId(), now) != 1) {
+            throw new OAuthProtocolException("invalid_request", "Authorization transaction is expired or already used");
+        }
+        if (!approved) {
+            return redirectWithError(transaction.getRedirectUri(), "access_denied", "The resource owner denied the request",
+                    transaction.getState());
+        }
+        OAuthClient client = loadEnabledClient(transaction.getClientId());
+        User user = loadActiveUser(principal);
+        ensureConsent(user, client, transaction.getScopes(), true);
+        return issueAuthorizationCode(user, client, transaction.getRedirectUri(), transaction.getScopes(),
+                principal.getClaimAsStringList("amr"), transaction.getCodeChallenge(),
+                transaction.getCodeChallengeMethod(), transaction.getNonce(), transaction.getState());
+    }
+
+    private User loadActiveUser(Jwt principal) {
+        @SuppressWarnings("null")
+        User user = userRepository.findById(UUID.fromString(principal.getSubject()))
+                .filter(User::isActive).orElseThrow(UserNotFoundException::new);
+        user.requireEmailConfirmed();
+        return user;
+    }
+
+    private OAuthAuthorizationTransaction loadAuthorizationTransaction(String raw) {
+        String hash = transactionCodec.validatedHash(raw)
+                .orElseThrow(() -> new OAuthProtocolException("invalid_request", "Invalid authorization transaction"));
+        return authorizationTransactionRepository.findByTokenHash(hash)
+                .filter(tx -> tx.getConsumedAt() == null)
+                .filter(tx -> tx.getExpiresAt().isAfter(Instant.now()))
+                .orElseThrow(() -> new OAuthProtocolException("invalid_request", "Authorization transaction is expired or already used"));
     }
 
     @Transactional
@@ -136,10 +247,9 @@ public class OAuthProviderService {
 
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(principal.getSubject()))
-                .filter(existing -> !existing.isDeleted())
+                .filter(User::isActive)
                 .orElseThrow(UserNotFoundException::new);
         user.requireEmailConfirmed();
-        requireTenantAccess(user, client);
         ensureConsent(user, client, requestedScopes, request.consentAccepted());
 
         String rawCode = SecureTokenGenerator.randomUrlSafeToken(32);
@@ -181,18 +291,42 @@ public class OAuthProviderService {
                                     String clientId,
                                     String clientSecret,
                                     String codeVerifier) {
+        return token(grantType, code, redirectUri, clientId, clientSecret, codeVerifier, null);
+    }
+
+    @Transactional(noRollbackFor = OAuthRefreshReplayException.class)
+    public OAuthTokenResponse token(String grantType,
+                                    String code,
+                                    String redirectUri,
+                                    String clientId,
+                                    String clientSecret,
+                                    String codeVerifier,
+                                    String refreshToken) {
         ensureEnabled();
-        if (!"authorization_code".equals(grantType)
-                || code == null || code.isBlank()
-                || redirectUri == null || redirectUri.isBlank()
-                || clientId == null || clientId.isBlank()
-                || codeVerifier == null || !PKCE_VERIFIER_PATTERN.matcher(codeVerifier).matches()) {
-            throw new InvalidOAuthRequestException();
+        if (clientId == null || clientId.isBlank()) {
+            throw new OAuthProtocolException("invalid_client", "Client authentication is required");
         }
         abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, clientId);
-
         OAuthClient client = loadEnabledClient(clientId);
         validateClientAuthentication(client, clientSecret);
+        if ("authorization_code".equals(grantType)) {
+            return exchangeAuthorizationCode(code, redirectUri, codeVerifier, client);
+        }
+        if ("refresh_token".equals(grantType)) {
+            return rotateRefreshToken(refreshToken, client);
+        }
+        throw new OAuthProtocolException("unsupported_grant_type", "Only authorization_code and refresh_token are supported");
+    }
+
+    private OAuthTokenResponse exchangeAuthorizationCode(String code,
+                                                          String redirectUri,
+                                                          String codeVerifier,
+                                                          OAuthClient client) {
+        if (code == null || code.isBlank()
+                || redirectUri == null || redirectUri.isBlank()
+                || codeVerifier == null || !PKCE_VERIFIER_PATTERN.matcher(codeVerifier).matches()) {
+            throw new OAuthProtocolException("invalid_request", "code, redirect_uri and a valid code_verifier are required");
+        }
 
         String codeHash = TokenHasher.sha256Hex(code);
         OAuthAuthorizationCode authorizationCode = authorizationCodeRepository.findByCodeHash(codeHash)
@@ -200,23 +334,27 @@ public class OAuthProviderService {
                 .filter(existing -> existing.getExpiresAt().isAfter(Instant.now()))
                 .filter(existing -> existing.getClientId().equals(client.getClientId()))
                 .filter(existing -> existing.getRedirectUri().equals(redirectUri))
-                .orElseThrow(InvalidOAuthRequestException::new);
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Authorization code is invalid, expired or already used"));
 
         if (client.isRequirePkce() && !pkceMatches(codeVerifier, authorizationCode.getCodeChallenge())) {
-            throw new InvalidOAuthRequestException();
+            throw new OAuthProtocolException("invalid_grant", "PKCE verification failed");
         }
 
         if (authorizationCodeRepository.consume(codeHash, Instant.now()) != 1) {
-            throw new InvalidOAuthRequestException();
+            throw new OAuthProtocolException("invalid_grant", "Authorization code is invalid, expired or already used");
         }
 
         @SuppressWarnings("null")
         User user = userRepository.findById(authorizationCode.getUserId())
-                .filter(existing -> !existing.isDeleted())
+                .filter(User::isActive)
                 .orElseThrow(InvalidOAuthRequestException::new);
         user.requireEmailConfirmed();
 
-        String accessToken = issueAccessToken(user, client, authorizationCode.getScopes(), authorizationCode.getAmr());
+        IssuedRefreshToken issuedRefresh = authorizationCode.getScopes().contains("offline_access")
+                ? issueRefreshTokenFamily(user, client, authorizationCode.getScopes(), authorizationCode.getAmr())
+                : null;
+        String accessToken = issueAccessToken(user, client, authorizationCode.getScopes(), authorizationCode.getAmr(),
+                issuedRefresh == null ? null : issuedRefresh.familyId());
         String idToken = authorizationCode.getScopes().contains("openid")
                 ? issueIdToken(user, client, authorizationCode)
                 : null;
@@ -232,17 +370,90 @@ public class OAuthProviderService {
         return new OAuthTokenResponse(
                 accessToken,
                 idToken,
+                issuedRefresh == null ? null : issuedRefresh.rawToken(),
                 "Bearer",
                 authProperties.getToken().getAccessTokenTtlSeconds(),
                 String.join(" ", authorizationCode.getScopes()));
     }
 
+    private OAuthTokenResponse rotateRefreshToken(String rawRefreshToken, OAuthClient client) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank() || rawRefreshToken.length() > 512) {
+            throw new OAuthProtocolException("invalid_request", "refresh_token is required");
+        }
+        Instant now = Instant.now();
+        String tokenHash = TokenHasher.sha256Hex(rawRefreshToken);
+        OAuthRefreshToken token = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Refresh token is invalid"));
+        OAuthRefreshTokenFamily family = refreshFamilyRepository.findByIdForUpdate(token.getFamilyId())
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Refresh token family is invalid"));
+        if (!family.getClientId().equals(client.getClientId())) {
+            throw new OAuthProtocolException("invalid_grant", "Refresh token does not belong to this client");
+        }
+        if (!token.isActive(now) || !family.isActive(now)
+                || !MessageDigest.isEqual(tokenHash.getBytes(StandardCharsets.US_ASCII),
+                        family.getActiveTokenHash().getBytes(StandardCharsets.US_ASCII))) {
+            family.revoke(now, true);
+            refreshTokenRepository.findByFamilyId(family.getId()).forEach(existing -> existing.revoke(now));
+            userRepository.findById(family.getUserId()).ifPresent(user -> securityEventService.recordForTargetUser(
+                    SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED,
+                    SecurityEventOutcome.DENIED,
+                    SecurityEventSeverity.CRITICAL,
+                    user,
+                    "oauth_refresh_token_reuse_detected",
+                    Map.of("client_id", client.getClientId(), "family_id", family.getId().toString())));
+            refreshTokenRepository.flush();
+            refreshFamilyRepository.flush();
+            throw new OAuthRefreshReplayException();
+        }
+        User user = userRepository.findById(family.getUserId())
+                .filter(User::isActive)
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Resource owner is not active"));
+        user.requireEmailConfirmed();
+
+        String replacement = SecureTokenGenerator.randomUrlSafeToken(48);
+        String replacementHash = TokenHasher.sha256Hex(replacement);
+        token.consume(now, replacementHash);
+        family.rotate(replacementHash);
+        refreshTokenRepository.save(new OAuthRefreshToken(replacementHash, family.getId(), now, family.getExpiresAt()));
+
+        String accessToken = issueAccessToken(user, client, family.getScopes(), family.getAmr(), family.getId());
+        securityEventService.recordForTargetUser(
+                SecurityEventType.OAUTH_TOKEN_ISSUED, SecurityEventOutcome.SUCCESS, SecurityEventSeverity.MEDIUM,
+                user, "oauth_refresh_token_rotated", Map.of("client_id", client.getClientId()));
+        return new OAuthTokenResponse(accessToken, null, replacement, "Bearer",
+                authProperties.getToken().getAccessTokenTtlSeconds(), String.join(" ", family.getScopes()));
+    }
+
+    private IssuedRefreshToken issueRefreshTokenFamily(User user, OAuthClient client, Set<String> scopes, Set<String> amr) {
+        Instant now = Instant.now();
+        Instant expiresAt = now.plusSeconds(authProperties.getOauth().getRefreshTokenTtlDays() * 86_400);
+        String raw = SecureTokenGenerator.randomUrlSafeToken(48);
+        String hash = TokenHasher.sha256Hex(raw);
+        UUID familyId = UUID.randomUUID();
+        refreshFamilyRepository.save(new OAuthRefreshTokenFamily(
+                familyId, user.getId(), client.getClientId(), scopes, amr, hash, now, expiresAt));
+        refreshTokenRepository.save(new OAuthRefreshToken(hash, familyId, now, expiresAt));
+        return new IssuedRefreshToken(raw, familyId);
+    }
+
     @Transactional
     public void revoke(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
+        if (token == null || token.isBlank()) {
+            throw new OAuthProtocolException("invalid_request", "token is required");
+        }
         OAuthClient client = loadEnabledClient(clientId);
         abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, client.getClientId());
         validateClientAuthentication(client, clientSecret);
+        Instant now = Instant.now();
+        refreshTokenRepository.findByTokenHashForUpdate(TokenHasher.sha256Hex(token)).ifPresent(refresh -> {
+            refreshFamilyRepository.findByIdForUpdate(refresh.getFamilyId())
+                    .filter(family -> family.getClientId().equals(client.getClientId()))
+                    .ifPresent(family -> {
+                        family.revoke(now, false);
+                        refreshTokenRepository.findByFamilyId(family.getId()).forEach(existing -> existing.revoke(now));
+                    });
+        });
         decodeOAuthToken(token)
                 .filter(JwtTokenUse::isOAuthAccess)
                 .filter(jwt -> jwt.getAudience().contains(client.getClientId()))
@@ -253,9 +464,26 @@ public class OAuthProviderService {
     @Transactional(readOnly = true)
     public Map<String, Object> introspect(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
+        if (token == null || token.isBlank()) {
+            throw new OAuthProtocolException("invalid_request", "token is required");
+        }
         OAuthClient client = loadEnabledClient(clientId);
         abuseThrottleService.checkClient(AbuseRateLimitPolicy.OAUTH_CLIENT, client.getClientId());
-        validateClientAuthentication(client, clientSecret);
+        validateIntrospectionClient(client, clientSecret);
+        String refreshHash = TokenHasher.sha256Hex(token);
+        var refresh = refreshTokenRepository.findByTokenHash(refreshHash).orElse(null);
+        if (refresh != null) {
+            var family = refreshFamilyRepository.findById(refresh.getFamilyId()).orElse(null);
+            if (family != null && family.getClientId().equals(client.getClientId())
+                    && refresh.isActive(Instant.now()) && family.isActive(Instant.now())
+                    && MessageDigest.isEqual(refreshHash.getBytes(StandardCharsets.US_ASCII),
+                            family.getActiveTokenHash().getBytes(StandardCharsets.US_ASCII))) {
+                return Map.of("active", true, "client_id", family.getClientId(),
+                        "sub", family.getUserId().toString(), "scope", String.join(" ", family.getScopes()),
+                        "token_type", "refresh_token", "exp", family.getExpiresAt().getEpochSecond());
+            }
+            return Map.of("active", false);
+        }
         return decodeOAuthToken(token)
                 .filter(JwtTokenUse::isOAuthAccess)
                 .filter(jwt -> jwt.getExpiresAt() != null && jwt.getExpiresAt().isAfter(Instant.now()))
@@ -284,10 +512,10 @@ public class OAuthProviderService {
         Jwt jwt = decodeOAuthToken(bearerToken)
                 .filter(JwtTokenUse::isOAuthAccess)
                 .filter(token -> hasScope(token, "openid"))
-                .orElseThrow(InvalidOAuthRequestException::new);
+                .orElseThrow(() -> new OAuthProtocolException("invalid_token", "A live OAuth access token with openid scope is required"));
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(jwt.getSubject()))
-                .filter(existing -> !existing.isDeleted())
+                .filter(User::isActive)
                 .orElseThrow(InvalidOAuthRequestException::new);
         Map<String, Object> claims = new java.util.LinkedHashMap<>();
         claims.put("sub", user.getId().toString());
@@ -305,13 +533,7 @@ public class OAuthProviderService {
     private OAuthClient loadEnabledClient(String clientId) {
         return clientRepository.findByClientId(clientId)
                 .filter(OAuthClient::isEnabled)
-                .orElseThrow(InvalidOAuthRequestException::new);
-    }
-
-    private void requireTenantAccess(User user, OAuthClient client) {
-        if (client.getTenantId() != null && !client.getTenantId().equals(user.getTenantId())) {
-            throw new InvalidOAuthRequestException();
-        }
+                .orElseThrow(() -> new OAuthProtocolException("invalid_client", "Unknown or disabled OAuth client"));
     }
 
     private void ensureConsent(User user, OAuthClient client, Set<String> requestedScopes, Boolean consentAccepted) {
@@ -361,6 +583,13 @@ public class OAuthProviderService {
         } finally {
             argon2Limiter.release();
         }
+    }
+
+    private void validateIntrospectionClient(OAuthClient client, String clientSecret) {
+        if (client.isPublicClient()) {
+            throw new OAuthProtocolException("invalid_client", "Introspection requires a confidential client");
+        }
+        validateClientAuthentication(client, clientSecret);
     }
 
     private boolean pkceMatches(String verifier, String expectedChallenge) {
@@ -413,6 +642,24 @@ public class OAuthProviderService {
             }
             return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success();
         };
+        OAuth2TokenValidator<Jwt> refreshFamilyValidator = jwt -> {
+            String familyClaim = jwt.getClaimAsString("refresh_family_id");
+            if (familyClaim == null) {
+                return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success();
+            }
+            try {
+                return refreshFamilyRepository.findById(UUID.fromString(familyClaim))
+                        .filter(family -> family.isActive(Instant.now()))
+                        .map(family -> org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success())
+                        .orElseGet(() -> org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.failure(
+                                new org.springframework.security.oauth2.core.OAuth2Error(
+                                        "invalid_token", "Refresh token family has been revoked", null)));
+            } catch (IllegalArgumentException ex) {
+                return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.failure(
+                        new org.springframework.security.oauth2.core.OAuth2Error(
+                                "invalid_token", "Invalid refresh token family", null));
+            }
+        };
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 defaultValidator,
                 jwt -> JwtTokenUse.isOAuthAccess(jwt)
@@ -421,13 +668,19 @@ public class OAuthProviderService {
                                 new org.springframework.security.oauth2.core.OAuth2Error(
                                         "invalid_token", "Token is not an OAuth access token", null)),
                 keyRevocationValidator,
-                tokenRevocationValidator));
+                tokenRevocationValidator,
+                refreshFamilyValidator));
         return decoder;
     }
 
     private String issueAccessToken(User user, OAuthClient client, Set<String> scopes, Set<String> amr) {
+        return issueAccessToken(user, client, scopes, amr, null);
+    }
+
+    private String issueAccessToken(User user, OAuthClient client, Set<String> scopes, Set<String> amr,
+                                    UUID refreshFamilyId) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(authProperties.getJwt().getIssuer())
                 .audience(List.of(client.getClientId()))
                 .subject(user.getId().toString())
@@ -438,9 +691,11 @@ public class OAuthProviderService {
                 .claim(JwtTokenUse.CLAIM, JwtTokenUse.OAUTH_ACCESS)
                 .claim("client_id", client.getClientId())
                 .claim("scope", String.join(" ", scopes))
-                .claim("amr", List.copyOf(amr))
-                .build();
-        return encode(claims);
+                .claim("amr", List.copyOf(amr));
+        if (refreshFamilyId != null) {
+            claims.claim("refresh_family_id", refreshFamilyId.toString());
+        }
+        return encode(claims.build());
     }
 
     private String issueIdToken(User user, OAuthClient client, OAuthAuthorizationCode code) {
@@ -484,6 +739,34 @@ public class OAuthProviderService {
         return result;
     }
 
+    private String redirectWithError(String redirectUri, String error, String description, String state) {
+        String separator = redirectUri.contains("?") ? "&" : "?";
+        String result = redirectUri + separator + "error=" + urlEncode(error)
+                + "&error_description=" + urlEncode(description);
+        if (state != null && !state.isBlank()) {
+            result += "&state=" + urlEncode(state);
+        }
+        return result;
+    }
+
+    private String issueAuthorizationCode(User user, OAuthClient client, String redirectUri, Set<String> scopes,
+                                          List<String> principalAmr, String challenge, String challengeMethod,
+                                          String nonce, String state) {
+        String rawCode = SecureTokenGenerator.randomUrlSafeToken(32);
+        Instant now = Instant.now();
+        Set<String> amr = principalAmr == null || principalAmr.isEmpty()
+                ? Set.of("pwd") : new LinkedHashSet<>(principalAmr);
+        OAuthAuthorizationCode code = authorizationCodeRepository.save(new OAuthAuthorizationCode(
+                TokenHasher.sha256Hex(rawCode), client.getClientId(), user.getId(), user.getTenantId(),
+                redirectUri, scopes, amr, challenge, challengeMethod, nonce, now,
+                now.plusSeconds(authProperties.getOauth().getAuthorizationCodeTtlMinutes() * 60)));
+        securityEventService.recordForAuthenticatedUser(
+                SecurityEventType.OAUTH_AUTHORIZATION_CODE_ISSUED, SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.MEDIUM, user, "oauth_authorization_code_issued",
+                Map.of("client_id", client.getClientId()));
+        return redirectWithCode(code.getRedirectUri(), rawCode, state);
+    }
+
     private Set<String> parseScopes(String scope) {
         return Arrays.stream(scope.split("\\s+"))
                 .map(String::trim)
@@ -507,5 +790,8 @@ public class OAuthProviderService {
         if (!authProperties.getOauth().isProviderEnabled()) {
             throw new InvalidOAuthRequestException();
         }
+    }
+
+    private record IssuedRefreshToken(String rawToken, UUID familyId) {
     }
 }

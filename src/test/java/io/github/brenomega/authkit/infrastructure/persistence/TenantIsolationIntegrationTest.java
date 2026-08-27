@@ -69,7 +69,6 @@ class TenantIsolationIntegrationTest {
                 email,
                 "hashed-password",
                 null,
-                null,
                 true,
                 true,
                 UUID.randomUUID().toString());

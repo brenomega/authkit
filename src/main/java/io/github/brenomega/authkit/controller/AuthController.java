@@ -25,7 +25,9 @@ import io.github.brenomega.authkit.domain.mfa.dto.MfaOptionalVerificationRequest
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionFinishRequest;
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionOptionsRequest;
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyAssertionOptionsResponse;
+import io.github.brenomega.authkit.domain.user.dto.EmailConfirmationConfirmRequest;
 import io.github.brenomega.authkit.domain.user.dto.EmailConfirmationResendRequest;
+import io.github.brenomega.authkit.domain.user.dto.EmailChangeConfirmRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordRecoveryRequest;
 import io.github.brenomega.authkit.domain.user.dto.PasswordResetRequest;
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
@@ -38,6 +40,7 @@ import io.github.brenomega.authkit.exception.UserAlreadyExistsException;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AuthService;
+import io.github.brenomega.authkit.service.EmailChangeService;
 import io.github.brenomega.authkit.service.PasskeyService;
 import io.github.brenomega.authkit.service.PasswordRecoveryService;
 import io.github.brenomega.authkit.service.RegistrationService;
@@ -61,18 +64,21 @@ public class AuthController {
     private final PasswordRecoveryService recoveryService;
     private final PasskeyService passkeyService;
     private final AuthProperties authProperties;
+    private final EmailChangeService emailChangeService;
 
     public AuthController(
             RegistrationService registrationService,
             AuthService authService,
             PasswordRecoveryService recoveryService,
             PasskeyService passkeyService,
-            AuthProperties authProperties) {
+            AuthProperties authProperties,
+            EmailChangeService emailChangeService) {
         this.registrationService = registrationService;
         this.authService = authService;
         this.recoveryService = recoveryService;
         this.passkeyService = passkeyService;
         this.authProperties = authProperties;
+        this.emailChangeService = emailChangeService;
     }
 
     /**
@@ -214,8 +220,9 @@ public class AuthController {
      * Confirms a registered user's email address (RF 2.1.7).
      */
     @PostMapping("/email-confirmation/confirm")
-    public ResponseEntity<ApiResponse<String>> confirmEmail(@RequestParam String token) {
-        registrationService.confirmEmail(token);
+    public ResponseEntity<ApiResponse<String>> confirmEmail(
+            @Valid @RequestBody EmailConfirmationConfirmRequest request) {
+        registrationService.confirmEmail(request.token());
         return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
     }
 
@@ -225,6 +232,13 @@ public class AuthController {
         registrationService.resendEmailConfirmation(request.email());
         return ResponseEntity.accepted().body(ApiResponse.success(
                 "If this account is awaiting confirmation, a new activation email will be sent."));
+    }
+
+    @PostMapping("/email-change/confirm")
+    public ResponseEntity<ApiResponse<String>> confirmEmailChange(
+            @Valid @RequestBody EmailChangeConfirmRequest request) {
+        emailChangeService.confirm(request.token());
+        return ResponseEntity.ok(ApiResponse.success("Email address changed. Sign in again."));
     }
 
     /**

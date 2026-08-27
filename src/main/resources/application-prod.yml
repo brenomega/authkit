@@ -1,0 +1,22 @@
+authkit:
+  auth:
+    token:
+      access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:300}
+    token-storage:
+      backend: redis
+      single-instance-mode: false
+    abuse-control:
+      fail-closed-high-risk: true
+    password:
+      hibp-enabled: true
+    email-outbox:
+      enabled: true
+      dispatch-mode: direct
+      preserve-rabbit-observability: false
+    email-provider:
+      type: ${AUTH_EMAIL_PROVIDER_TYPE:smtp}
+    email-templates:
+      directory: ${AUTH_EMAIL_TEMPLATE_DIRECTORY:/run/config/email-templates}
+
+server:
+  forward-headers-strategy: none

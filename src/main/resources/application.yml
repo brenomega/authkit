@@ -106,12 +106,13 @@ authkit:
       retention-lock-at-most: ${AUTH_RETENTION_LOCK_AT_MOST:PT2H}
       retention-lock-at-least: ${AUTH_RETENTION_LOCK_AT_LEAST:PT1M}
     token:
-      access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:900}
+      access-token-ttl-seconds: ${AUTH_ACCESS_TOKEN_TTL_SECONDS:300}
       refresh-token-ttl-days: ${AUTH_REFRESH_TOKEN_TTL_DAYS:7}
       recovery-token-ttl-minutes: ${AUTH_RECOVERY_TOKEN_TTL_MINUTES:15}
     token-storage:
       backend: ${AUTH_TOKEN_STORAGE_BACKEND:redis}
       single-instance-mode: ${AUTH_TOKEN_STORAGE_SINGLE_INSTANCE_MODE:false}
+      session-last-seen-throttle-seconds: ${AUTH_SESSION_LAST_SEEN_THROTTLE_SECONDS:300}
       jdbc:
         cleanup-delay-ms: ${AUTH_TOKEN_STORAGE_JDBC_CLEANUP_DELAY_MS:300000}
         cleanup-lock-at-most: ${AUTH_TOKEN_STORAGE_JDBC_CLEANUP_LOCK_AT_MOST:PT5M}
@@ -137,9 +138,12 @@ authkit:
     frontend:
       activation-url: ${AUTH_FRONTEND_ACTIVATION_URL}
       password-reset-url: ${AUTH_FRONTEND_PASSWORD_RESET_URL}
+      email-change-url: ${AUTH_FRONTEND_EMAIL_CHANGE_URL}
     registration:
+      mode: ${AUTH_REGISTRATION_MODE:}
       stealth-conflicts: ${AUTH_REGISTRATION_STEALTH_CONFLICTS:true}
       email-confirmation-ttl-hours: ${AUTH_EMAIL_CONFIRMATION_TTL_HOURS:24}
+      email-change-ttl-hours: ${AUTH_EMAIL_CHANGE_TTL_HOURS:2}
     step-up:
       passkey-freshness-seconds: ${AUTH_STEP_UP_PASSKEY_FRESHNESS_SECONDS:300}
     authority-cache:
@@ -171,7 +175,7 @@ authkit:
       preserve-rabbit-observability: ${AUTH_EMAIL_OUTBOX_PRESERVE_RABBIT_OBSERVABILITY:false}
       max-attempts: ${AUTH_EMAIL_OUTBOX_MAX_ATTEMPTS:10}
     email-provider:
-      type: ${AUTH_EMAIL_PROVIDER_TYPE:resend}
+      type: ${AUTH_EMAIL_PROVIDER_TYPE:smtp}
       connect-timeout-ms: ${AUTH_EMAIL_PROVIDER_CONNECT_TIMEOUT_MS:2000}
       read-timeout-ms: ${AUTH_EMAIL_PROVIDER_READ_TIMEOUT_MS:5000}
       max-attempts: ${AUTH_EMAIL_PROVIDER_MAX_ATTEMPTS:3}
@@ -186,12 +190,16 @@ authkit:
         start-tls-enabled: ${AUTH_EMAIL_SMTP_STARTTLS_ENABLED:true}
         start-tls-required: ${AUTH_EMAIL_SMTP_STARTTLS_REQUIRED:true}
         ssl-enabled: ${AUTH_EMAIL_SMTP_SSL_ENABLED:false}
+    email-templates:
+      directory: ${AUTH_EMAIL_TEMPLATE_DIRECTORY:}
+      max-body-bytes: ${AUTH_EMAIL_TEMPLATE_MAX_BODY_BYTES:65536}
     compliance:
       terms-version: ${AUTH_TERMS_VERSION}
       privacy-policy-version: ${AUTH_PRIVACY_POLICY_VERSION}
       lawful-basis: ${AUTH_LAWFUL_BASIS:consent}
       security-event-retention-days: ${AUTH_SECURITY_EVENT_RETENTION_DAYS:365}
       deleted-account-retention-days: ${AUTH_DELETED_ACCOUNT_RETENTION_DAYS:30}
+      deletion-grace-period-days: ${AUTH_DELETION_GRACE_PERIOD_DAYS:7}
       data-export-security-event-limit: ${AUTH_DATA_EXPORT_SECURITY_EVENT_LIMIT:100}
       retention-batch-size: ${AUTH_RETENTION_BATCH_SIZE:500}
       retention-job-enabled: ${AUTH_RETENTION_JOB_ENABLED:true}
@@ -226,6 +234,13 @@ authkit:
       provider-enabled: ${AUTH_OAUTH_PROVIDER_ENABLED:true}
       authorization-code-ttl-minutes: ${AUTH_OAUTH_AUTHORIZATION_CODE_TTL_MINUTES:5}
       id-token-ttl-seconds: ${AUTH_OAUTH_ID_TOKEN_TTL_SECONDS:900}
+      authorization-ui-url: ${AUTH_OAUTH_AUTHORIZATION_UI_URL:http://localhost:3000/oauth/authorize}
+      refresh-token-ttl-days: ${AUTH_OAUTH_REFRESH_TOKEN_TTL_DAYS:30}
+    social:
+      enabled: ${AUTH_SOCIAL_ENABLED:false}
+      issuer-allowlist: ${AUTH_SOCIAL_ISSUER_ALLOWLIST:https://accounts.google.com}
+      callback-base-url: ${AUTH_SOCIAL_CALLBACK_BASE_URL:http://localhost:8080}
+      transaction-ttl-minutes: ${AUTH_SOCIAL_TRANSACTION_TTL_MINUTES:5}
     cors:
       enabled: ${AUTH_CORS_ENABLED:true}
       allowed-origins: ${AUTH_CORS_ALLOWED_ORIGINS}
@@ -240,7 +255,10 @@ authkit:
 # =============================================================================
 server:
   port: 8080
-  forward-headers-strategy: framework
+  # Forwarded headers are interpreted only by AuthKit's trusted-peer resolver.
+  # Enabling the container/framework transformer would mutate the peer address
+  # before the origin firewall can validate it.
+  forward-headers-strategy: none
 
 # =============================================================================
 # Security Configuration (Argon2id)

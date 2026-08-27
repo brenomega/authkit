@@ -23,9 +23,6 @@ public class OAuthClient {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "tenant_id")
-    private UUID tenantId;
-
     @Column(name = "client_id", nullable = false, unique = true, length = 128, updatable = false)
     private String clientId;
 
@@ -62,8 +59,7 @@ public class OAuthClient {
     protected OAuthClient() {
     }
 
-    public OAuthClient(UUID tenantId,
-                       String clientId,
+    public OAuthClient(String clientId,
                        String clientSecretHash,
                        boolean publicClient,
                        String displayName,
@@ -71,7 +67,6 @@ public class OAuthClient {
                        Set<String> scopes,
                        boolean requirePkce,
                        Instant now) {
-        this.tenantId = tenantId;
         this.clientId = clientId;
         this.clientSecretHash = clientSecretHash;
         this.publicClient = publicClient;
@@ -86,10 +81,6 @@ public class OAuthClient {
 
     public UUID getId() {
         return id;
-    }
-
-    public UUID getTenantId() {
-        return tenantId;
     }
 
     public String getClientId() {

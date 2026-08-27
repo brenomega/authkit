@@ -43,7 +43,7 @@ public class ProfileIntegrationTest {
     @Test
     @DisplayName("GET /me: Returns authenticated profile (RF 2.1.6)")
     void profileGet_Success() throws Exception {
-        User user = new User("getme@example.com", "Pass", "John", null, true, true, null);
+        User user = new User("getme@example.com", "Pass", "John", true, true, null);
         user.setEmailConfirmed(true);
         userRepository.save(user);
 
@@ -58,7 +58,7 @@ public class ProfileIntegrationTest {
     @Test
     @DisplayName("PATCH /me: Updates profile successfully (RF 2.1.6)")
     void profileUpdate_Success() throws Exception {
-        User user = new User("patchme@example.com", "Pass", "Old", null, true, true, null);
+        User user = new User("patchme@example.com", "Pass", "Old", true, true, null);
         user.setEmailConfirmed(true);
         userRepository.save(user);
 
@@ -80,7 +80,7 @@ public class ProfileIntegrationTest {
     @Test
     @DisplayName("PATCH /me: Blocks profile updates until email is confirmed")
     void profileUpdate_UnconfirmedEmail_Forbidden() throws Exception {
-        User user = new User("unconfirmed-patch@example.com", "Pass", "Old", null, true, true, "token");
+        User user = new User("unconfirmed-patch@example.com", "Pass", "Old", true, true, "token");
         userRepository.save(user);
 
         String payload = """
@@ -101,7 +101,7 @@ public class ProfileIntegrationTest {
     @Test
     @DisplayName("GET /me/consent: Returns versioned consent snapshot")
     void consentGet_Success() throws Exception {
-        User user = new User("consent@example.com", "Pass", "Jane", null, true, true, null);
+        User user = new User("consent@example.com", "Pass", "Jane", true, true, null);
         user.setEmailConfirmed(true);
         user.recordConsent("terms-2026", "privacy-2026", "consent", java.time.Instant.parse("2026-01-01T00:00:00Z"));
         userRepository.save(user);
@@ -116,13 +116,12 @@ public class ProfileIntegrationTest {
 
     @SuppressWarnings("null")
     @Test
-    @DisplayName("DELETE /me: Anonymizes direct PII and marks account deleted")
-    void deleteMyAccount_AnonymizesAccount() throws Exception {
+    @DisplayName("DELETE /me: Enters deletion grace and preserves PII until expiry")
+    void deleteMyAccount_EntersDeletionGrace() throws Exception {
         User user = new User(
                 "delete-me@example.com",
                 passwordEncoder.encode("CurrentPassword123!"),
                 "Delete Me",
-                "555",
                 true,
                 true,
                 null);
@@ -140,22 +139,24 @@ public class ProfileIntegrationTest {
                         .contentType("application/json")
                         .content(payload))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.status").value("deleted"))
-                .andExpect(jsonPath("$.data.deletedAt").exists())
-                .andExpect(jsonPath("$.data.anonymizedAt").exists());
+                .andExpect(jsonPath("$.data.status").value("deletion_pending"))
+                .andExpect(jsonPath("$.data.graceExpiresAt").exists())
+                .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.anonymizedAt").doesNotExist());
 
         User deletedUser = userRepository.findById(user.getId()).orElseThrow();
-        org.junit.jupiter.api.Assertions.assertTrue(deletedUser.getEmail().startsWith("deleted+"));
-        org.junit.jupiter.api.Assertions.assertNull(deletedUser.getName());
-        org.junit.jupiter.api.Assertions.assertNull(deletedUser.getPhone());
-        org.junit.jupiter.api.Assertions.assertTrue(deletedUser.isDeleted());
+        org.junit.jupiter.api.Assertions.assertEquals("delete-me@example.com", deletedUser.getEmail());
+        org.junit.jupiter.api.Assertions.assertEquals("Delete Me", deletedUser.getName());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                io.github.brenomega.authkit.domain.user.enums.AccountState.DELETION_PENDING,
+                deletedUser.getAccountState());
     }
 
     @SuppressWarnings("null")
     @Test
     @DisplayName("POST /me/password: Rejects oversized current password before hashing")
     void passwordChange_OversizedCurrentPassword_Returns400() throws Exception {
-        User user = new User("password-dos@example.com", "Pass", "Jane", null, true, true, null);
+        User user = new User("password-dos@example.com", "Pass", "Jane", true, true, null);
         user.setEmailConfirmed(true);
         userRepository.save(user);
 
@@ -173,11 +174,31 @@ public class ProfileIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("GET /me/sessions exposes safe metadata and never the internal JTI")
+    void sessionsExposeSafeMetadataAndCurrentMarker() throws Exception {
+        User user = new User("sessions@example.com", "Pass", "Session User", true, true, null);
+        user.setEmailConfirmed(true);
+        userRepository.save(user);
+
+        mockMvc.perform(get("/api/v1/users/me/sessions").with(userJwt(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].sessionId").isNotEmpty())
+                .andExpect(jsonPath("$.data.items[0].jti").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].current").value(true))
+                .andExpect(jsonPath("$.data.items[0].createdAt").exists())
+                .andExpect(jsonPath("$.data.items[0].lastSeenAt").exists())
+                .andExpect(jsonPath("$.data.items[0].expiresAt").exists())
+                .andExpect(jsonPath("$.data.items[0].creationIpMasked").exists())
+                .andExpect(jsonPath("$.data.items[0].lastIpMasked").exists());
+    }
+
     private org.springframework.test.web.servlet.request.RequestPostProcessor userJwt(User user) {
         String jti = java.util.UUID.randomUUID().toString();
         var refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
         tokenStorage.storeRefreshToken(user.getId().toString(), jti, refreshToken.rawToken(), 7);
         return jwt().jwt(builder -> builder
+                .claims(claims -> claims.remove("scope"))
                 .subject(user.getId().toString())
                 .audience(java.util.List.of("authkit-api"))
                 .claim("token_use", "first_party_access")

@@ -16,17 +16,20 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.transaction.CannotCreateTransactionException;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.service.SessionMetadataFactory;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class UserAuthoritiesFilterTest {
@@ -44,7 +47,8 @@ class UserAuthoritiesFilterTest {
         TokenStorage tokenStorage = mock(TokenStorage.class);
         AuthProperties authProperties = new AuthProperties();
         UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
-                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
         UUID userId = UUID.randomUUID();
         String jti = UUID.randomUUID().toString();
         User user = mock(User.class);
@@ -71,7 +75,8 @@ class UserAuthoritiesFilterTest {
         TokenStorage tokenStorage = mock(TokenStorage.class);
         AuthProperties authProperties = new AuthProperties();
         UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
-                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
         UUID userId = UUID.randomUUID();
         String jti = UUID.randomUUID().toString();
         User user = mock(User.class);
@@ -96,7 +101,8 @@ class UserAuthoritiesFilterTest {
         TokenStorage tokenStorage = mock(TokenStorage.class);
         AuthProperties authProperties = new AuthProperties();
         UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
-                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
         UUID userId = UUID.randomUUID();
         String jti = UUID.randomUUID().toString();
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -112,13 +118,66 @@ class UserAuthoritiesFilterTest {
 
     @SuppressWarnings("null")
     @Test
+    @DisplayName("Live authority dependency failure is an opaque fail-closed 503")
+    void doFilterInternal_returns503WhenAuthorityStoreIsUnavailable() throws Exception {
+        UserRepository userRepository = mock(UserRepository.class);
+        TokenStorage tokenStorage = mock(TokenStorage.class);
+        AuthProperties authProperties = new AuthProperties();
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
+        UUID userId = UUID.randomUUID();
+        String jti = UUID.randomUUID().toString();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        when(tokenStorage.isSessionActive(userId.toString(), jti)).thenReturn(true);
+        when(userRepository.findById(userId))
+                .thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(userId, jti)));
+        filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
+
+        assertEquals(503, response.getStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(response.getContentAsString().contains("dependency_unavailable"));
+        org.junit.jupiter.api.Assertions.assertFalse(response.getContentAsString().contains("database unavailable"));
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Transaction acquisition failure in live authority lookup is an opaque 503")
+    void doFilterInternal_returns503WhenAuthorityTransactionCannotStart() throws Exception {
+        UserRepository userRepository = mock(UserRepository.class);
+        TokenStorage tokenStorage = mock(TokenStorage.class);
+        AuthProperties authProperties = new AuthProperties();
+        UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
+        UUID userId = UUID.randomUUID();
+        String jti = UUID.randomUUID().toString();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        when(tokenStorage.isSessionActive(userId.toString(), jti)).thenReturn(true);
+        when(userRepository.findById(userId))
+                .thenThrow(new CannotCreateTransactionException("database unavailable"));
+
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(userId, jti)));
+        filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
+
+        assertEquals(503, response.getStatus());
+        org.junit.jupiter.api.Assertions.assertTrue(response.getContentAsString().contains("dependency_unavailable"));
+        org.junit.jupiter.api.Assertions.assertFalse(response.getContentAsString().contains("database unavailable"));
+    }
+
+    @SuppressWarnings("null")
+    @Test
     @DisplayName("OAuth access tokens are rejected before first-party session lookup")
     void doFilterInternal_rejectsOAuthTokenClassBeforeSessionLookup() throws Exception {
         UserRepository userRepository = mock(UserRepository.class);
         TokenStorage tokenStorage = mock(TokenStorage.class);
         AuthProperties authProperties = new AuthProperties();
         UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
-                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
         UUID userId = UUID.randomUUID();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -139,7 +198,8 @@ class UserAuthoritiesFilterTest {
         TokenStorage tokenStorage = mock(TokenStorage.class);
         AuthProperties authProperties = new AuthProperties();
         UserAuthoritiesFilter filter = new UserAuthoritiesFilter(
-                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry());
+                userRepository, tokenStorage, objectMapper(), authProperties, new SimpleMeterRegistry(),
+                mock(SessionMetadataFactory.class));
         UUID userId = UUID.randomUUID();
         MockHttpServletResponse response = new MockHttpServletResponse();
 

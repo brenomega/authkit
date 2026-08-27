@@ -79,6 +79,9 @@ public class AuthProperties {
     private OAuth oauth = new OAuth();
 
     @Valid
+    private Social social = new Social();
+
+    @Valid
     private Cors cors = new Cors();
 
     public Token getToken() {
@@ -233,6 +236,14 @@ public class AuthProperties {
         this.oauth = oauth;
     }
 
+    public Social getSocial() {
+        return social;
+    }
+
+    public void setSocial(Social social) {
+        this.social = social;
+    }
+
     public Cors getCors() {
         return cors;
     }
@@ -285,6 +296,9 @@ public class AuthProperties {
 
         private boolean singleInstanceMode;
 
+        @Min(30)
+        private long sessionLastSeenThrottleSeconds = 300;
+
         @Valid
         private Jdbc jdbc = new Jdbc();
 
@@ -302,6 +316,14 @@ public class AuthProperties {
 
         public void setSingleInstanceMode(boolean singleInstanceMode) {
             this.singleInstanceMode = singleInstanceMode;
+        }
+
+        public long getSessionLastSeenThrottleSeconds() {
+            return sessionLastSeenThrottleSeconds;
+        }
+
+        public void setSessionLastSeenThrottleSeconds(long sessionLastSeenThrottleSeconds) {
+            this.sessionLastSeenThrottleSeconds = sessionLastSeenThrottleSeconds;
         }
 
         public Jdbc getJdbc() {
@@ -529,6 +551,10 @@ public class AuthProperties {
         @Pattern(regexp = "https?://.+")
         private String passwordResetUrl = "https://frontend.url/reset-password";
 
+        @NotBlank
+        @Pattern(regexp = "https?://.+")
+        private String emailChangeUrl = "https://authkit.io/change-email";
+
         public String getActivationUrl() {
             return activationUrl;
         }
@@ -544,15 +570,37 @@ public class AuthProperties {
         public void setPasswordResetUrl(String passwordResetUrl) {
             this.passwordResetUrl = passwordResetUrl;
         }
+
+        public String getEmailChangeUrl() {
+            return emailChangeUrl;
+        }
+
+        public void setEmailChangeUrl(String emailChangeUrl) {
+            this.emailChangeUrl = emailChangeUrl;
+        }
     }
 
     public static class Registration {
+
+        private String mode = "";
 
         private boolean stealthConflicts = true;
 
         @Min(1)
         @Max(168)
         private long emailConfirmationTtlHours = 24;
+
+        @Min(1)
+        @Max(24)
+        private long emailChangeTtlHours = 2;
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            this.mode = mode;
+        }
 
         public boolean isStealthConflicts() {
             return stealthConflicts;
@@ -568,6 +616,14 @@ public class AuthProperties {
 
         public void setEmailConfirmationTtlHours(long emailConfirmationTtlHours) {
             this.emailConfirmationTtlHours = emailConfirmationTtlHours;
+        }
+
+        public long getEmailChangeTtlHours() {
+            return emailChangeTtlHours;
+        }
+
+        public void setEmailChangeTtlHours(long emailChangeTtlHours) {
+            this.emailChangeTtlHours = emailChangeTtlHours;
         }
     }
 
@@ -872,7 +928,7 @@ public class AuthProperties {
 
         @NotBlank
         @Pattern(regexp = "resend|logging|smtp")
-        private String type = "resend";
+        private String type = "smtp";
 
         @Valid
         private Smtp smtp = new Smtp();
@@ -1055,6 +1111,10 @@ public class AuthProperties {
         @Min(0)
         private long deletedAccountRetentionDays = 30;
 
+        @Min(0)
+        @Max(30)
+        private int deletionGracePeriodDays = 7;
+
         @Min(1)
         @Max(500)
         private int dataExportSecurityEventLimit = 100;
@@ -1106,6 +1166,14 @@ public class AuthProperties {
 
         public void setDeletedAccountRetentionDays(long deletedAccountRetentionDays) {
             this.deletedAccountRetentionDays = deletedAccountRetentionDays;
+        }
+
+        public int getDeletionGracePeriodDays() {
+            return deletionGracePeriodDays;
+        }
+
+        public void setDeletionGracePeriodDays(int deletionGracePeriodDays) {
+            this.deletionGracePeriodDays = deletionGracePeriodDays;
         }
 
         public int getDataExportSecurityEventLimit() {
@@ -1429,6 +1497,14 @@ public class AuthProperties {
         @Max(3600)
         private long idTokenTtlSeconds = 900;
 
+        @NotBlank
+        @Pattern(regexp = "https?://.+")
+        private String authorizationUiUrl = "http://localhost:3000/oauth/authorize";
+
+        @Min(1)
+        @Max(90)
+        private long refreshTokenTtlDays = 30;
+
         public boolean isProviderEnabled() {
             return providerEnabled;
         }
@@ -1452,6 +1528,35 @@ public class AuthProperties {
         public void setIdTokenTtlSeconds(long idTokenTtlSeconds) {
             this.idTokenTtlSeconds = idTokenTtlSeconds;
         }
+
+        public String getAuthorizationUiUrl() { return authorizationUiUrl; }
+        public void setAuthorizationUiUrl(String authorizationUiUrl) { this.authorizationUiUrl = authorizationUiUrl; }
+        public long getRefreshTokenTtlDays() { return refreshTokenTtlDays; }
+        public void setRefreshTokenTtlDays(long refreshTokenTtlDays) { this.refreshTokenTtlDays = refreshTokenTtlDays; }
+    }
+
+    public static class Social {
+        private boolean enabled;
+
+        @NotBlank
+        private String issuerAllowlist = "https://accounts.google.com";
+
+        @NotBlank
+        @Pattern(regexp = "https?://.+")
+        private String callbackBaseUrl = "http://localhost:8080";
+
+        @Min(1)
+        @Max(15)
+        private long transactionTtlMinutes = 5;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getIssuerAllowlist() { return issuerAllowlist; }
+        public void setIssuerAllowlist(String issuerAllowlist) { this.issuerAllowlist = issuerAllowlist; }
+        public String getCallbackBaseUrl() { return callbackBaseUrl; }
+        public void setCallbackBaseUrl(String callbackBaseUrl) { this.callbackBaseUrl = callbackBaseUrl; }
+        public long getTransactionTtlMinutes() { return transactionTtlMinutes; }
+        public void setTransactionTtlMinutes(long transactionTtlMinutes) { this.transactionTtlMinutes = transactionTtlMinutes; }
     }
 
     public static class Cors {

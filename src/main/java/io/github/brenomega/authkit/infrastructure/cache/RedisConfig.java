@@ -1,6 +1,5 @@
 package io.github.brenomega.authkit.infrastructure.cache;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -58,7 +57,6 @@ public class RedisConfig {
      * @throws IllegalStateException if the factory is not Lettuce-backed
      */
     @Bean
-    @ConditionalOnBean(RedisConnectionFactory.class)
     public RedisClient redisClient(RedisConnectionFactory connectionFactory) {
         if (connectionFactory instanceof LettuceConnectionFactory lettuceConnectionFactory) {
             Object nativeClient = lettuceConnectionFactory.getNativeClient();

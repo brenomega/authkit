@@ -39,7 +39,7 @@ class PasswordPolicyServiceTest {
     @Test
     @DisplayName("Rejects common, identity-derived, and recent password reuse")
     void validateForUser_rejectsWeakAndReusedPasswords() {
-        User user = new User("person@example.com", "current-hash", "Person Example", null, true, true, null);
+        User user = new User("person@example.com", "current-hash", "Person Example", true, true, null);
         ReflectionTestUtils.setField(user, "id", java.util.UUID.randomUUID());
 
         assertThrows(WeakPasswordException.class,

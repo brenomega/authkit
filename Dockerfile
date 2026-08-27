@@ -4,6 +4,11 @@
 # Stage 2: Slim JRE runtime image
 # =============================================================================
 
+# This target materializes the exact Docker build context after .dockerignore.
+# Release verification exports it and rejects test/private-key material.
+FROM scratch AS build-context
+COPY . /context
+
 # --- Stage 1: Build ---
 FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /app
@@ -30,11 +35,11 @@ RUN mkdir -p /root/.m2 && printf '%s\n' \
     '  </activeProfiles>' \
     '</settings>' > /root/.m2/settings.xml
 
-RUN mvn dependency:go-offline -B
-
-# Copy source code and build the Fat JAR (skip tests — they run in CI)
+# Copy source code and build the Fat JAR (tests run in CI). A BuildKit cache
+# avoids the dependency:go-offline goal, which resolves unrelated reporting
+# plugins and makes clean, reproducible image builds unnecessarily fragile.
 COPY src src
-RUN mvn clean package -DskipTests -B
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests -B
 
 # --- Stage 2: Runtime ---
 FROM eclipse-temurin:21-jre-alpine
@@ -45,6 +50,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy the Fat JAR from the build stage
 COPY --from=build /app/target/*.jar app.jar
+COPY --chmod=0555 docker/entrypoint.sh /app/entrypoint.sh
 
 # Switch to non-root user
 USER appuser
@@ -53,7 +59,8 @@ USER appuser
 EXPOSE 8080
 
 # JVM flags for containerized environments
-ENTRYPOINT ["java", \
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \
   "-Djava.security.egd=file:/dev/./urandom", \

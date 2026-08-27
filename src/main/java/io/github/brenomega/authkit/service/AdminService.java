@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.EnumMap;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -21,8 +22,15 @@ import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientUpdateReques
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.user.dto.AdminUpdateRoleRequest;
 import io.github.brenomega.authkit.domain.user.dto.AdminUserResponse;
-import io.github.brenomega.authkit.domain.user.dto.TenantSummaryResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminUserPageResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminUserDetailResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminAuthenticatorStatus;
+import io.github.brenomega.authkit.domain.user.dto.AdminSecurityEventResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminSecurityEventPageResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminOperationalStatusResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminAccountStateRequest;
 import io.github.brenomega.authkit.domain.user.entity.User;
+import io.github.brenomega.authkit.domain.user.enums.AccountState;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
@@ -32,12 +40,18 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
+import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxStatus;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
+import io.github.brenomega.authkit.infrastructure.security.AdminCursorCodec;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
+import io.github.brenomega.authkit.repository.SocialIdentityRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -58,6 +72,11 @@ public class AdminService {
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final AuthProperties authProperties;
     private final AbuseThrottleService abuseThrottleService;
+    private final MfaTotpCredentialRepository mfaTotpCredentialRepository;
+    private final SocialIdentityRepository socialIdentityRepository;
+    private final SecurityEventRepository securityEventRepository;
+    private final EmailOutboxRepository emailOutboxRepository;
+    private final AdminCursorCodec adminCursorCodec;
 
     public AdminService(UserRepository userRepository,
                         OAuthClientRepository oauthClientRepository,
@@ -69,7 +88,12 @@ public class AdminService {
                         TokenStorage tokenStorage,
                         UserAuthoritiesFilter userAuthoritiesFilter,
                         AuthProperties authProperties,
-                        AbuseThrottleService abuseThrottleService) {
+                        AbuseThrottleService abuseThrottleService,
+                        MfaTotpCredentialRepository mfaTotpCredentialRepository,
+                        SocialIdentityRepository socialIdentityRepository,
+                        SecurityEventRepository securityEventRepository,
+                        EmailOutboxRepository emailOutboxRepository,
+                        AdminCursorCodec adminCursorCodec) {
         this.userRepository = userRepository;
         this.oauthClientRepository = oauthClientRepository;
         this.mfaService = mfaService;
@@ -81,24 +105,86 @@ public class AdminService {
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.authProperties = authProperties;
         this.abuseThrottleService = abuseThrottleService;
+        this.mfaTotpCredentialRepository = mfaTotpCredentialRepository;
+        this.socialIdentityRepository = socialIdentityRepository;
+        this.securityEventRepository = securityEventRepository;
+        this.emailOutboxRepository = emailOutboxRepository;
+        this.adminCursorCodec = adminCursorCodec;
     }
 
     @Transactional(readOnly = true)
-    public List<AdminUserResponse> listUsers(Jwt jwt, int limit) {
-        User admin = requireAdminPlanePrincipal(jwt);
+    public AdminUserPageResponse listUsers(Jwt jwt, String search, int limit, String cursor) {
+        requireAdminPlanePrincipal(jwt);
         int boundedLimit = Math.max(1, Math.min(limit, MAX_LIST_LIMIT));
-        if (admin.getRole() == Role.TENANT_ADMIN) {
-            return userRepository.findByTenantIdAndDeletedAtIsNull(
-                            admin.getTenantId(),
-                            PageRequest.of(0, boundedLimit, Sort.by("email").ascending()))
-                    .stream()
-                    .map(this::toUserResponse)
-                    .toList();
-        }
-        return userRepository.findAll(PageRequest.of(0, boundedLimit, Sort.by("email").ascending()))
-                .stream()
+        String normalizedSearch = search == null ? "" : search.strip().toLowerCase(java.util.Locale.ROOT);
+        var position = adminCursorCodec.decode(cursor, "users", boundedLimit, normalizedSearch);
+        var page = userRepository.searchForAdministration(normalizedSearch,
+                PageRequest.of(position.page(), boundedLimit,
+                        Sort.by(Sort.Order.asc("email"), Sort.Order.asc("id"))));
+        var items = page.getContent().stream()
                 .map(this::toUserResponse)
                 .toList();
+        String nextCursor = page.hasNext()
+                ? adminCursorCodec.issue("users", position.page() + 1, boundedLimit, normalizedSearch)
+                : null;
+        return new AdminUserPageResponse(items, nextCursor);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminUserDetailResponse getUser(Jwt jwt, UUID targetUserId) {
+        requireAdminPlanePrincipal(jwt);
+        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        return new AdminUserDetailResponse(toUserResponse(target), new AdminAuthenticatorStatus(
+                target.getPassword() != null,
+                mfaTotpCredentialRepository.countByUserIdAndConfirmedTrueAndDisabledAtIsNull(target.getId()),
+                passkeyCredentialRepository.countByUserIdAndDisabledAtIsNull(target.getId()),
+                socialIdentityRepository.countByUserId(target.getId())));
+    }
+
+    @Transactional
+    public void revokeAllUserSessions(Jwt jwt, UUID targetUserId, String currentPassword, String mfaCode) {
+        User admin = requireAdminPlanePrincipal(jwt);
+        requireAdminWriteStepUp(jwt, admin, currentPassword, mfaCode, "admin_user_sessions_revoke");
+        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        tokenStorage.revokeAllSessions(target.getId().toString());
+        securityEventService.record(SecurityEventType.ADMIN_ACTION, SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH, admin.getId(), target.getId(), target.getTenantId(),
+                target.getEmail(), "admin_revoked_all_user_sessions", java.util.Map.of());
+    }
+
+    @Transactional(readOnly = true)
+    public AdminSecurityEventPageResponse listSecurityEvents(Jwt jwt, UUID userId, int limit, String cursor) {
+        requireAdminPlanePrincipal(jwt);
+        int boundedLimit = Math.max(1, Math.min(limit, 200));
+        String binding = userId == null ? "all" : userId.toString();
+        var position = adminCursorCodec.decode(cursor, "events", boundedLimit, binding);
+        var page = securityEventRepository.searchForAdministration(userId,
+                PageRequest.of(position.page(), boundedLimit,
+                        Sort.by(Sort.Order.desc("occurredAt"), Sort.Order.desc("id"))));
+        var items = page.getContent().stream().map(event -> new AdminSecurityEventResponse(
+                event.getId(), event.getOccurredAt(), event.getEventType(), event.getOutcome(),
+                event.getSeverity(), event.getActorUserId(), event.getTargetUserId(),
+                event.getEmailMasked(), event.getClientIpMasked(), event.getReason(), event.getMetadataJson()))
+                .toList();
+        String next = page.hasNext()
+                ? adminCursorCodec.issue("events", position.page() + 1, boundedLimit, binding)
+                : null;
+        return new AdminSecurityEventPageResponse(items, next);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminOperationalStatusResponse operationalStatus(Jwt jwt) {
+        requireAdminPlanePrincipal(jwt);
+        EnumMap<EmailOutboxStatus, Long> counts = new EnumMap<>(EmailOutboxStatus.class);
+        for (EmailOutboxStatus status : EmailOutboxStatus.values()) {
+            counts.put(status, emailOutboxRepository.countByStatus(status));
+        }
+        return new AdminOperationalStatusResponse(
+                counts.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        entry -> entry.getKey().name(), java.util.Map.Entry::getValue)),
+                authProperties.getEmailOutbox().getDispatchMode(),
+                authProperties.getTokenStorage().getBackend(),
+                authProperties.getCompliance().isRetentionJobEnabled());
     }
 
     @Transactional
@@ -111,8 +197,8 @@ public class AdminService {
             throw new UserNotFoundException();
         }
         requireCanManageUser(admin, target, request.role());
-        if (target.getRole() == Role.ADMIN && request.role() != Role.ADMIN
-                && userRepository.countByRoleAndDeletedAtIsNull(Role.ADMIN) <= 1) {
+        if (target.getRole() == Role.PLATFORM_ADMIN && request.role() != Role.PLATFORM_ADMIN
+                && userRepository.countByRoleAndAccountState(Role.PLATFORM_ADMIN, AccountState.ACTIVE) <= 1) {
             throw new AccessDeniedException("Cannot remove the last active admin");
         }
 
@@ -133,37 +219,85 @@ public class AdminService {
         return toUserResponse(target);
     }
 
-    @Transactional(readOnly = true)
-    public List<TenantSummaryResponse> listTenants(Jwt jwt, int limit) {
+    @Transactional
+    public AdminUserResponse suspendUser(Jwt jwt, UUID targetUserId, AdminAccountStateRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
-        int boundedLimit = Math.max(1, Math.min(limit, MAX_LIST_LIMIT));
-        if (admin.getRole() == Role.TENANT_ADMIN) {
-            return List.of(new TenantSummaryResponse(
-                    admin.getTenantId(),
-                    admin.getId(),
-                    admin.getEmail(),
-                    admin.getRole()));
+        requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_user_suspend");
+        @SuppressWarnings("null")
+        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        if (target.isDeleted()) {
+            throw new UserNotFoundException();
         }
-        return userRepository.findAll(PageRequest.of(0, boundedLimit, Sort.by("email").ascending()))
-                .stream()
-                .filter(user -> !user.isDeleted())
-                .map(user -> new TenantSummaryResponse(
-                        user.getTenantId(),
-                        user.getId(),
-                        user.getEmail(),
-                        user.getRole()))
-                .toList();
+        if (target.getRole() == Role.PLATFORM_ADMIN
+                && target.isActive()
+                && userRepository.countByRoleAndAccountState(Role.PLATFORM_ADMIN, AccountState.ACTIVE) <= 1) {
+            throw new AccessDeniedException("Cannot suspend the last active platform administrator");
+        }
+
+        target.suspend(request.reason(), Instant.now());
+        userRepository.save(target);
+        securityEventService.record(
+                SecurityEventType.ACCOUNT_SUSPENDED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                admin.getId(),
+                target.getId(),
+                target.getTenantId(),
+                target.getEmail(),
+                "account_suspended_by_platform_admin",
+                java.util.Map.of());
+        tokenStorage.revokeAllSessions(target.getId().toString());
+        userAuthoritiesFilter.evict(target.getId());
+        return toUserResponse(target);
+    }
+
+    @Transactional
+    public AdminUserResponse reactivateUser(Jwt jwt, UUID targetUserId, AdminAccountStateRequest request) {
+        User admin = requireAdminPlanePrincipal(jwt);
+        requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_user_reactivate");
+        @SuppressWarnings("null")
+        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        target.reactivate();
+        userRepository.save(target);
+        securityEventService.record(
+                SecurityEventType.ACCOUNT_REACTIVATED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                admin.getId(),
+                target.getId(),
+                target.getTenantId(),
+                target.getEmail(),
+                "account_reactivated_by_platform_admin",
+                java.util.Map.of());
+        userAuthoritiesFilter.evict(target.getId());
+        return toUserResponse(target);
+    }
+
+    @Transactional
+    public AdminUserResponse cancelDeletion(Jwt jwt, UUID targetUserId, AdminAccountStateRequest request) {
+        User admin = requireAdminPlanePrincipal(jwt);
+        requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_deletion_cancel");
+        @SuppressWarnings("null")
+        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        target.cancelDeletion();
+        userRepository.save(target);
+        securityEventService.record(
+                SecurityEventType.ACCOUNT_DELETION_CANCELLED,
+                SecurityEventOutcome.SUCCESS,
+                SecurityEventSeverity.HIGH,
+                admin.getId(),
+                target.getId(),
+                target.getTenantId(),
+                target.getEmail(),
+                "account_deletion_cancelled_by_platform_admin",
+                java.util.Map.of());
+        userAuthoritiesFilter.evict(target.getId());
+        return toUserResponse(target);
     }
 
     @Transactional(readOnly = true)
     public List<AdminOAuthClientResponse> listOAuthClients(Jwt jwt) {
-        User admin = requireAdminPlanePrincipal(jwt);
-        if (admin.getRole() == Role.TENANT_ADMIN) {
-            return oauthClientRepository.findByTenantIdOrderByCreatedAtDesc(admin.getTenantId())
-                    .stream()
-                    .map(client -> toClientResponse(client, null))
-                    .toList();
-        }
+        requireAdminPlanePrincipal(jwt);
         return oauthClientRepository.findByOrderByCreatedAtDesc()
                 .stream()
                 .map(client -> toClientResponse(client, null))
@@ -176,12 +310,9 @@ public class AdminService {
         requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_oauth_client_create");
         validateRedirectUris(request.redirectUris());
         validateScopes(request.scopes());
-        UUID tenantId = requireCreatableClientTenant(admin, request.tenantId());
-
         String clientId = "ak_" + SecureTokenGenerator.randomUrlSafeToken(18);
         String rawSecret = request.publicClient() ? null : SecureTokenGenerator.randomUrlSafeToken(32);
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
-                tenantId,
                 clientId,
                 rawSecret == null ? null : passwordEncoder.encode(rawSecret),
                 request.publicClient(),
@@ -212,7 +343,6 @@ public class AdminService {
         @SuppressWarnings("null")
         OAuthClient client = oauthClientRepository.findById(clientId)
                 .orElseThrow(InvalidOAuthRequestException::new);
-        requireCanManageClient(admin, client);
         client.update(request.displayName(), request.redirectUris(), request.scopes(), true, Instant.now());
         String rawSecret = null;
         if (request.rotateSecret()) {
@@ -241,7 +371,6 @@ public class AdminService {
         @SuppressWarnings("null")
         OAuthClient client = oauthClientRepository.findById(clientId)
                 .orElseThrow(InvalidOAuthRequestException::new);
-        requireCanManageClient(admin, client);
         client.disable(Instant.now());
 
         securityEventService.recordForAuthenticatedUser(
@@ -256,9 +385,9 @@ public class AdminService {
     private User requireAdminPlanePrincipal(Jwt jwt) {
         @SuppressWarnings("null")
         User admin = userRepository.findById(UUID.fromString(jwt.getSubject()))
-                .filter(user -> !user.isDeleted())
+                .filter(User::isActive)
                 .orElseThrow(UserNotFoundException::new);
-        if (admin.getRole() != Role.ADMIN && admin.getRole() != Role.TENANT_ADMIN) {
+        if (admin.getRole() != Role.PLATFORM_ADMIN) {
             throw new AccessDeniedException("Admin-plane role required");
         }
         admin.requireEmailConfirmed();
@@ -310,39 +439,8 @@ public class AdminService {
     }
 
     private void requireCanManageUser(User admin, User target, Role requestedRole) {
-        if (admin.getRole() == Role.ADMIN) {
-            return;
-        }
-        if (!admin.getTenantId().equals(target.getTenantId())) {
-            throw new UserNotFoundException();
-        }
-        if (target.getId().equals(admin.getId())) {
-            throw new AccessDeniedException("Tenant administrators cannot change their own role");
-        }
-        if (target.getRole() == Role.ADMIN
-                || target.getRole() == Role.TENANT_ADMIN
-                || requestedRole == Role.ADMIN
-                || requestedRole == Role.TENANT_ADMIN) {
-            throw new AccessDeniedException("Tenant administrators cannot manage platform or tenant administrators");
-        }
-    }
-
-    private UUID requireCreatableClientTenant(User admin, UUID requestedTenantId) {
-        if (admin.getRole() == Role.ADMIN) {
-            return requestedTenantId;
-        }
-        if (requestedTenantId != null && !admin.getTenantId().equals(requestedTenantId)) {
-            throw new InvalidOAuthRequestException();
-        }
-        return admin.getTenantId();
-    }
-
-    private void requireCanManageClient(User admin, OAuthClient client) {
-        if (admin.getRole() == Role.ADMIN) {
-            return;
-        }
-        if (client.getTenantId() == null || !client.getTenantId().equals(admin.getTenantId())) {
-            throw new InvalidOAuthRequestException();
+        if (admin.getRole() != Role.PLATFORM_ADMIN) {
+            throw new AccessDeniedException("Platform administrator role required");
         }
     }
 
@@ -381,8 +479,10 @@ public class AdminService {
                 user.getEmail(),
                 user.getName(),
                 user.getRole(),
+                user.getAccountState(),
                 user.isEmailConfirmed(),
-                user.isDeleted(),
+                user.getSuspendedAt(),
+                user.getSuspensionReason(),
                 user.getDeletionRequestedAt(),
                 user.getDeletedAt(),
                 user.getAnonymizedAt());
@@ -391,7 +491,6 @@ public class AdminService {
     private AdminOAuthClientResponse toClientResponse(OAuthClient client, String rawSecret) {
         return new AdminOAuthClientResponse(
                 client.getId(),
-                client.getTenantId(),
                 client.getClientId(),
                 rawSecret,
                 client.isPublicClient(),

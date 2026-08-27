@@ -23,8 +23,10 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
+import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
+import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 class JdbcTokenStorageTest {
@@ -44,10 +46,12 @@ class JdbcTokenStorageTest {
         properties.getTokenStorage().setBackend("jdbc");
         properties.getTokenStorage().setSingleInstanceMode(true);
         properties.getTokenStorage().getJdbc().setSessionCursorTtlSeconds(300);
+        properties.getAudit().setHashPepper("jdbc-test-audit-hash-pepper-32-bytes");
         storage = new JdbcTokenStorage(
                 jdbcTemplate,
                 new DataSourceTransactionManager(dataSource),
-                properties);
+                properties,
+                new AuditDigestService(properties));
     }
 
     @Test
@@ -62,7 +66,8 @@ class JdbcTokenStorageTest {
         assertTrue(storage.isSessionActive(userId, jti));
         assertFalse(storage.validateToken(userId, jti, "forged"));
 
-        storage.revokeSession(userId, jti);
+        String publicSessionId = storage.listSessions(userId, 1, null).items().get(0).publicSessionId();
+        storage.revokeSession(userId, publicSessionId);
 
         assertFalse(storage.validateToken(userId, jti, rawToken));
         assertFalse(storage.isSessionActive(userId, jti));
@@ -127,12 +132,17 @@ class JdbcTokenStorageTest {
     @Test
     void recoveryAndMfaChallengeConsumeOnlyOnce() {
         String email = "Reset@Example.com";
+        String normalizedEmail = "reset@example.com";
         String recovery = "recovery-" + UUID.randomUUID();
         storage.storeRecoveryToken(email, recovery, 15);
 
-        assertTrue(storage.validateRecoveryToken(email.toLowerCase(), recovery));
-        assertTrue(storage.consumeRecoveryToken(email.toLowerCase(), recovery));
-        assertFalse(storage.consumeRecoveryToken(email.toLowerCase(), recovery));
+        String emailHash = jdbcTemplate.queryForObject("select email_hash from auth_recovery_tokens", String.class);
+        assertFalse(emailHash.equals(normalizedEmail));
+        assertFalse(emailHash.equals(TokenHasher.sha256Hex(normalizedEmail)));
+
+        assertTrue(storage.validateRecoveryToken(normalizedEmail, recovery));
+        assertTrue(storage.consumeRecoveryToken(normalizedEmail, recovery));
+        assertFalse(storage.consumeRecoveryToken(normalizedEmail, recovery));
 
         String userId = UUID.randomUUID().toString();
         String jti = UUID.randomUUID().toString();
@@ -142,6 +152,20 @@ class JdbcTokenStorageTest {
         assertFalse(storage.consumeMfaChallenge(userId, jti, "forged"));
         assertTrue(storage.consumeMfaChallenge(userId, jti, challenge));
         assertFalse(storage.consumeMfaChallenge(userId, jti, challenge));
+    }
+
+    @Test
+    void recoveryClaimCanBeCompensatedAndCompletedExactlyOnce() {
+        String email = "claim@example.com";
+        String token = "claim-token";
+        storage.storeRecoveryToken(email, token, 15);
+
+        assertTrue(storage.claimRecoveryToken(email, token, "claim-1", 300));
+        assertFalse(storage.claimRecoveryToken(email, token, "claim-2", 300));
+        storage.releaseRecoveryTokenClaim(email, "claim-1");
+        assertTrue(storage.claimRecoveryToken(email, token, "claim-2", 300));
+        storage.completeRecoveryTokenClaim(email, "claim-2");
+        assertFalse(storage.validateRecoveryToken(email, token));
     }
 
     @Test
@@ -158,7 +182,9 @@ class JdbcTokenStorageTest {
         String cursor = null;
         do {
             var page = storage.listSessions(userId, 37, cursor);
-            seen.addAll(page.items());
+            seen.addAll(page.items().stream()
+                    .map(io.github.brenomega.authkit.service.spi.SessionMetadata::jti)
+                    .toList());
             cursor = page.nextCursor();
         } while (cursor != null);
 
@@ -205,6 +231,40 @@ class JdbcTokenStorageTest {
         assertEquals(0, jdbcTemplate.queryForObject("select count(*) from oauth_revoked_tokens", Integer.class));
     }
 
+    @Test
+    void sessionMetadataIsPreservedAcrossRotationTouchedWithThrottleAndRevokedByPublicId() {
+        String userId = UUID.randomUUID().toString();
+        String jti = UUID.randomUUID().toString();
+        var current = RefreshTokenCodec.issue(userId, jti);
+        Instant created = Instant.now().minusSeconds(600);
+        var metadata = new io.github.brenomega.authkit.service.spi.SessionMetadata(
+                UUID.randomUUID().toString(), jti, created, created, Instant.now().plusSeconds(604800),
+                List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
+                "192.0.2.***", "192.0.2.***");
+        storage.storeRefreshToken(userId, jti, current.rawToken(), 7, metadata);
+
+        Instant firstSeen = created.plusSeconds(100);
+        storage.touchSession(userId, jti, firstSeen, "198.51.100.***", 300);
+        assertEquals(created.getEpochSecond(),
+                storage.listSessions(userId, 10, null).items().get(0).lastSeenAt().getEpochSecond());
+
+        Instant secondSeen = Instant.now();
+        storage.touchSession(userId, jti, secondSeen, "198.51.100.***", 300);
+        var touched = storage.listSessions(userId, 10, null).items().get(0);
+        assertEquals(secondSeen.getEpochSecond(), touched.lastSeenAt().getEpochSecond());
+        assertEquals("Work laptop", touched.deviceLabel());
+        assertEquals(List.of("pwd", "totp"), touched.initialAmr());
+
+        String nextJti = UUID.randomUUID().toString();
+        var next = RefreshTokenCodec.issueRotated(userId, nextJti, current.familyId());
+        assertTrue(storage.rotateRefreshToken(userId, jti, current.rawToken(), nextJti, next.rawToken(), 7));
+        var rotated = storage.listSessions(userId, 10, null).items().get(0);
+        assertEquals(metadata.publicSessionId(), rotated.publicSessionId());
+        assertEquals(created.getEpochSecond(), rotated.createdAt().getEpochSecond());
+        storage.revokeSession(userId, rotated.publicSessionId());
+        assertFalse(storage.isSessionActive(userId, nextJti));
+    }
+
     private Object rotateAfter(CountDownLatch start,
                                String userId,
                                RefreshTokenCodec.IssuedRefreshToken current,
@@ -237,17 +297,27 @@ class JdbcTokenStorageTest {
                     expires_at timestamp not null,
                     created_at timestamp not null,
                     updated_at timestamp not null,
+                    public_session_id uuid not null,
+                    last_seen_at timestamp not null,
+                    initial_amr varchar(160) not null,
+                    user_agent_summary varchar(200) not null,
+                    device_label varchar(80),
+                    creation_ip_masked varchar(64) not null,
+                    last_ip_masked varchar(64) not null,
                     primary key (user_id, jti)
                 )
                 """);
         jdbc.execute("create unique index uq_auth_refresh_sessions_jti on auth_refresh_sessions (jti)");
+        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on auth_refresh_sessions (public_session_id)");
         jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on auth_refresh_sessions (user_id, expires_at, jti)");
         jdbc.execute("""
                 create table auth_recovery_tokens (
                     email_hash char(64) primary key,
                     token_hash char(64) not null,
                     expires_at timestamp not null,
-                    created_at timestamp not null
+                    created_at timestamp not null,
+                    claim_id varchar(64),
+                    claim_until timestamp
                 )
                 """);
         jdbc.execute("""

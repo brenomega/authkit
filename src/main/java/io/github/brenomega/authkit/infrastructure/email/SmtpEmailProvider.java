@@ -41,30 +41,23 @@ public class SmtpEmailProvider implements EmailProvider {
     @Override
     public EmailDeliveryResult send(EmailPayload payload) {
         String maskedRecipient = EmailMasker.mask(payload.to());
-        RuntimeException lastFailure = null;
-        int attempts = authProperties.getEmailProvider().getMaxAttempts();
         String idempotencyKey = idempotencyKey(payload);
-        for (int attempt = 1; attempt <= attempts; attempt++) {
-            try {
-                MimeMessage message = message(payload, idempotencyKey);
-                smtpTransport.send(message);
-                String providerId = message.getMessageID();
-                if (providerId == null || providerId.isBlank()) {
-                    providerId = "smtp:" + idempotencyKey;
-                }
-                log.info("Email accepted by SMTP provider for: {}", maskedRecipient);
-                return new EmailDeliveryResult(providerId);
-            } catch (MessagingException | RuntimeException ex) {
-                lastFailure = ex instanceof RuntimeException runtimeException
-                        ? runtimeException
-                        : new RuntimeException(ex);
-                if (attempt < attempts) {
-                    backoff();
-                }
+        try {
+            MimeMessage message = message(payload, idempotencyKey);
+            smtpTransport.send(message);
+            String providerId = message.getMessageID();
+            if (providerId == null || providerId.isBlank()) {
+                providerId = "smtp:" + idempotencyKey;
             }
+            log.info("Email accepted by SMTP provider for: {}", maskedRecipient);
+            return new EmailDeliveryResult(providerId);
+        } catch (MessagingException | RuntimeException ex) {
+            // SMTP has no portable idempotency contract. Retrying inside this call after an
+            // ambiguous timeout can duplicate a message. The durable outbox owns retries and
+            // reuses the stable X-AuthKit-Message-Id for operator/provider deduplication.
+            log.error("SMTP email attempt failed for {}", maskedRecipient, ex);
+            throw new RuntimeException("Email delivery failed", ex);
         }
-        log.error("Failed to send SMTP email to {} after {} attempts", maskedRecipient, attempts, lastFailure);
-        throw new RuntimeException("Email delivery failed", lastFailure);
     }
 
     MimeMessage message(EmailPayload payload, String idempotencyKey) throws MessagingException {
@@ -109,16 +102,4 @@ public class SmtpEmailProvider implements EmailProvider {
                 : "authkit-email-" + payload.messageId();
     }
 
-    private void backoff() {
-        long backoffMs = authProperties.getEmailProvider().getRetryBackoffMs();
-        if (backoffMs <= 0) {
-            return;
-        }
-        try {
-            Thread.sleep(backoffMs);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Email delivery interrupted", ex);
-        }
-    }
 }

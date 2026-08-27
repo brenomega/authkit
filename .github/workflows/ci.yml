@@ -46,13 +46,21 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # Step 3: Run all tests with the 'test' profile (H2 in-memory DB)
-      # The build will fail if any test fails (DT 3.1.19).
+      # Step 3: Run the complete suite. Dedicated tests use Testcontainers for
+      # PostgreSQL 17 and Redis 7; H2 remains only for isolated application tests.
       - name: Run tests
         run: mvn clean verify -Dspring.profiles.active=test -B
 
+      - name: Inspect production JAR and Docker build context
+        run: |
+          jar_path="$(find target -maxdepth 1 -type f -name 'authkit-*.jar' ! -name '*.original' -print -quit)"
+          testing/release/inspect-release-artifacts.sh --jar "${jar_path}" --context
+
       - name: Validate proof and deployment scripts
         run: find deploy testing -name '*.sh' -print -exec bash -n {} \;
+
+      - name: Validate documentation links and translations
+        run: testing/release/check-documentation.py
 
       - name: Validate contract fixture metadata
         run: find testing/proof/fixtures/tokens -name '*.json' -print -exec python -m json.tool {} /dev/null \;
@@ -79,6 +87,9 @@ jobs:
 
       - name: Build container image for scanning
         run: docker build -t authkit:${{ github.sha }} .
+
+      - name: Inspect production container filesystem
+        run: testing/release/inspect-release-artifacts.sh --image authkit:${{ github.sha }}
 
       - name: Scan container image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

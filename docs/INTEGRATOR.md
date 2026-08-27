@@ -1,66 +1,46 @@
-# AuthKit Integrator Guide
+# AuthKit integrator guide
 
-## Token Classes
+[Português (Brasil)](INTEGRATOR-ptBR.md) | English is normative.
 
-AuthKit issues three mutually exclusive JWT classes. Consumers must validate `alg=RS256`, `iss`, `aud`, expiry, `kid`, and `token_use` before trusting claims.
+## Choose one browser topology
 
-| `token_use` | Audience | Required claims | Intended use |
+A same-site first-party application uses AuthKit login, a memory-only access token, and the `HttpOnly; Secure; SameSite=Strict` refresh cookie with the readable CSRF cookie echoed in the configured header. Follow `samples/first-party-same-site`.
+
+A cross-site application is an OAuth/OIDC client. Use Authorization Code with state, nonce for `openid`, exact redirect URI, and PKCE S256. Keep ceremony state briefly in `sessionStorage`, remove callback parameters immediately, and keep issued tokens in memory; a production browser client should use a backend-for-frontend for durable refresh custody. Follow `samples/oauth-cross-site`.
+
+Never store access, refresh, MFA, authorization-code, confirmation, recovery, or email-change credentials in `localStorage`. Operator action URLs carry one-time credentials in the URL fragment; remove the fragment with `history.replaceState` before submitting the credential in a JSON body. Fragments must not reach analytics or logs.
+
+## Token classes
+
+Every JWT must carry exactly one explicit `token_use`; missing or legacy values are rejected.
+
+| `token_use` | Exact audience | Intended consumer | Required boundary |
 | --- | --- | --- | --- |
-| `first_party_access` | Configured API audience | `sub`, `jti`, `tenant_id`, `amr`, `mfa` | AuthKit user/admin APIs; the configured token-storage session identified by `jti` must remain active |
-| `oauth_access` | OAuth client ID | `sub`, `jti`, `tenant_id`, `client_id`, `scope`, `amr` | Client resource APIs, userinfo, introspection, revocation |
-| `id_token` | OAuth client ID | `sub`, `jti`, `tenant_id`, `amr`, optional `nonce` | Client authentication result only; never use as an API bearer token |
+| `first_party_access` | Configured AuthKit/API audience | AuthKit first-party user/admin APIs | `sub`, `jti`, personal `tenant_id`, `amr`; live AuthKit session |
+| `oauth_access` | OAuth client ID | Client resource API, userinfo, authenticated introspection/revocation | `sub`, `jti`, `client_id`, `scope`, personal `tenant_id`; live client/family state |
+| `id_token` | OAuth client ID | OIDC authentication result only | Never an API bearer; validate nonce when issued for an authorization request |
 
-Legacy first-party tokens without `token_use` are temporarily accepted only when the configured API audience is present and OAuth-only claims are absent. Legacy OAuth access tokens require both `client_id` and `scope`. Remove this compatibility after the maximum legacy token TTL has elapsed.
+Consumers validate the configured algorithm, exact `iss`, expected `aud`, signature, expiry/not-before, `kid`, and exact token class before claims. `tenant_id` correlates one person's partition and is never organization authority. Host-product roles, organizations, subscriptions, and resource permissions belong to the integrator.
 
-For first-party access tokens, `amr` lists completed authentication methods and `mfa` is true when a method beyond password-only authentication participated. OAuth access and ID tokens expose `amr`; OAuth authorization is enforced through `client_id`, exact audience, and server-side `scope` checks rather than a first-party session lookup.
+## JWKS and revocation
 
-## Browser Session Handling
+Cache `/.well-known/jwks.json` for a short bounded period. On unknown `kid`, refresh once and reject if still absent. Pin allowed algorithms independently of the token header. During planned rotation, keep retiring public keys until every issued token expires; exercise emergency removal separately.
 
-The refresh token is an `HttpOnly`, `Secure`, `SameSite=Strict` cookie scoped to `/api/v1/auth`. Browser clients must send credentials and echo the readable CSRF cookie in the configured CSRF header for refresh and logout. Do not store access, refresh, MFA challenge, authorization-code, or reset tokens in `localStorage`.
+AuthKit immediately revokes first-party sessions and OAuth families within its own live checks/introspection. A downstream resource server validating JWTs offline observes revocation no later than the access-token expiry (the golden recommendation is at most 300 seconds). Use authenticated first-party introspection only from trusted peers when a downstream requires live first-party status; use standard authenticated OAuth introspection for OAuth access tokens.
 
-Password reset links place the token in the URL fragment. The frontend reads the fragment once, removes it with `history.replaceState`, and submits it in the reset request body. Fragments must never be forwarded to analytics or logs.
+The Spring resource-server sample demonstrates issuer, audience, `token_use=oauth_access`, and scope validation. It deliberately does not convert `PLATFORM_ADMIN` into host-product authority or use `tenant_id` as an organization.
 
-## JWKS And Validation
+## Federation
 
-Cache `/.well-known/jwks.json` for a short bounded period. On an unknown `kid`, refresh once and reject if the key is still absent. Never accept an algorithm selected only from the token header. Validate the exact audience for the receiving API, enforce `tenant_id` against the request/resource tenant, and enforce OAuth scopes server-side.
+Only providers allowlisted by a platform administrator are usable. AuthKit binds identities solely by exact `(issuer, subject)`. An equal email never auto-links accounts; the signed-in person must start an explicit link ceremony with local step-up. Unlinking cannot remove the final usable authenticator. Provider access, refresh, and ID tokens are discarded after the ceremony.
 
-Spring resource-server example:
+## Negative contract fixtures
 
-```java
-NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(issuer + "/.well-known/jwks.json").build();
-decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-        JwtValidators.createDefaultWithIssuer(issuer),
-        new JwtClaimValidator<List<String>>("aud", aud -> aud != null && aud.contains(requiredAudience)),
-        new JwtClaimValidator<String>("token_use", "oauth_access"::equals)));
-```
+Generate test-only fixtures under ignored `target/` and run boundary checks:
 
-Refresh JWKS on key rotation, keep retiring keys until all issued tokens expire, and treat revoked keys as an emergency deny list supplied out of band to downstream services.
-
-## Generic Resource-Server Sandbox
-
-Use [the Spring resource-server sample](../samples/resource-server-spring/README.md) as the generic integration sandbox before wiring AuthKit into a real host system. It demonstrates:
-
-- JWKS-based signature validation.
-- Exact issuer and audience checks.
-- `token_use=oauth_access` enforcement for host APIs.
-- Tenant path authorization.
-- Scope/role checks.
-- Rejection of ID tokens and first-party AuthKit tokens.
-
-The sandbox is intentionally generic. Wavern-specific routes, claims, and rollout details belong in [the Wavern integration spec](integration/wavern-auth-integration-spec.md), not in the reusable sample.
-
-## Contract Fixtures
-
-Contract fixture metadata lives in [testing/proof/fixtures](../testing/proof/fixtures/README.md). Generate signed test-only tokens with:
-
-```bash
+```sh
 testing/proof/fixtures/generate-test-tokens.sh
+AUTHKIT_BASE_URL=https://auth.example.test testing/proof/smoke/negative-contracts.sh
 ```
 
-Generated JWTs are written to `target/contract-fixtures/` and are never committed. Use them for local/HML negative tests only; they are signed by the repository test key and are not production credentials.
-
-Run AuthKit boundary checks with:
-
-```bash
-AUTHKIT_BASE_URL=http://localhost:8080 testing/proof/smoke/negative-contracts.sh
-```
+The fixtures use repository test keys and are never production credentials. The complete wire contract is `docs/openapi.yaml`; configuration and operator responsibilities are in `docs/CONFIGURATION.md` and `docs/OPERATIONS.md`.

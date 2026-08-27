@@ -15,12 +15,6 @@ public enum Role {
     /** Standard end-user with basic access rights. */
     USER,
 
-    /** Tenant owner with elevated data-management permissions. */
-    OWNER,
-
-    /** Tenant administrator scoped to users and OAuth clients in one tenant. */
-    TENANT_ADMIN,
-
-    /** System administrator with full platform access. */
-    ADMIN
+    /** Instance-wide administrative role. */
+    PLATFORM_ADMIN
 }

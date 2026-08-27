@@ -110,7 +110,7 @@ public class SecurityUser implements UserDetails {
      */
     @Override
     public boolean isEnabled() {
-        return user.isEmailConfirmed() && !user.isDeleted();
+        return user.isEmailConfirmed() && user.isActive();
     }
 
     /**

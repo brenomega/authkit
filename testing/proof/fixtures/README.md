@@ -10,7 +10,7 @@ AuthKit uses three mutually exclusive token classes:
 - `oauth_access`: accepted by OAuth userinfo/introspection/revocation and by downstream resource APIs when issuer, audience, tenant, scope, expiry, and key state match.
 - `id_token`: accepted by an OAuth client as an authentication result only. It must never authorize API calls.
 
-Legacy first-party tokens without `token_use` are documented only to preserve a temporary AuthKit compatibility path. Downstream resource APIs must reject them.
+Tokens without an explicit `token_use` are rejected at every AuthKit and downstream API boundary.
 
 ## Fixture Metadata
 
@@ -33,7 +33,7 @@ Run:
 testing/proof/fixtures/generate-test-tokens.sh
 ```
 
-The generator uses only the committed test key in `src/main/resources/test-keys/` and writes signed JWTs to `target/contract-fixtures/`. It never prints token values or private key material. Generated files are ignored by Git through the repository-wide `target/` rule.
+The generator uses only the committed test key in `src/test/resources/test-keys/` and writes signed JWTs to `target/contract-fixtures/`. It never prints token values or private key material. Generated files are ignored by Git through the repository-wide `target/` rule.
 
 ## Run Negative AuthKit Contract Checks
 
@@ -55,7 +55,7 @@ The script refuses production-looking hostnames unless `ALLOW_PRODUCTION_PROOF=t
 | `wrong-audience` | Rejected | Rejected | Rejected |
 | `wrong-issuer` | Rejected | Rejected | Rejected |
 | `expired-token` | Rejected | Rejected | Rejected |
-| `missing-token-use` | Temporary legacy AuthKit-only path | Rejected | Rejected |
+| `missing-token-use` | Rejected | Rejected | Rejected |
 | `missing-tenant-id` | Rejected for tenant flows | Rejected for tenant flows | Rejected for tenant flows |
 | `tenant-mismatch` | Not applicable | Not applicable | Rejected |
 | `revoked-session` | Rejected | Rejected | Rejected |

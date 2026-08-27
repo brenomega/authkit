@@ -43,6 +43,8 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.EmailNormalizer;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.exception.InvalidPasskeyCeremonyException;
+import io.github.brenomega.authkit.exception.InvalidCredentialsException;
+import io.github.brenomega.authkit.exception.LastAuthenticatorException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
@@ -55,6 +57,7 @@ import io.github.brenomega.authkit.infrastructure.security.JpaWebAuthnCredential
 import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.repository.SocialIdentityRepository;
 
 @Service
 public class PasskeyService {
@@ -69,6 +72,7 @@ public class PasskeyService {
     private final SecurityEventService securityEventService;
     private final StepUpService stepUpService;
     private final AbuseThrottleService abuseThrottleService;
+    private final SocialIdentityRepository socialIdentityRepository;
 
     public PasskeyService(UserRepository userRepository,
                           PasskeyCredentialRepository credentialRepository,
@@ -79,7 +83,8 @@ public class PasskeyService {
                           AuthProperties authProperties,
                           SecurityEventService securityEventService,
                           StepUpService stepUpService,
-                          AbuseThrottleService abuseThrottleService) {
+                          AbuseThrottleService abuseThrottleService,
+                          SocialIdentityRepository socialIdentityRepository) {
         this.userRepository = userRepository;
         this.credentialRepository = credentialRepository;
         this.challengeRepository = challengeRepository;
@@ -90,6 +95,7 @@ public class PasskeyService {
         this.securityEventService = securityEventService;
         this.stepUpService = stepUpService;
         this.abuseThrottleService = abuseThrottleService;
+        this.socialIdentityRepository = socialIdentityRepository;
     }
 
     @Transactional(readOnly = true)
@@ -106,7 +112,7 @@ public class PasskeyService {
         ensureEnabled();
         User user = loadActiveUser(userId);
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.PASSKEY_CHANGE_USER, user);
-        verifyPasswordStepUp(user,
+        verifyAvailableStepUp(user,
                 request == null ? null : request.currentPassword(),
                 SecurityEventType.PASSKEY_REGISTRATION_STARTED,
                 "passkey_registration_step_up_failed");
@@ -217,7 +223,7 @@ public class PasskeyService {
             String normalizedEmail = EmailNormalizer.normalize(request.email());
             abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSKEY_ASSERTION_EMAIL, normalizedEmail);
             User user = userRepository.findByEmail(normalizedEmail)
-                    .filter(existing -> !existing.isDeleted())
+                    .filter(User::isActive)
                     .orElse(null);
             if (user != null) {
                 userId = user.getId();
@@ -274,14 +280,17 @@ public class PasskeyService {
             }
             @SuppressWarnings("null")
             User user = userRepository.findById(userId)
-                    .filter(existing -> !existing.isDeleted())
+                    .filter(User::isActive)
                     .orElseThrow(InvalidPasskeyCeremonyException::new);
 
-            credentialRepository.markUsed(
+            int counterUpdated = credentialRepository.markUsed(
                     result.getCredential().getCredentialId().getBase64Url(),
                     user.getId(),
                     result.getSignatureCount(),
                     Instant.now());
+            if (counterUpdated != 1) {
+                throw new InvalidPasskeyCeremonyException();
+            }
 
             securityEventService.recordForAuthenticatedUser(
                     SecurityEventType.PASSKEY_AUTHENTICATED,
@@ -310,13 +319,27 @@ public class PasskeyService {
 
     @Transactional
     public void disable(String userId, UUID credentialId, StepUpRequest request) {
-        User user = loadActiveUser(userId);
+        @SuppressWarnings("null")
+        User user = userRepository.findByIdForUpdate(UUID.fromString(userId))
+                .filter(User::isActive).orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
+        user.requireEmailConfirmed();
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.PASSKEY_CHANGE_USER, user);
-        verifyPasswordStepUp(user,
+        verifyAvailableStepUp(user,
                 request == null ? null : request.currentPassword(),
                 SecurityEventType.PASSKEY_DISABLED,
                 "passkey_disable_step_up_failed");
         mfaService.requireMfaIfEnabled(user, request == null ? null : request.mfaCode(), "passkey_disable");
+        PasskeyCredential target = credentialRepository.findById(credentialId)
+                .filter(existing -> existing.getUserId().equals(user.getId()))
+                .filter(existing -> existing.getDisabledAt() == null)
+                .orElseThrow(UserNotFoundException::new);
+        long authenticators = (user.getPassword() == null ? 0 : 1)
+                + credentialRepository.countByUserIdAndDisabledAtIsNull(user.getId())
+                + socialIdentityRepository.countByUserId(user.getId());
+        if (authenticators <= 1) {
+            throw new LastAuthenticatorException();
+        }
         int updated = credentialRepository.disable(credentialId, user.getId(), Instant.now());
         if (updated != 1) {
             throw new UserNotFoundException();
@@ -352,7 +375,7 @@ public class PasskeyService {
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
-        if (user.isDeleted()) {
+        if (!user.isActive()) {
             throw new UserNotFoundException();
         }
         user.requireEmailConfirmed();
@@ -383,11 +406,27 @@ public class PasskeyService {
         return user.getEmail().toLowerCase(Locale.ROOT);
     }
 
-    private void verifyPasswordStepUp(User user,
+    private void verifyAvailableStepUp(User user,
                                       String currentPassword,
                                       SecurityEventType eventType,
                                       String failureReason) {
-        stepUpService.verifyCurrentPassword(user, currentPassword, eventType, failureReason);
+        if (user.getPassword() != null) {
+            stepUpService.verifyCurrentPassword(user, currentPassword, eventType, failureReason);
+            return;
+        }
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            List<String> amr = jwt.getClaimAsStringList("amr");
+            Instant issuedAt = jwt.getIssuedAt();
+            boolean suitableMethod = amr != null && (amr.contains("webauthn") || amr.contains("federated"));
+            if (suitableMethod && issuedAt != null && issuedAt.isAfter(
+                    Instant.now().minusSeconds(authProperties.getStepUp().getPasskeyFreshnessSeconds()))) {
+                return;
+            }
+        }
+        securityEventService.recordForAuthenticatedUser(eventType, SecurityEventOutcome.DENIED,
+                SecurityEventSeverity.HIGH, user, failureReason);
+        throw new InvalidCredentialsException();
     }
 
     private String toJson(PublicKeyCredentialCreationOptions options) {

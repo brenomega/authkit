@@ -58,7 +58,7 @@ public class RabbitMqEmailListener {
         try {
             EmailDeliveryResult result = emailProvider.send(payload);
             if (payload.messageId() != null) {
-                outboxService.markSent(payload.messageId(), result.providerMessageId());
+                outboxService.markAccepted(payload.messageId(), result.providerMessageId());
             }
         } catch (RuntimeException ex) {
             meterRegistry.counter("security.infrastructure.failure", "component", "email_provider").increment();

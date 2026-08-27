@@ -9,13 +9,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.exception.InvalidTokenException;
@@ -48,6 +52,7 @@ class PasswordRecoveryServiceTest {
 
     @BeforeEach
     void setUp() {
+        TransactionSynchronizationManager.initSynchronization();
         userRepository = mock(UserRepository.class);
         tokenStorage = mock(TokenStorage.class);
         emailOutboxService = mock(EmailOutboxService.class);
@@ -56,6 +61,13 @@ class PasswordRecoveryServiceTest {
         securityEventService = mock(SecurityEventService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
+        var renderer = mock(io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer.class);
+        when(renderer.render(any(), any(), any())).thenAnswer(invocation -> {
+            java.util.Map<?, ?> variables = invocation.getArgument(2);
+            return new io.github.brenomega.authkit.service.spi.EmailPayload(
+                    invocation.getArgument(1), "subject",
+                    variables.containsKey("action_url") ? String.valueOf(variables.get("action_url")) : "notice");
+        });
         authProperties = new AuthProperties();
         authProperties.getToken().setRecoveryTokenTtlMinutes(30);
         authProperties.getFrontend().setPasswordResetUrl("https://frontend.example.test/reset-password");
@@ -69,8 +81,18 @@ class PasswordRecoveryServiceTest {
                 new Argon2ConcurrencyLimiter(),
                 securityEventService,
                 abuseThrottleService,
-                passwordPolicyService
+                passwordPolicyService,
+                renderer
         );
+    }
+
+    @AfterEach
+    void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.getSynchronizations().forEach(
+                    synchronization -> synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     /**
@@ -82,7 +104,8 @@ class PasswordRecoveryServiceTest {
         String email = "exists@example.com";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(user.getPassword()).thenReturn("existing-hash");
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
 
         recoveryService.requestRecovery(email);
 
@@ -99,12 +122,43 @@ class PasswordRecoveryServiceTest {
     @DisplayName("Request: Non-existing user is handled silently (Stealth)")
     void requestRecovery_NonExistingUser_Silent() {
         String email = "none@example.com";
-        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.empty());
 
         recoveryService.requestRecovery(email);
 
         verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
         verify(emailOutboxService, never()).enqueue(any());
+    }
+
+    @Test
+    @DisplayName("Request: social-only account cannot silently add a password through email recovery")
+    void requestRecovery_SocialOnlyAccount_Silent() {
+        String email = "social-only@example.com";
+        User user = mock(User.class);
+        when(user.getEmail()).thenReturn(email);
+        when(user.getPassword()).thenReturn(null);
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
+
+        recoveryService.requestRecovery(email);
+
+        verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
+        verify(emailOutboxService, never()).enqueue(any());
+    }
+
+    @Test
+    @DisplayName("Request: outbox failure revokes only the token created by the rolled-back request")
+    void requestRecovery_OutboxFailureCompensatesMatchingToken() {
+        String email = "rollback@example.com";
+        User user = mock(User.class);
+        when(user.getEmail()).thenReturn(email);
+        when(user.getPassword()).thenReturn("existing-hash");
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
+        doThrow(new IllegalStateException("outbox unavailable")).when(emailOutboxService).enqueue(any());
+
+        assertThrows(IllegalStateException.class, () -> recoveryService.requestRecovery(email));
+        finishSynchronization(TransactionSynchronization.STATUS_ROLLED_BACK);
+
+        verify(tokenStorage).revokeRecoveryTokenIfMatches(eq(email), any());
     }
 
     /**
@@ -119,8 +173,9 @@ class PasswordRecoveryServiceTest {
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
         when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
+        when(user.getPassword()).thenReturn("existing-hash");
 
-        when(tokenStorage.consumeRecoveryToken(email, token)).thenReturn(true);
+        when(tokenStorage.claimRecoveryToken(eq(email), eq(token), any(), eq(1800L))).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.encode(newPass)).thenReturn("hashed-new-pass");
 
@@ -140,7 +195,7 @@ class PasswordRecoveryServiceTest {
     @Test
     @DisplayName("Reset: Invalid token throws exception")
     void resetPassword_InvalidToken_ThrowsException() {
-        when(tokenStorage.consumeRecoveryToken(any(), any())).thenReturn(false);
+        when(tokenStorage.claimRecoveryToken(any(), any(), any(), eq(1800L))).thenReturn(false);
 
         assertThrows(InvalidTokenException.class, () -> 
             recoveryService.resetPassword("any@example.com", "bad", "new"));
@@ -153,10 +208,17 @@ class PasswordRecoveryServiceTest {
     @DisplayName("Reset: Valid token but missing user throws exception")
     void resetPassword_MissingUser_ThrowsException() {
         String email = "gone@example.com";
-        when(tokenStorage.consumeRecoveryToken(eq(email), any())).thenReturn(true);
+        when(tokenStorage.claimRecoveryToken(eq(email), any(), any(), eq(1800L))).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> 
             recoveryService.resetPassword(email, "token", "pass"));
+    }
+
+    private void finishSynchronization(int status) {
+        TransactionSynchronizationManager.getSynchronizations().forEach(
+                synchronization -> synchronization.afterCompletion(status));
+        TransactionSynchronizationManager.clearSynchronization();
+        TransactionSynchronizationManager.initSynchronization();
     }
 }

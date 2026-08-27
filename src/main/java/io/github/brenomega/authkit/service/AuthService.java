@@ -69,6 +69,7 @@ public class AuthService {
     private final SecurityEventService securityEventService;
     private final MfaService mfaService;
     private final AbuseThrottleService abuseThrottleService;
+    private final SessionMetadataFactory sessionMetadataFactory;
     private final String dummyPasswordHash;
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,
@@ -78,7 +79,8 @@ public class AuthService {
                        Argon2ConcurrencyLimiter argon2Limiter,
                        SecurityEventService securityEventService,
                        MfaService mfaService,
-                       AbuseThrottleService abuseThrottleService) {
+                       AbuseThrottleService abuseThrottleService,
+                       SessionMetadataFactory sessionMetadataFactory) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtEncoder = jwtEncoder;
@@ -89,6 +91,7 @@ public class AuthService {
         this.securityEventService = securityEventService;
         this.mfaService = mfaService;
         this.abuseThrottleService = abuseThrottleService;
+        this.sessionMetadataFactory = sessionMetadataFactory;
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
     }
 
@@ -210,7 +213,9 @@ public class AuthService {
                 user.getId().toString(),
                 jti,
                 refreshToken.rawToken(),
-                authProperties.getToken().getRefreshTokenTtlDays()
+                authProperties.getToken().getRefreshTokenTtlDays(),
+                sessionMetadataFactory.create(
+                        jti, java.util.List.of("pwd"), authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -278,7 +283,7 @@ public class AuthService {
             throw new InvalidMfaCodeException();
         }
 
-        if (!user.isEmailConfirmed() || user.isDeleted()) {
+        if (!user.isEmailConfirmed() || !user.isActive()) {
             securityEventService.recordForTargetUser(
                     SecurityEventType.MFA_CHALLENGE_FAILED,
                     SecurityEventOutcome.DENIED,
@@ -310,13 +315,19 @@ public class AuthService {
 
         lockoutService.clearLockout(user.getEmail());
 
+        java.util.List<String> completedAmr = new java.util.ArrayList<>(challenge.initialAmr());
+        completedAmr.add(mfaResult.method());
+        completedAmr = completedAmr.stream().distinct().toList();
         String jti = UUID.randomUUID().toString();
         IssuedRefreshToken refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
         tokenStorage.storeRefreshToken(
                 user.getId().toString(),
                 jti,
                 refreshToken.rawToken(),
-                authProperties.getToken().getRefreshTokenTtlDays()
+                authProperties.getToken().getRefreshTokenTtlDays(),
+                sessionMetadataFactory.create(
+                        jti, completedAmr,
+                        authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -333,7 +344,7 @@ public class AuthService {
                 user,
                 "login_success_mfa");
 
-        return issueTokenPair(user, refreshToken, java.util.List.of("pwd", mfaResult.method()));
+        return issueTokenPair(user, refreshToken, completedAmr);
     }
 
     /**
@@ -383,7 +394,7 @@ public class AuthService {
                     "account_locked");
             throw new InvalidRefreshTokenException();
         }
-        if (user.isDeleted()) {
+        if (!user.isActive()) {
             securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_FAILED,
                     SecurityEventOutcome.DENIED,
@@ -465,7 +476,7 @@ public class AuthService {
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
-        if (user.isDeleted()) {
+        if (!user.isActive()) {
             throw new UserNotFoundException();
         }
 
@@ -488,7 +499,7 @@ public class AuthService {
         RefreshTokenCodec.parse(rawRefreshToken)
                 .filter(token -> tokenStorage.validateToken(token.userId(), token.jti(), token.rawToken()))
                 .ifPresent(token -> {
-                    tokenStorage.revokeSession(token.userId(), token.jti());
+                    tokenStorage.revokeSessionByJti(token.userId(), token.jti());
                     UUID userUuid = UUID.fromString(token.userId());
                     securityEventService.record(
                             SecurityEventType.LOGOUT,
@@ -504,7 +515,7 @@ public class AuthService {
     }
 
     public LoginResult issueLoginForVerifiedUser(User user, java.util.List<String> amr, String reason) {
-        if (user.isDeleted()) {
+        if (!user.isActive()) {
             throw new InvalidCredentialsException();
         }
         user.requireEmailConfirmed();
@@ -516,7 +527,9 @@ public class AuthService {
                 user.getId().toString(),
                 jti,
                 refreshToken.rawToken(),
-                authProperties.getToken().getRefreshTokenTtlDays()
+                authProperties.getToken().getRefreshTokenTtlDays(),
+                sessionMetadataFactory.create(
+                        jti, amr, authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -527,6 +540,23 @@ public class AuthService {
                 reason);
 
         return issueTokenPair(user, refreshToken, amr);
+    }
+
+    public LoginResult beginFederatedLogin(User user, String providerKey) {
+        java.util.List<String> amr = java.util.List.of("federated", "oidc:" + providerKey);
+        if (!mfaService.isMfaEnabled(user)) {
+            return issueLoginForVerifiedUser(user, amr, "login_success_social");
+        }
+        IssuedMfaChallenge challenge = MfaChallengeCodec.issue(user.getId().toString(), amr);
+        tokenStorage.storeMfaChallenge(user.getId().toString(), challenge.jti(), challenge.rawToken(),
+                authProperties.getMfa().getLoginChallengeTtlMinutes());
+        securityEventService.recordForTargetUser(
+                SecurityEventType.MFA_CHALLENGE_ISSUED,
+                SecurityEventOutcome.INFO,
+                SecurityEventSeverity.MEDIUM,
+                user,
+                "social_login_local_mfa_challenge_issued");
+        return new LoginResult(LoginResponse.mfaRequired(challenge.rawToken()), null);
     }
 
     private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken, java.util.List<String> amr) {

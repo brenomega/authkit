@@ -4,6 +4,8 @@ import java.time.Instant;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.domain.user.enums.Role;
+import io.github.brenomega.authkit.domain.user.enums.AccountState;
+import io.github.brenomega.authkit.exception.AccountNotActiveException;
 import io.github.brenomega.authkit.exception.EmailNotConfirmedException;
 
 import jakarta.persistence.Column;
@@ -67,8 +69,7 @@ public class User {
     /**
      * Hashed password (Argon2id). The plaintext value is never stored (DT 3.2.1).
      */
-    @NotBlank
-    @Column(name = "password", nullable = false)
+    @Column(name = "password")
     private String password;
 
     @NotNull
@@ -76,9 +77,7 @@ public class User {
     @Column(name = "role", nullable = false, length = 50)
     private Role role = Role.USER;
 
-    /**
-     * Multi-tenancy isolation identifier.
-     */
+    /** Opaque, one-person partition identifier. It never denotes an organization. */
     @Column(name = "tenant_id", nullable = false, unique = true, updatable = false)
     private java.util.UUID tenantId;
 
@@ -86,9 +85,16 @@ public class User {
     @Column(name = "name", length = 100)
     private String name;
 
-    /** Optional contact phone number. */
-    @Column(name = "phone", length = 20)
-    private String phone;
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "account_state", nullable = false, length = 32)
+    private AccountState accountState = AccountState.ACTIVE;
+
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
+    @Column(name = "suspension_reason", length = 500)
+    private String suspensionReason;
 
     /** Proof of acceptance of Terms of Use. */
     @Column(name = "terms_accepted", nullable = false)
@@ -109,6 +115,21 @@ public class User {
     /** Expiration for the current email confirmation token. */
     @Column(name = "email_confirmation_expires_at")
     private Instant emailConfirmationExpiresAt;
+
+    /** New address awaiting completion of the authenticated email-change ceremony. */
+    @Email
+    @Column(name = "pending_email", length = 255)
+    private String pendingEmail;
+
+    /** SHA-256 digest of the current one-time email-change token. */
+    @Column(name = "email_change_token_hash", length = 64)
+    private String emailChangeTokenHash;
+
+    @Column(name = "email_change_expires_at")
+    private Instant emailChangeExpiresAt;
+
+    @Column(name = "email_change_requested_at")
+    private Instant emailChangeRequestedAt;
 
     /** Terms of Use version accepted by the user. */
     @Column(name = "terms_version", nullable = false, length = 64)
@@ -152,13 +173,12 @@ public class User {
      * Creates a new user mapping explicitly from registration coordinates.
      * Generates a universally unique tenant identifier tied to the user upon creation.
      */
-    public User(String email, String password, String name, String phone,
+    public User(String email, String password, String name,
                 boolean termsAccepted, boolean privacyPolicyAccepted,
                 String emailConfirmationToken) {
         this.email = email;
         this.password = password;
         this.name = name;
-        this.phone = phone;
         this.termsAccepted = termsAccepted;
         this.privacyPolicyAccepted = privacyPolicyAccepted;
         this.emailConfirmationToken = emailConfirmationToken;
@@ -167,6 +187,7 @@ public class User {
         this.role = Role.USER;
         this.tenantId = java.util.UUID.randomUUID();
         this.emailConfirmed = false;
+        this.accountState = AccountState.ACTIVE;
     }
 
     // -------------------------------------------------------------------------
@@ -217,8 +238,9 @@ public class User {
     public java.util.UUID getTenantId() { return tenantId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
-    public String getPhone() { return phone; }
-    public void setPhone(String phone) { this.phone = phone; }
+    public AccountState getAccountState() { return accountState; }
+    public Instant getSuspendedAt() { return suspendedAt; }
+    public String getSuspensionReason() { return suspensionReason; }
     public boolean isTermsAccepted() { return termsAccepted; }
     public boolean isPrivacyPolicyAccepted() { return privacyPolicyAccepted; }
     public boolean isEmailConfirmed() { return emailConfirmed; }
@@ -227,6 +249,10 @@ public class User {
     public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
     public Instant getEmailConfirmationExpiresAt() { return emailConfirmationExpiresAt; }
     public void setEmailConfirmationExpiresAt(Instant emailConfirmationExpiresAt) { this.emailConfirmationExpiresAt = emailConfirmationExpiresAt; }
+    public String getPendingEmail() { return pendingEmail; }
+    public String getEmailChangeTokenHash() { return emailChangeTokenHash; }
+    public Instant getEmailChangeExpiresAt() { return emailChangeExpiresAt; }
+    public Instant getEmailChangeRequestedAt() { return emailChangeRequestedAt; }
     public String getTermsVersion() { return termsVersion; }
     public String getPrivacyPolicyVersion() { return privacyPolicyVersion; }
     public Instant getConsentAcceptedAt() { return consentAcceptedAt; }
@@ -243,28 +269,104 @@ public class User {
     }
 
     public boolean isDeleted() {
-        return deletedAt != null || anonymizedAt != null;
+        return accountState == AccountState.ANONYMIZED;
+    }
+
+    public boolean isActive() {
+        return accountState == AccountState.ACTIVE;
+    }
+
+    public void suspend(String reason, Instant now) {
+        if (accountState == AccountState.ANONYMIZED) {
+            throw new IllegalStateException("An anonymized account cannot be suspended");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Suspension reason is required");
+        }
+        this.accountState = AccountState.SUSPENDED;
+        this.suspendedAt = now;
+        this.suspensionReason = reason.trim();
+    }
+
+    public void reactivate() {
+        if (accountState != AccountState.SUSPENDED) {
+            throw new IllegalStateException("Only a suspended account can be reactivated");
+        }
+        this.accountState = AccountState.ACTIVE;
+        this.suspendedAt = null;
+        this.suspensionReason = null;
     }
 
     public void requestDeletion(Instant requestedAt) {
         if (this.deletionRequestedAt == null) {
             this.deletionRequestedAt = requestedAt;
         }
+        this.accountState = AccountState.DELETION_PENDING;
     }
 
-    public void anonymizeForDeletion(String anonymizedEmail, String anonymizedPasswordHash, Instant anonymizedAt) {
+    public void cancelDeletion() {
+        if (accountState != AccountState.DELETION_PENDING) {
+            throw new IllegalStateException("No deletion request is pending");
+        }
+        this.deletionRequestedAt = null;
+        this.accountState = AccountState.ACTIVE;
+    }
+
+    public void requestEmailChange(String newEmail, String tokenHash, Instant requestedAt, Instant expiresAt) {
+        requireEmailConfirmed();
+        this.pendingEmail = newEmail;
+        this.emailChangeTokenHash = tokenHash;
+        this.emailChangeRequestedAt = requestedAt;
+        this.emailChangeExpiresAt = expiresAt;
+    }
+
+    public String completeEmailChange() {
+        requireEmailConfirmed();
+        if (pendingEmail == null || emailChangeTokenHash == null || emailChangeExpiresAt == null) {
+            throw new IllegalStateException("No email change is pending");
+        }
+        String previousEmail = this.email;
+        this.email = this.pendingEmail;
+        clearPendingEmailChange();
+        return previousEmail;
+    }
+
+    public void cancelEmailChange() {
+        if (pendingEmail == null) {
+            throw new IllegalStateException("No email change is pending");
+        }
+        clearPendingEmailChange();
+    }
+
+    public void clearPendingEmailChange() {
+        this.pendingEmail = null;
+        this.emailChangeTokenHash = null;
+        this.emailChangeRequestedAt = null;
+        this.emailChangeExpiresAt = null;
+    }
+
+    public void anonymizeForDeletion(String anonymizedEmail, Instant anonymizedAt) {
         requestDeletion(anonymizedAt);
         this.email = anonymizedEmail;
-        this.password = anonymizedPasswordHash;
+        this.password = null;
         this.name = null;
-        this.phone = null;
         this.emailConfirmationToken = null;
         this.emailConfirmationExpiresAt = null;
+        clearPendingEmailChange();
         this.emailConfirmed = false;
         this.termsAccepted = false;
         this.privacyPolicyAccepted = false;
         this.deletedAt = anonymizedAt;
         this.anonymizedAt = anonymizedAt;
+        this.accountState = AccountState.ANONYMIZED;
+        this.suspendedAt = null;
+        this.suspensionReason = null;
+    }
+
+    public void requireActive() {
+        if (!isActive()) {
+            throw new AccountNotActiveException();
+        }
     }
 
     /**
@@ -273,7 +375,8 @@ public class User {
      * @throws EmailNotConfirmedException if the email has not been confirmed
      */
     public void requireEmailConfirmed() {
-        if (!this.emailConfirmed || isDeleted()) {
+        requireActive();
+        if (!this.emailConfirmed) {
             throw new EmailNotConfirmedException();
         }
     }

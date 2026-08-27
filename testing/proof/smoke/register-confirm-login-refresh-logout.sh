@@ -21,9 +21,8 @@ if [[ -z "${AUTHKIT_SMOKE_CONFIRMATION_TOKEN:-}" ]]; then
   exit 0
 fi
 
-confirm_status="$(curl --silent --show-error --output /tmp/authkit-confirm-response.json --write-out '%{http_code}' \
-  --request POST \
-  "${AUTHKIT_BASE_URL}/api/v1/auth/email-confirmation/confirm?token=${AUTHKIT_SMOKE_CONFIRMATION_TOKEN}")"
+confirm_body="$(printf '{"token":"%s"}' "${AUTHKIT_SMOKE_CONFIRMATION_TOKEN}")"
+confirm_status="$(http_json_status POST /api/v1/auth/email-confirmation/confirm "${confirm_body}" "" /tmp/authkit-confirm-response.json)"
 assert_status "200" "${confirm_status}" "email confirmation"
 
 login_status="$(http_json_status POST /api/v1/auth/login "$(printf '{"email":"%s","password":"%s"}' "${email}" "${password}")" "" /tmp/authkit-login-response.json)"

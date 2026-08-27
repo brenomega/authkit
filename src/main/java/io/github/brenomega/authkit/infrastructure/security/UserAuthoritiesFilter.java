@@ -11,16 +11,21 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.response.ApiResponse;
+import io.github.brenomega.authkit.service.SessionMetadataFactory;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -38,22 +43,31 @@ import jakarta.servlet.http.HttpServletResponse;
 @Component
 public class UserAuthoritiesFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(UserAuthoritiesFilter.class);
+
     private final UserRepository userRepository;
     private final TokenStorage tokenStorage;
     private final ObjectMapper objectMapper;
     private final String apiAudience;
+    private final long lastSeenThrottleSeconds;
+    private final SessionMetadataFactory sessionMetadataFactory;
     private final Cache<UUID, Optional<CachedUserAuthorities>> authorityCache;
+    private final MeterRegistry meterRegistry;
 
     public UserAuthoritiesFilter(
             UserRepository userRepository,
             TokenStorage tokenStorage,
             ObjectMapper objectMapper,
             AuthProperties authProperties,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            SessionMetadataFactory sessionMetadataFactory) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.objectMapper = objectMapper;
         this.apiAudience = authProperties.getJwt().getAudience();
+        this.lastSeenThrottleSeconds = authProperties.getTokenStorage().getSessionLastSeenThrottleSeconds();
+        this.sessionMetadataFactory = sessionMetadataFactory;
+        this.meterRegistry = meterRegistry;
         this.authorityCache = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofSeconds(authProperties.getAuthorityCache().getTtlSeconds()))
                 .maximumSize(authProperties.getAuthorityCache().getMaxSize())
@@ -85,14 +99,20 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
             }
 
             String jti = jwtAuth.getToken().getId();
-            if (jti == null || jti.isBlank() || !tokenStorage.isSessionActive(userId.toString(), jti)) {
-                SecurityContextHolder.clearContext();
-                reject(response);
+            Optional<CachedUserAuthorities> cachedAuthorities;
+            try {
+                if (jti == null || jti.isBlank() || !tokenStorage.isSessionActive(userId.toString(), jti)) {
+                    SecurityContextHolder.clearContext();
+                    reject(response);
+                    return;
+                }
+                tokenStorage.touchSession(userId.toString(), jti, java.time.Instant.now(),
+                        sessionMetadataFactory.currentMaskedIp(), lastSeenThrottleSeconds);
+                cachedAuthorities = authorityCache.get(userId, this::loadAuthorities);
+            } catch (DataAccessException | TransactionException ex) {
+                dependencyUnavailable(response, ex);
                 return;
             }
-
-            Optional<CachedUserAuthorities> cachedAuthorities =
-                    authorityCache.get(userId, this::loadAuthorities);
 
             if (cachedAuthorities.isEmpty() || !cachedAuthorities.get().enabled()) {
                 SecurityContextHolder.clearContext();
@@ -129,6 +149,18 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
         objectMapper.writeValue(response.getOutputStream(), ApiResponse.error("Unauthorized"));
+    }
+
+    private void dependencyUnavailable(HttpServletResponse response, RuntimeException ex) throws IOException {
+        SecurityContextHolder.clearContext();
+        meterRegistry.counter("security.infrastructure.failure", "component", "live_authority").increment();
+        log.error("Live session or authority dependency unavailable", ex);
+        response.resetBuffer();
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        objectMapper.writeValue(response.getOutputStream(),
+                ApiResponse.error("dependency_unavailable", "Service temporarily unavailable"));
     }
 
     private record CachedUserAuthorities(

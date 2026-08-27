@@ -4,12 +4,12 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 
-if [[ ! -f "${repo_root}/pom.xml" || ! -d "${repo_root}/src/main/resources/test-keys" ]]; then
+if [[ ! -f "${repo_root}/pom.xml" || ! -d "${repo_root}/src/test/resources/test-keys" ]]; then
   echo "FAIL: repository root could not be found from ${script_dir}" >&2
   exit 1
 fi
 
-key_dir="${repo_root}/src/main/resources/test-keys"
+key_dir="${repo_root}/src/test/resources/test-keys"
 if [[ "${JWT_PRIVATE_KEY_PATH:-}" != "" ]]; then
   case "${JWT_PRIVATE_KEY_PATH}" in
     "${key_dir}"/*) ;;

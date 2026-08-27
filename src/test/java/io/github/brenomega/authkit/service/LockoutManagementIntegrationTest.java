@@ -1,10 +1,14 @@
 package io.github.brenomega.authkit.service;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,8 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 public class LockoutManagementIntegrationTest {
+
+    private static final Pattern FRAGMENT_TOKEN = Pattern.compile("#token=([A-Za-z0-9_-]+)");
 
     @Autowired
     private MockMvc mockMvc;
@@ -108,7 +114,9 @@ public class LockoutManagementIntegrationTest {
         String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
                 .orElseThrow()
                 .getBody();
-        String token = htmlBody.substring(htmlBody.indexOf("token=") + 6, htmlBody.indexOf("&email="));
+        Matcher tokenMatcher = FRAGMENT_TOKEN.matcher(htmlBody);
+        assertTrue(tokenMatcher.find());
+        String token = tokenMatcher.group(1);
 
         // --- STEP 6: Complete password reset → should clear lockout ---
         mockMvc.perform(post("/api/v1/auth/password-recovery/reset")
@@ -130,6 +138,7 @@ public class LockoutManagementIntegrationTest {
         var refreshToken = RefreshTokenCodec.issue(user.getId().toString(), jti);
         tokenStorage.storeRefreshToken(user.getId().toString(), jti, refreshToken.rawToken(), 7);
         return jwt().jwt(builder -> builder
+                .claims(claims -> claims.remove("scope"))
                 .subject(user.getId().toString())
                 .audience(java.util.List.of("authkit-api"))
                 .claim("token_use", "first_party_access")

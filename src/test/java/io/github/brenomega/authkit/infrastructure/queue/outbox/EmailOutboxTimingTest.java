@@ -17,10 +17,20 @@ class EmailOutboxTimingTest {
         AuthProperties authProperties = new AuthProperties();
 
         assertThat(EmailOutboxTiming.providerRetryBudget(authProperties))
-                .isEqualTo(Duration.ofMillis(21_500));
+                .isEqualTo(Duration.ofMillis(7_000));
         assertThat(EmailOutboxTiming.directExecutorWaitTimeout(authProperties))
-                .isEqualTo(Duration.ofSeconds(1_075));
+                .isEqualTo(Duration.ofSeconds(350));
         assertThat(EmailOutboxTiming.directProcessingLockTimeout(authProperties))
-                .isEqualTo(Duration.ofSeconds(1_075));
+                .isEqualTo(Duration.ofSeconds(350));
+    }
+
+    @Test
+    @DisplayName("Resend processing budget includes bounded idempotent provider retries")
+    void resendBudgetIncludesProviderRetries() {
+        AuthProperties authProperties = new AuthProperties();
+        authProperties.getEmailProvider().setType("resend");
+
+        assertThat(EmailOutboxTiming.providerRetryBudget(authProperties))
+                .isEqualTo(Duration.ofMillis(21_500));
     }
 }

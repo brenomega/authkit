@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import io.github.brenomega.authkit.domain.user.enums.Role;
+import io.github.brenomega.authkit.domain.user.enums.AccountState;
 
 public record AdminUserResponse(
         UUID id,
@@ -11,8 +12,10 @@ public record AdminUserResponse(
         String email,
         String name,
         Role role,
+        AccountState accountState,
         boolean emailConfirmed,
-        boolean deleted,
+        Instant suspendedAt,
+        String suspensionReason,
         Instant deletionRequestedAt,
         Instant deletedAt,
         Instant anonymizedAt

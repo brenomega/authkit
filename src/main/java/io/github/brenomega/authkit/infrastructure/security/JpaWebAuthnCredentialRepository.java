@@ -17,6 +17,7 @@ import com.yubico.webauthn.data.PublicKeyCredentialDescriptor;
 import com.yubico.webauthn.data.exception.Base64UrlException;
 
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
+import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
@@ -46,7 +47,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
     public Optional<ByteArray> getUserHandleForUsername(String username) {
         UUID userId = UUID.fromString(username);
         return userRepository.findById(userId)
-                .filter(user -> !user.isDeleted())
+                .filter(User::isActive)
                 .map(user -> userHandle(user.getId()));
     }
 
@@ -56,7 +57,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
         try {
             UUID userId = UUID.fromString(new String(userHandle.getBytes(), StandardCharsets.UTF_8));
             return userRepository.findById(userId)
-                    .filter(user -> !user.isDeleted())
+                    .filter(User::isActive)
                     .map(user -> user.getId().toString());
         } catch (IllegalArgumentException ex) {
             return Optional.empty();

@@ -236,6 +236,50 @@ public class AuthIntegrationTest {
     }
 
     @Test
+    @DisplayName("Authenticated worker introspection reports first-party session liveness and observes revocation")
+    void firstPartyIntrospection_requiresWorkerAndObservesImmediateRevocation() throws Exception {
+        MvcResult login = login("introspection-flow@example.com", "SuperPassword123!");
+        String accessToken = accessToken(login);
+        String request = objectMapper.writeValueAsString(java.util.Map.of("token", accessToken));
+
+        mockMvc.perform(post("/api/v1/internal/tokens/introspect")
+                        .contentType("application/json")
+                        .content(request))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/internal/tokens/introspect")
+                        .header("X-Worker-Token", "invalid-worker-token")
+                        .contentType("application/json")
+                        .content(request))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/internal/tokens/introspect")
+                        .header("X-Worker-Token", "test-dummy-worker-token")
+                        .contentType("application/json")
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.active").value(true))
+                .andExpect(jsonPath("$.data.subject").isNotEmpty())
+                .andExpect(jsonPath("$.data.tenantId").isNotEmpty())
+                .andExpect(jsonPath("$.data.tokenUse").value("first_party_access"))
+                .andExpect(jsonPath("$.data.amr[0]").value("pwd"));
+
+        mockMvc.perform(post("/api/v1/auth/logout-all")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/internal/tokens/introspect")
+                        .header("X-Worker-Token", "test-dummy-worker-token")
+                        .contentType("application/json")
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.active").value(false))
+                .andExpect(jsonPath("$.data.subject").doesNotExist());
+    }
+
+    @Test
     @DisplayName("Logout-all, session revocation, password reset, and account deletion invalidate old access tokens")
     void sensitiveRevocationsInvalidateBoundAccessTokens() throws Exception {
         assertAccessTokenRevokedAfterLogoutAll();
@@ -302,9 +346,14 @@ public class AuthIntegrationTest {
     private void assertAccessTokenRevokedAfterSessionRevocation() throws Exception {
         MvcResult login = login("session-revoke@example.com", "SuperPassword123!");
         String accessToken = accessToken(login);
-        String jti = jwtClaim(accessToken, "jti").asText();
+        String sessionsBody = mockMvc.perform(get("/api/v1/users/me/sessions")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String sessionId = objectMapper.readTree(sessionsBody).path("data").path("items").get(0)
+                .path("sessionId").asText();
 
-        mockMvc.perform(delete("/api/v1/users/me/sessions/{jti}", jti)
+        mockMvc.perform(delete("/api/v1/users/me/sessions/{sessionId}", sessionId)
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType("application/json")
                         .content("{}"))

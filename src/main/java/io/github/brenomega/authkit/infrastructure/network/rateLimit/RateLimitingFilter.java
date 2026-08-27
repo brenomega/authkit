@@ -248,11 +248,12 @@ public class RateLimitingFilter extends OncePerRequestFilter {
      */
     private void sendRateLimitResponse(HttpServletResponse response) throws IOException {
         response.setStatus(429);
+        response.setHeader("Retry-After", "60");
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         String jsonResponse = String.format(
-            "{\"timestamp\":\"%s\",\"status\":429,\"error\":\"Too Many Requests\",\"message\":\"Rate limit exceeded\"}",
-            java.time.Instant.now().toString()
+            "{\"errors\":[\"Rate limit exceeded\"],\"timestamp\":\"%s\",\"code\":\"rate_limit_exceeded\",\"requestId\":\"%s\"}",
+            java.time.Instant.now(), io.github.brenomega.authkit.response.RequestContext.currentRequestId()
         );
         response.getWriter().write(jsonResponse);
     }

@@ -62,13 +62,13 @@ class EmailOutboxServiceTest {
         service.enqueue(new EmailPayload("sent@example.com", "Subject", "Body"));
         UUID id = service.claimDueMessages(1, Duration.ZERO).getFirst().getId();
 
-        service.markSent(id, "provider-first");
+        service.markAccepted(id, "provider-first");
         service.markFailed(id, "stale worker failure");
-        service.markSent(id, "provider-duplicate");
+        service.markAccepted(id, "provider-duplicate");
 
         @SuppressWarnings("null")
         EmailOutboxMessage message = repository.findById(id).orElseThrow();
-        assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.SENT);
+        assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.ACCEPTED);
         assertThat(message.getProviderMessageId()).isEqualTo("provider-first");
     }
 
@@ -95,12 +95,12 @@ class EmailOutboxServiceTest {
         UUID id = service.claimDueMessages(1, Duration.ZERO).getFirst().getId();
 
         service.markFailed(id, "provider unavailable");
-        service.markSent(id, "provider-late");
+        service.markAccepted(id, "provider-late");
 
         @SuppressWarnings("null")
         EmailOutboxMessage message = repository.findById(id).orElseThrow();
         assertThat(message.getStatus()).isEqualTo(EmailOutboxStatus.DEAD);
         assertThat(message.getProviderMessageId()).isNull();
-        assertThat(message.getDeliveredAt()).isNull();
+        assertThat(message.getAcceptedAt()).isNull();
     }
 }

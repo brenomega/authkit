@@ -37,9 +37,9 @@ class ContractFixtureTokenGeneratorTest {
     @Test
     void generateSignedContractFixtureTokens() throws Exception {
         Path root = Path.of("").toAbsolutePath();
-        Path keyPath = root.resolve("src/main/resources/test-keys/app.key").normalize();
+        Path keyPath = root.resolve("src/test/resources/test-keys/app.key").normalize();
         assertTrue(Files.exists(keyPath), "test-only private key must exist");
-        assertTrue(keyPath.startsWith(root.resolve("src/main/resources/test-keys").normalize()),
+        assertTrue(keyPath.startsWith(root.resolve("src/test/resources/test-keys").normalize()),
                 "fixture generation may only use committed test keys");
 
         RSAPrivateKey privateKey = readPrivateKey(keyPath);

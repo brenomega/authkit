@@ -3,14 +3,11 @@ package com.example.authkit.sample;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 public class TenantController {
@@ -26,23 +23,9 @@ public class TenantController {
         return response;
     }
 
-    @GetMapping("/sample/tenant/{tenantId}/profile")
-    public Map<String, Object> tenantProfile(@PathVariable String tenantId, @AuthenticationPrincipal Jwt jwt) {
-        requireTenant(tenantId, jwt);
-        return Map.of("tenant_id", tenantId, "sub", jwt.getSubject());
-    }
-
-    @PreAuthorize("hasAuthority('SCOPE_admin') or hasAuthority('ROLE_ADMIN')")
-    @GetMapping("/sample/admin/tenant/{tenantId}/users")
-    public Map<String, Object> tenantUsers(@PathVariable String tenantId, @AuthenticationPrincipal Jwt jwt) {
-        requireTenant(tenantId, jwt);
-        return Map.of("tenant_id", tenantId, "users", java.util.List.of());
-    }
-
-    private void requireTenant(String tenantId, Jwt jwt) {
-        String tokenTenant = jwt.getClaimAsString("tenant_id");
-        if (tokenTenant == null || tokenTenant.isBlank() || !tenantId.equals(tokenTenant)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "tenant mismatch");
-        }
+    @PreAuthorize("hasAuthority('SCOPE_sample.read')")
+    @GetMapping("/sample/protected")
+    public Map<String, Object> protectedResource(@AuthenticationPrincipal Jwt jwt) {
+        return Map.of("subject", jwt.getSubject(), "authorizedBy", "sample.read");
     }
 }

@@ -4,6 +4,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -22,7 +23,10 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.exception.RegistrationRestrictedException;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateId;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -44,6 +48,7 @@ public class RegistrationService {
     private final ConsentEventService consentEventService;
     private final AbuseThrottleService abuseThrottleService;
     private final PasswordPolicyService passwordPolicyService;
+    private final EmailTemplateRenderer emailTemplateRenderer;
 
     public RegistrationService(UserRepository userRepository,
                                PasswordEncoder passwordEncoder,
@@ -52,7 +57,8 @@ public class RegistrationService {
                                SecurityEventService securityEventService,
                                ConsentEventService consentEventService,
                                AbuseThrottleService abuseThrottleService,
-                               PasswordPolicyService passwordPolicyService) {
+                               PasswordPolicyService passwordPolicyService,
+                               EmailTemplateRenderer emailTemplateRenderer) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailOutboxService = emailOutboxService;
@@ -61,6 +67,7 @@ public class RegistrationService {
         this.consentEventService = consentEventService;
         this.abuseThrottleService = abuseThrottleService;
         this.passwordPolicyService = passwordPolicyService;
+        this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
     /**
@@ -72,6 +79,9 @@ public class RegistrationService {
     @Transactional
     @LogExecutionTime
     public User registerUser(RegisterRequest request) {
+        if (!"public".equalsIgnoreCase(authProperties.getRegistration().getMode())) {
+            throw new RegistrationRestrictedException();
+        }
         String email = EmailNormalizer.normalize(request.email());
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.REGISTRATION_EMAIL, email);
         passwordPolicyService.validateForRegistration(email, request.password());
@@ -86,7 +96,6 @@ public class RegistrationService {
         User user = new User(
                 email,
                 hashedPassword,
-                null,
                 null,
                 request.termsAccepted(),
                 request.privacyPolicyAccepted(),
@@ -123,7 +132,7 @@ public class RegistrationService {
         }
 
         String tokenHash = TokenHasher.sha256Hex(token);
-        User user = userRepository.findByEmailConfirmationToken(tokenHash)
+        User user = userRepository.findByEmailConfirmationTokenForUpdate(tokenHash)
                 .orElseThrow(InvalidTokenException::new);
         if (user.getEmailConfirmationExpiresAt() == null || !user.getEmailConfirmationExpiresAt().isAfter(Instant.now())) {
             user.setEmailConfirmationToken(null);
@@ -151,7 +160,7 @@ public class RegistrationService {
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_COOLDOWN, email);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_DAILY, email);
         userRepository.findByEmail(email)
-                .filter(user -> !user.isDeleted())
+                .filter(User::isActive)
                 .filter(user -> !user.isEmailConfirmed())
                 .ifPresent(user -> {
                     ConfirmationToken confirmationToken = newConfirmationToken();
@@ -177,12 +186,9 @@ public class RegistrationService {
 
     private void enqueueActivationEmail(User user, String rawToken) {
         String activationUrl = authProperties.getFrontend().getActivationUrl()
-                + "?token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
-        EmailPayload payload = new EmailPayload(
-                user.getEmail(),
-                "Welcome to AuthKit - Activate your account",
-                "<p>Click <a href='" + activationUrl + "'>here</a> to activate your account.</p>"
-        );
+                + "#token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
+        EmailPayload payload = emailTemplateRenderer.render(
+                EmailTemplateId.EMAIL_CONFIRMATION, user.getEmail(), Map.of("action_url", activationUrl));
 
         emailOutboxService.enqueue(payload);
     }

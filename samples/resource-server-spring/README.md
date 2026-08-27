@@ -8,8 +8,8 @@ This sample is a standalone host application that validates AuthKit OAuth access
 - Exact issuer validation.
 - Exact audience validation for the resource API.
 - `token_use=oauth_access` enforcement.
-- Tenant path authorization using the token `tenant_id` claim.
-- Scope or role enforcement for admin-like routes.
+- Host-resource authorization using an OAuth client scope.
+- `tenant_id` displayed only as an opaque per-person partition, never as organization authority.
 - Rejection of first-party access tokens and ID tokens.
 
 ## Configuration
@@ -27,11 +27,10 @@ Use local-only defaults for development. In production, `AUTHKIT_ISSUER` must be
 
 ## Start AuthKit Locally
 
-From the repository root, start the AuthKit tier you want to test. For example, with a Redis-direct compose stack:
+From the repository root, start the documented local manual harness or install the golden path. The golden production command is:
 
 ```bash
-cp deploy/compose/.env.redis-direct.example deploy/compose/.env
-docker compose --env-file deploy/compose/.env -f deploy/compose/docker-compose.redis-direct.yml up --build
+docker compose --env-file deploy/golden/.env -f deploy/golden/compose.yml up -d --build
 ```
 
 Replace every `CHANGE-ME` value before using any non-local environment.
@@ -43,7 +42,7 @@ Create an AuthKit OAuth client whose client id is the resource API audience:
 ```text
 client_id: sample-resource-api
 redirect_uri: http://localhost:3000/callback
-scopes: openid email profile admin
+scopes: openid email profile sample.read
 ```
 
 Use the AuthKit admin API or seeded test data in your local environment. Do not paste client secrets into this README or shell history.
@@ -83,17 +82,7 @@ cd samples/resource-server-spring
 mvn test
 ```
 
-The tests cover token class, issuer, audience, tenant, and admin-scope failures.
-
-## Tenant Validation
-
-The tenant id in the route must match the token claim:
-
-```bash
-curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8081/sample/tenant/<tenant_id>/profile
-```
-
-The sample never accepts tenant, role, or scope values from request bodies or arbitrary headers. Host systems must apply the same rule to every tenant-scoped object lookup.
+The tests cover token class, issuer, audience, and missing-scope failures.
 
 ## Host Responsibilities
 
@@ -101,8 +90,8 @@ The host application must still:
 
 - Validate the exact issuer and accepted audience for each API.
 - Require `token_use=oauth_access`.
-- Enforce tenant/object authorization server-side.
-- Enforce scopes or roles server-side.
+- Treat `tenant_id` only as AuthKit's opaque personal partition. It is not an organization or host-product role boundary.
+- Enforce client scopes and the host application's own object/policy data server-side. `PLATFORM_ADMIN` authorizes only AuthKit's control plane.
 - Reject ID tokens and first-party AuthKit tokens.
 - Refresh JWKS on unknown `kid` once, then reject.
 - Keep AuthKit issuer/JWKS configuration under deployment control, not user input.
