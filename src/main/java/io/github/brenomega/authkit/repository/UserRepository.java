@@ -20,15 +20,11 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.enums.AccountState;
 
-/**
- * Provides account lookup and explicit tenant-scoped administration queries.
- */
 @Repository
-public interface UserRepository extends JpaRepository<User, java.util.UUID> {
+public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmail(String email);
 
-    /** Locks the account row while performing an email-address ceremony. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.email = :email")
     Optional<User> findByEmailForUpdate(@Param("email") String email);
@@ -48,7 +44,9 @@ public interface UserRepository extends JpaRepository<User, java.util.UUID> {
     @Query("select u.id from User u where u.deletedAt is not null and u.deletedAt < :cutoff order by u.deletedAt asc")
     List<UUID> findDeletedIdsBefore(@Param("cutoff") Instant cutoff, Pageable pageable);
 
-    @Query("select u.id from User u where u.accountState = :state and u.deletionRequestedAt <= :cutoff order by u.deletionRequestedAt asc")
+    @Query("select u.id from User u where u.accountState = :state and " +
+        "u.deletionRequestedAt <= :cutoff order by u.deletionRequestedAt " +
+        "asc")
     List<UUID> findDeletionPendingIdsBefore(@Param("state") AccountState state,
                                             @Param("cutoff") Instant cutoff,
                                             Pageable pageable);

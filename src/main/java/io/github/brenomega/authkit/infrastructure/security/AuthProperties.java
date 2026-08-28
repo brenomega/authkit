@@ -10,13 +10,6 @@ import jakarta.validation.constraints.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
-/**
- * Type-safe runtime configuration for AuthKit authentication surfaces.
- *
- * <p>These settings are intentionally externalized because token lifetimes,
- * cookie posture, issuer identity, and public frontend URLs vary between
- * deployments while the service remains stateless.</p>
- */
 @Validated
 @ConfigurationProperties(prefix = "authkit.auth")
 public class AuthProperties {
@@ -1588,7 +1581,9 @@ public class AuthProperties {
         public String getCallbackBaseUrl() { return callbackBaseUrl; }
         public void setCallbackBaseUrl(String callbackBaseUrl) { this.callbackBaseUrl = callbackBaseUrl; }
         public long getTransactionTtlMinutes() { return transactionTtlMinutes; }
-        public void setTransactionTtlMinutes(long transactionTtlMinutes) { this.transactionTtlMinutes = transactionTtlMinutes; }
+        public void setTransactionTtlMinutes(long transactionTtlMinutes) {
+            this.transactionTtlMinutes = transactionTtlMinutes;
+        }
     }
 
     /** Configures browser cross-origin access; credentialed origins must be explicit. */

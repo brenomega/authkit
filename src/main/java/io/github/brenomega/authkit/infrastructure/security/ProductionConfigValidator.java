@@ -14,17 +14,10 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.net.URI;
 
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 
-/**
- * Fails startup when non-development configuration violates security prerequisites.
- *
- * <p>Validation covers secrets and placeholders, TLS and cookie requirements,
- * cryptographic minimums, scheduler locks, provider selection, CORS, and supported
- * token-store topology. It is skipped only for explicit test/development contexts;
- * every other profile is treated as production-like.</p>
- */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ProductionConfigValidator implements ApplicationRunner {
@@ -41,10 +34,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         List<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());
 
-        // Skip validation for test or dev profiles or when running inside Spring Boot tests
-        if (activeProfiles.contains("test") 
-                || activeProfiles.contains("dev") 
-                || environment.containsProperty("org.springframework.boot.test.context.SpringBootTestContextBootstrapper")) {
+        if (activeProfiles.contains("test")
+                || activeProfiles.contains("dev")
+                || environment.containsProperty(
+                        "org.springframework.boot.test.context.SpringBootTestContextBootstrapper")) {
             log.info("Security configuration validation bypassed in test/dev environment.");
             return;
         }
@@ -60,7 +53,11 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateEmailDispatchMode();
         validateRegistrationMode();
         validateSchedulerLocks();
-        validateCredential("app.security.worker-token", "secure-production-worker-token", "mock-token", "CHANGE-ME-SECURE-WORKER-TOKEN");
+        validateCredential(
+            "app.security.worker-token",
+            "secure-production-worker-token",
+            "mock-token",
+            "CHANGE-ME-SECURE-WORKER-TOKEN");
         validateEmailProvider();
         validateCredential("authkit.auth.email-templates.directory");
         validateCredential("authkit.auth.jwt.issuer", "authkit");
@@ -108,7 +105,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateMinLong("authkit.auth.token-storage.jdbc.cleanup-delay-ms", 1000);
         validateMinLong("authkit.auth.token-storage.jdbc.session-cursor-ttl-seconds", 60);
         if (getLongProperty("authkit.auth.email-outbox.max-attempts", 10) < 1) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email outbox max attempts must be positive. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email outbox max attempts must be " +
+                "positive. Startup aborted.");
         }
         validateMinLong("security.argon2.memory", 19456);
         validateMinLong("security.argon2.iterations", 2);
@@ -138,14 +136,15 @@ public class ProductionConfigValidator implements ApplicationRunner {
         for (String issuer : issuers.split(",")) {
             String value = issuer.trim();
             try {
-                java.net.URI uri = java.net.URI.create(value);
+                URI uri = URI.create(value);
                 if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
                         || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null) {
                     throw new IllegalArgumentException();
                 }
             } catch (IllegalArgumentException ex) {
                 throw new IllegalStateException(
-                        "CRITICAL SECURITY ERROR: Every social issuer allowlist entry must be an exact HTTPS issuer.", ex);
+                        "CRITICAL SECURITY ERROR: Every social issuer allowlist entry " +
+                            "must be an exact HTTPS issuer.", ex);
             }
         }
     }
@@ -157,17 +156,22 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if (!"jdbc".equals(backend)) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported token storage backend '" + backend + "'. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Unsupported token storage backend '"
+                            + backend
+                            + "'. Startup aborted.");
         }
         boolean singleInstanceMode = Boolean.parseBoolean(environment.getProperty(
                 "authkit.auth.token-storage.single-instance-mode", "false"));
         if (!singleInstanceMode) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: JDBC token storage without Redis is allowed only in explicit single-instance mode. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: JDBC token storage without Redis is " +
+                "allowed only in explicit single-instance mode. Startup aborted.");
         }
         boolean failClosedHighRisk = Boolean.parseBoolean(environment.getProperty(
                 "authkit.auth.abuse-control.fail-closed-high-risk", "false"));
         if (failClosedHighRisk) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Redis-free JDBC token storage cannot enable high-risk abuse fail-closed mode. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Redis-free JDBC token storage cannot " +
+                "enable high-risk abuse fail-closed mode. Startup aborted.");
         }
     }
 
@@ -184,7 +188,8 @@ public class ProductionConfigValidator implements ApplicationRunner {
         boolean distributedLockEnabled = Boolean.parseBoolean(environment.getProperty(
                 "authkit.auth.scheduler.distributed-lock-enabled", "true"));
         if ((emailJobEnabled || retentionJobEnabled) && !distributedLockEnabled) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Distributed scheduler locking is required when scheduled jobs are enabled. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Distributed scheduler locking is " +
+                "required when scheduled jobs are enabled. Startup aborted.");
         }
         Duration emailLock = Duration.parse(environment.getProperty(
                 "authkit.auth.scheduler.email-poll-lock-at-most", "PT10M"));
@@ -193,31 +198,45 @@ public class ProductionConfigValidator implements ApplicationRunner {
         Duration retentionMin = Duration.parse(environment.getProperty(
                 "authkit.auth.scheduler.retention-lock-at-least", "PT1M"));
         if (emailLock.isZero() || emailLock.isNegative() || emailLock.compareTo(Duration.ofMinutes(10)) > 0) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email scheduler lock must be between zero and ten minutes. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Email scheduler lock must be between " +
+                "zero and ten minutes. Startup aborted.");
         }
         if (retentionMax.isZero() || retentionMax.isNegative()
                 || retentionMax.compareTo(Duration.ofHours(2)) > 0
                 || retentionMin.compareTo(Duration.ofMinutes(1)) < 0
                 || retentionMin.compareTo(retentionMax) > 0) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Retention scheduler lock bounds are unsafe. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Retention scheduler lock bounds are " +
+                "unsafe. Startup aborted.");
         }
     }
 
     private void validateCredential(@NonNull String propertyKey, String... illegalValues) {
         String value = environment.getProperty(propertyKey);
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Required property '"
+                            + propertyKey
+                            + "' is missing or empty!");
         }
 
         if (value.startsWith("${") || value.startsWith("CHANGE-ME")) {
             log.error("CRITICAL SECURITY ERROR: Key '{}' has an unresolved placeholder value.", propertyKey);
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' has an unresolved placeholder value. Startup aborted.");
         }
 
         for (String illegal : illegalValues) {
             if (value.equalsIgnoreCase(illegal)) {
-                log.error("CRITICAL SECURITY ERROR: Key '{}' has an insecure default or placeholder value: '{}'", propertyKey, value);
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has a default or placeholder value. Startup aborted.");
+                log.error(
+                    "CRITICAL SECURITY ERROR: Key '{}' has an insecure default or placeholder value: '{}'",
+                    propertyKey,
+                    value);
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' has a default or placeholder value. Startup aborted.");
             }
         }
     }
@@ -225,13 +244,19 @@ public class ProductionConfigValidator implements ApplicationRunner {
     private void validateBoolean(@NonNull String propertyKey, boolean requiredValue) {
         String value = environment.getProperty(propertyKey);
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Required property '"
+                            + propertyKey
+                            + "' is missing or empty!");
         }
 
         boolean actual = Boolean.parseBoolean(value);
         if (actual != requiredValue) {
             log.error("CRITICAL SECURITY ERROR: Key '{}' must be set to '{}'.", propertyKey, requiredValue);
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an insecure value. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' has an insecure value. Startup aborted.");
         }
     }
 
@@ -240,23 +265,34 @@ public class ProductionConfigValidator implements ApplicationRunner {
         String value = environment.getProperty(propertyKey);
         if (value == null || !value.startsWith("https://")) {
             log.error("CRITICAL SECURITY ERROR: Key '{}' must use HTTPS.", propertyKey);
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use HTTPS. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' must use HTTPS. Startup aborted.");
         }
     }
 
     private void validateMinLong(@NonNull String propertyKey, long minimumValue) {
         String value = environment.getProperty(propertyKey);
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Required property '"
+                            + propertyKey
+                            + "' is missing or empty!");
         }
         try {
             long actual = Long.parseLong(value);
             if (actual < minimumValue) {
                 log.error("CRITICAL SECURITY ERROR: Key '{}' must be at least '{}'.", propertyKey, minimumValue);
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' is below the production minimum. Startup aborted.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' is below the production minimum. Startup aborted.");
             }
         } catch (NumberFormatException ex) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+            throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.",
+                ex);
         }
     }
 
@@ -264,26 +300,39 @@ public class ProductionConfigValidator implements ApplicationRunner {
         String value = environment.getProperty(propertyKey, "0");
         try {
             if (Long.parseLong(value) < 0) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be zero or positive. Startup aborted.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' must be zero or positive. Startup aborted.");
             }
         } catch (NumberFormatException ex) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+            throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.",
+                ex);
         }
     }
 
     private void validateMaxLong(@NonNull String propertyKey, long maximumValue) {
         String value = environment.getProperty(propertyKey);
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Required property '" + propertyKey + "' is missing or empty!");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Required property '"
+                            + propertyKey
+                            + "' is missing or empty!");
         }
         try {
             long actual = Long.parseLong(value);
             if (actual > maximumValue) {
                 log.error("CRITICAL SECURITY ERROR: Key '{}' must be at most '{}'.", propertyKey, maximumValue);
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' is above the production maximum. Startup aborted.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' is above the production maximum. Startup aborted.");
             }
         } catch (NumberFormatException ex) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+            throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.",
+                ex);
         }
     }
 
@@ -300,9 +349,13 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if ("logging".equals(provider)) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Logging email provider cannot be used in production. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Logging email provider cannot be used " +
+                "in production. Startup aborted.");
         }
-        throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email provider '" + provider + "'. Startup aborted.");
+        throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Unsupported email provider '"
+                        + provider
+                        + "'. Startup aborted.");
     }
 
     private void validateSmtpProvider() {
@@ -322,10 +375,12 @@ public class ProductionConfigValidator implements ApplicationRunner {
         boolean sslEnabled = Boolean.parseBoolean(environment.getProperty(
                 "authkit.auth.email-provider.smtp.ssl-enabled", "false"));
         if (!startTlsEnabled && !sslEnabled) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP provider must use STARTTLS or SSL. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP provider must use STARTTLS or SSL. " +
+                "Startup aborted.");
         }
         if (startTlsEnabled && !startTlsRequired) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP STARTTLS must be required in production. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP STARTTLS must be required in " +
+                "production. Startup aborted.");
         }
     }
 
@@ -344,7 +399,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
             validateDirectEmailDeliveryTimeout();
             return;
         }
-        throw new IllegalStateException("CRITICAL SECURITY ERROR: Unsupported email outbox dispatch mode '" + dispatchMode + "'. Startup aborted.");
+        throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Unsupported email outbox dispatch mode '"
+                        + dispatchMode
+                        + "'. Startup aborted.");
     }
 
     private boolean preserveRabbitObservability() {
@@ -362,34 +420,49 @@ public class ProductionConfigValidator implements ApplicationRunner {
 
         if (deliveryAckTimeout.compareTo(providerBudget) <= 0) {
             log.error(
-                    "CRITICAL SECURITY ERROR: Direct email delivery timeout must exceed provider retry budget. timeoutMs={}, providerBudgetMs={}",
+                    "CRITICAL SECURITY ERROR: Direct email delivery timeout must " +
+                        "exceed provider retry budget. timeoutMs={}, providerBudgetMs={}",
                     deliveryAckTimeout.toMillis(),
                     providerBudget.toMillis());
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Direct email delivery timeout is below the provider retry budget. Startup aborted.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Direct email delivery timeout is below " +
+                "the provider retry budget. Startup aborted.");
         }
         log.info(
-                "Direct email timeout checks passed. deliveryAckTimeoutMs={}, providerBudgetMs={}, executorWaitBudgetMs={}, effectiveProcessingLockMs={}",
+                "Direct email timeout checks passed. deliveryAckTimeoutMs={}, " +
+                    "providerBudgetMs={}, executorWaitBudgetMs={}, " +
+                    "effectiveProcessingLockMs={}",
                 deliveryAckTimeout.toMillis(),
                 providerBudget.toMillis(),
                 executorWaitTimeout.toMillis(),
                 directProcessingLockTimeout.toMillis());
     }
 
+    @SuppressWarnings("null")
     private AuthProperties directEmailTimingProperties() {
         AuthProperties properties = new AuthProperties();
         AuthProperties.EmailProvider provider = properties.getEmailProvider();
         AuthProperties.EmailOutbox outbox = properties.getEmailOutbox();
 
         provider.setType(environment.getProperty("authkit.auth.email-provider.type", provider.getType()));
-        provider.setMaxAttempts((int) getLongProperty("authkit.auth.email-provider.max-attempts", provider.getMaxAttempts()));
-        provider.setConnectTimeoutMs((int) getLongProperty("authkit.auth.email-provider.connect-timeout-ms", provider.getConnectTimeoutMs()));
-        provider.setReadTimeoutMs((int) getLongProperty("authkit.auth.email-provider.read-timeout-ms", provider.getReadTimeoutMs()));
-        provider.setRetryBackoffMs(getLongProperty("authkit.auth.email-provider.retry-backoff-ms", provider.getRetryBackoffMs()));
+        provider.setMaxAttempts((int) getLongProperty(
+            "authkit.auth.email-provider.max-attempts",
+            provider.getMaxAttempts()));
+        provider.setConnectTimeoutMs((int) getLongProperty(
+            "authkit.auth.email-provider.connect-timeout-ms",
+            provider.getConnectTimeoutMs()));
+        provider.setReadTimeoutMs((int) getLongProperty(
+            "authkit.auth.email-provider.read-timeout-ms",
+            provider.getReadTimeoutMs()));
+        provider.setRetryBackoffMs(getLongProperty(
+            "authkit.auth.email-provider.retry-backoff-ms",
+            provider.getRetryBackoffMs()));
 
         outbox.setDeliveryAckTimeoutSeconds(getLongProperty(
                 "authkit.auth.email-outbox.delivery-ack-timeout-seconds",
                 outbox.getDeliveryAckTimeoutSeconds()));
-        outbox.setLockTtlSeconds(getLongProperty("authkit.auth.email-outbox.lock-ttl-seconds", outbox.getLockTtlSeconds()));
+        outbox.setLockTtlSeconds(getLongProperty(
+            "authkit.auth.email-outbox.lock-ttl-seconds",
+            outbox.getLockTtlSeconds()));
         outbox.setDirectCorePoolSize((int) getLongProperty(
                 "authkit.auth.email-outbox.direct-core-pool-size",
                 outbox.getDirectCorePoolSize()));
@@ -407,7 +480,9 @@ public class ProductionConfigValidator implements ApplicationRunner {
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException ex) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.", ex);
+            throw new IllegalStateException(
+                "CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must be numeric. Startup aborted.",
+                ex);
         }
     }
 
@@ -417,7 +492,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if (value.startsWith("${") || value.contains("CHANGE-ME")) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' has an unresolved placeholder value. Startup aborted.");
         }
         for (String entry : value.split(";")) {
             if (entry.isBlank()) {
@@ -425,12 +503,18 @@ public class ProductionConfigValidator implements ApplicationRunner {
             }
             int separator = entry.indexOf('=');
             if (separator <= 0 || separator == entry.length() - 1) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use keyId=secret entries separated by semicolons.");
+                    throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' must use keyId=secret entries separated by semicolons.");
             }
             String keyId = entry.substring(0, separator).trim();
             String keyMaterial = entry.substring(separator + 1).trim();
             if (!keyId.matches("[A-Za-z0-9._-]{1,64}") || keyMaterial.length() < 32) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id or short key material.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' contains an invalid key id or short key material.");
             }
         }
     }
@@ -441,7 +525,10 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if (value.startsWith("${") || value.contains("CHANGE-ME")) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' has an unresolved placeholder value. Startup aborted.");
         }
         for (String entry : value.split(";")) {
             if (entry.isBlank()) {
@@ -449,12 +536,18 @@ public class ProductionConfigValidator implements ApplicationRunner {
             }
             int separator = entry.indexOf('=');
             if (separator <= 0 || separator == entry.length() - 1) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' must use keyId=publicKey entries separated by semicolons.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' must use keyId=publicKey entries separated by semicolons.");
             }
             String keyId = entry.substring(0, separator).trim();
             String keyMaterial = entry.substring(separator + 1).trim();
             if (!keyId.matches("[A-Za-z0-9._-]{1,64}") || keyMaterial.length() < 16) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id or missing public key material.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' contains an invalid key id or missing public key material.");
             }
         }
     }
@@ -465,12 +558,18 @@ public class ProductionConfigValidator implements ApplicationRunner {
             return;
         }
         if (value.startsWith("${") || value.contains("CHANGE-ME")) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' has an unresolved placeholder value. Startup aborted.");
+            throw new IllegalStateException(
+                    "CRITICAL SECURITY ERROR: Property '"
+                            + propertyKey
+                            + "' has an unresolved placeholder value. Startup aborted.");
         }
         for (String item : value.split("[,;]")) {
             String keyId = item.trim();
             if (!keyId.isBlank() && !keyId.matches("[A-Za-z0-9._-]{1,64}")) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey + "' contains an invalid key id.");
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Property '"
+                                + propertyKey
+                                + "' contains an invalid key id.");
             }
         }
     }
@@ -478,16 +577,20 @@ public class ProductionConfigValidator implements ApplicationRunner {
     private void validateCorsOrigins() {
         String origins = environment.getProperty("authkit.auth.cors.allowed-origins");
         if (origins == null || origins.isBlank()) {
-            throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS allowed origins must be explicit in production.");
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS allowed origins must be explicit " +
+                "in production.");
         }
-        boolean credentials = Boolean.parseBoolean(environment.getProperty("authkit.auth.cors.allow-credentials", "true"));
+        boolean credentials = Boolean.parseBoolean(environment.getProperty(
+            "authkit.auth.cors.allow-credentials",
+            "true"));
         for (String origin : origins.split(",")) {
             String trimmed = origin.trim();
             if (trimmed.isBlank()) {
                 continue;
             }
             if ("*".equals(trimmed) && credentials) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS wildcard cannot be used with credentials.");
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS wildcard cannot be used with " +
+                    "credentials.");
             }
             if (trimmed.startsWith("http://") && !trimmed.startsWith("http://localhost")) {
                 throw new IllegalStateException("CRITICAL SECURITY ERROR: Production CORS origins must use HTTPS.");

@@ -7,6 +7,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -124,7 +127,7 @@ public class AdminService {
     public AdminUserPageResponse listUsers(Jwt jwt, String search, int limit, String cursor) {
         requireAdminPlanePrincipal(jwt);
         int boundedLimit = Math.max(1, Math.min(limit, MAX_LIST_LIMIT));
-        String normalizedSearch = search == null ? "" : search.strip().toLowerCase(java.util.Locale.ROOT);
+        String normalizedSearch = search == null ? "" : search.strip().toLowerCase(Locale.ROOT);
         var position = adminCursorCodec.decode(cursor, "users", boundedLimit, normalizedSearch);
         var page = userRepository.searchForAdministration(normalizedSearch,
                 PageRequest.of(position.page(), boundedLimit,
@@ -141,6 +144,7 @@ public class AdminService {
     @Transactional(readOnly = true)
     public AdminUserDetailResponse getUser(Jwt jwt, UUID targetUserId) {
         requireAdminPlanePrincipal(jwt);
+        @SuppressWarnings("null")
         User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
         return new AdminUserDetailResponse(toUserResponse(target), new AdminAuthenticatorStatus(
                 target.getPassword() != null,
@@ -153,11 +157,12 @@ public class AdminService {
     public void revokeAllUserSessions(Jwt jwt, UUID targetUserId, String currentPassword, String mfaCode) {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, currentPassword, mfaCode, "admin_user_sessions_revoke");
+        @SuppressWarnings("null")
         User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
         tokenStorage.revokeAllSessions(target.getId().toString());
         securityEventService.record(SecurityEventType.ADMIN_ACTION, SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.HIGH, admin.getId(), target.getId(), target.getTenantId(),
-                target.getEmail(), "admin_revoked_all_user_sessions", java.util.Map.of());
+                target.getEmail(), "admin_revoked_all_user_sessions", Map.of());
     }
 
     @Transactional(readOnly = true)
@@ -180,6 +185,7 @@ public class AdminService {
         return new AdminSecurityEventPageResponse(items, next);
     }
 
+    @SuppressWarnings("null")
     @Transactional(readOnly = true)
     public AdminOperationalStatusResponse operationalStatus(Jwt jwt) {
         requireAdminPlanePrincipal(jwt);
@@ -188,8 +194,8 @@ public class AdminService {
             counts.put(status, emailOutboxRepository.countByStatus(status));
         }
         return new AdminOperationalStatusResponse(
-                counts.entrySet().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        entry -> entry.getKey().name(), java.util.Map.Entry::getValue)),
+                counts.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+                        entry -> entry.getKey().name(), Map.Entry::getValue)),
                 authProperties.getEmailOutbox().getDispatchMode(),
                 authProperties.getTokenStorage().getBackend(),
                 authProperties.getCompliance().isRetentionJobEnabled());
@@ -229,7 +235,7 @@ public class AdminService {
                 target.getTenantId(),
                 target.getEmail(),
                 "admin_role_updated",
-                java.util.Map.of("role", request.role().name()));
+                Map.of("role", request.role().name()));
         return toUserResponse(target);
     }
 
@@ -259,7 +265,7 @@ public class AdminService {
                 target.getTenantId(),
                 target.getEmail(),
                 "account_suspended_by_platform_admin",
-                java.util.Map.of());
+                Map.of());
         tokenStorage.revokeAllSessions(target.getId().toString());
         userAuthoritiesFilter.evict(target.getId());
         return toUserResponse(target);
@@ -282,7 +288,7 @@ public class AdminService {
                 target.getTenantId(),
                 target.getEmail(),
                 "account_reactivated_by_platform_admin",
-                java.util.Map.of());
+                Map.of());
         userAuthoritiesFilter.evict(target.getId());
         return toUserResponse(target);
     }
@@ -304,7 +310,7 @@ public class AdminService {
                 target.getTenantId(),
                 target.getEmail(),
                 "account_deletion_cancelled_by_platform_admin",
-                java.util.Map.of());
+                Map.of());
         userAuthoritiesFilter.evict(target.getId());
         return toUserResponse(target);
     }
@@ -348,7 +354,7 @@ public class AdminService {
                 SecurityEventSeverity.HIGH,
                 admin,
                 "oauth_client_created",
-                java.util.Map.of("client_id", client.getClientId()));
+                Map.of("client_id", client.getClientId()));
 
         return toClientResponse(client, rawSecret);
     }
@@ -385,7 +391,11 @@ public class AdminService {
                 SecurityEventSeverity.HIGH,
                 admin,
                 "oauth_client_updated",
-                java.util.Map.of("client_id", client.getClientId(), "secret_rotated", Boolean.toString(request.rotateSecret())));
+                Map.of(
+                    "client_id",
+                    client.getClientId(),
+                    "secret_rotated",
+                    Boolean.toString(request.rotateSecret())));
 
         return toClientResponse(client, rawSecret);
     }
@@ -411,7 +421,7 @@ public class AdminService {
                 SecurityEventSeverity.HIGH,
                 admin,
                 "oauth_client_disabled",
-                java.util.Map.of("client_id", client.getClientId()));
+                Map.of("client_id", client.getClientId()));
     }
 
     private User requireAdminPlanePrincipal(Jwt jwt) {
@@ -428,7 +438,11 @@ public class AdminService {
 
     private void requireAdminWriteStepUp(Jwt jwt, User admin, String currentPassword, String mfaCode, String reason) {
         abuseThrottleService.checkTenant(AbuseRateLimitPolicy.ADMIN_WRITE_TENANT, admin.getTenantId());
-        stepUpService.verifyCurrentPassword(admin, currentPassword, SecurityEventType.ADMIN_ACTION, reason + "_password_step_up_failed");
+        stepUpService.verifyCurrentPassword(
+            admin,
+            currentPassword,
+            SecurityEventType.ADMIN_ACTION,
+            reason + "_password_step_up_failed");
 
         boolean hasTotp = mfaService.isMfaEnabled(admin);
         boolean hasPasskey = passkeyCredentialRepository.countByUserIdAndDisabledAtIsNull(admin.getId()) > 0;
@@ -467,7 +481,8 @@ public class AdminService {
         }
         Instant issuedAt = jwt.getIssuedAt();
         return issuedAt != null
-                && issuedAt.isAfter(Instant.now().minusSeconds(authProperties.getStepUp().getPasskeyFreshnessSeconds()));
+                && issuedAt.isAfter(
+                        Instant.now().minusSeconds(authProperties.getStepUp().getPasskeyFreshnessSeconds()));
     }
 
     private void requireCanManageUser(User admin, User target, Role requestedRole) {

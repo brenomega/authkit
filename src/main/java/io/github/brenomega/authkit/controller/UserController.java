@@ -35,12 +35,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Adapts authenticated self-service account, MFA, passkey, and session use cases.
- *
- * <p>Operations are bound to the authenticated subject; the service layer also
- * verifies tenant and account state.</p>
- */
 @RestController
 @RequestMapping("/api/v1/users/me")
 @PreAuthorize("hasAnyRole('USER', 'PLATFORM_ADMIN')")
@@ -64,27 +58,18 @@ public class UserController {
         this.emailChangeService = emailChangeService;
     }
 
-    /**
-     * Returns the authenticated subject's active profile.
-     */
     @GetMapping
     public ApiResponse<ProfileResponse> getMyProfile(@AuthenticationPrincipal Jwt jwt) {
         ProfileResponse profile = profileService.getProfile(jwt.getSubject());
         return new ApiResponse<>(profile, null, Instant.now());
     }
 
-    /**
-     * Returns the current versioned consent snapshot for the authenticated user.
-     */
     @GetMapping("/consent")
     public ApiResponse<ConsentSnapshotResponse> getMyConsent(@AuthenticationPrincipal Jwt jwt) {
         ConsentSnapshotResponse consent = accountLifecycleService.getConsentSnapshot(jwt.getSubject());
         return new ApiResponse<>(consent, null, Instant.now());
     }
 
-    /**
-     * Returns a privacy-safe data export for access requests.
-     */
     @PostMapping("/export")
     public ApiResponse<UserDataExportResponse> exportMyData(
             @AuthenticationPrincipal Jwt jwt,
@@ -93,9 +78,6 @@ public class UserController {
         return new ApiResponse<>(export, null, Instant.now());
     }
 
-    /**
-     * Updates only the subject's mutable profile attributes.
-     */
     @PatchMapping
     public ApiResponse<ProfileResponse> updateMyProfile(
             @AuthenticationPrincipal Jwt jwt,
@@ -118,9 +100,6 @@ public class UserController {
         return ApiResponse.success(emailChangeService.cancel(jwt.getSubject(), request));
     }
 
-    /**
-     * Changes the password after step-up and preserves only the current session.
-     */
     @PostMapping("/password")
     public ApiResponse<String> changePassword(
             @AuthenticationPrincipal Jwt jwt,
@@ -129,9 +108,6 @@ public class UserController {
         return new ApiResponse<>("Password changed successfully. All other sessions revoked.", null, Instant.now());
     }
 
-    /**
-     * Lists a cursor page of the subject's active refresh sessions.
-     */
     @GetMapping("/sessions")
     public ApiResponse<SessionPageResponse> getMySessions(
             @AuthenticationPrincipal Jwt jwt,
@@ -147,7 +123,6 @@ public class UserController {
         return new ApiResponse<>(status, null, Instant.now());
     }
 
-    /** Starts TOTP enrollment after fresh password and optional MFA step-up. */
     @PostMapping("/mfa/totp/enroll")
     public ApiResponse<MfaTotpEnrollmentResponse> enrollTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -156,7 +131,6 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
-    /** Activates TOTP, returns backup codes once, and revokes existing sessions. */
     @PostMapping("/mfa/totp/confirm")
     public ApiResponse<MfaBackupCodesResponse> confirmTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -165,7 +139,6 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
-    /** Disables TOTP after step-up and revokes existing sessions. */
     @DeleteMapping("/mfa/totp")
     public ApiResponse<String> disableTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -174,7 +147,6 @@ public class UserController {
         return new ApiResponse<>("MFA disabled successfully.", null, Instant.now());
     }
 
-    /** Replaces unused backup codes and returns the new raw codes once. */
     @PostMapping("/mfa/backup-codes")
     public ApiResponse<MfaBackupCodesResponse> regenerateBackupCodes(
             @AuthenticationPrincipal Jwt jwt,
@@ -188,7 +160,6 @@ public class UserController {
         return new ApiResponse<>(passkeyService.list(jwt.getSubject()), null, Instant.now());
     }
 
-    /** Starts a user-bound passkey registration after step-up. */
     @PostMapping("/passkeys/options")
     public ApiResponse<PasskeyRegistrationOptionsResponse> startPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -197,7 +168,6 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
-    /** Completes passkey registration by consuming its challenge. */
     @PostMapping("/passkeys")
     public ApiResponse<PasskeyCredentialResponse> finishPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -215,9 +185,6 @@ public class UserController {
         return new ApiResponse<>("Passkey disabled successfully.", null, Instant.now());
     }
 
-    /**
-     * Revokes one subject-owned session after optional MFA step-up.
-     */
     @DeleteMapping("/sessions/{sessionId}")
     public ApiResponse<String> revokeSession(
             @AuthenticationPrincipal Jwt jwt,
@@ -227,9 +194,6 @@ public class UserController {
         return new ApiResponse<>("Session revoked successfully.", null, Instant.now());
     }
 
-    /**
-     * Requests account deletion. Direct PII is anonymized after the configured grace period.
-     */
     @DeleteMapping
     public ApiResponse<AccountDeletionResponse> deleteMyAccount(
             @AuthenticationPrincipal Jwt jwt,

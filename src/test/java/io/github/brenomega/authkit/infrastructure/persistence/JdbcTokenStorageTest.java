@@ -28,6 +28,7 @@ import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
 class JdbcTokenStorageTest {
 
@@ -129,6 +130,7 @@ class JdbcTokenStorageTest {
         }
     }
 
+    @SuppressWarnings("null")
     @Test
     void recoveryAndMfaChallengeConsumeOnlyOnce() {
         String email = "Reset@Example.com";
@@ -168,6 +170,7 @@ class JdbcTokenStorageTest {
         assertFalse(storage.validateRecoveryToken(email, token));
     }
 
+    @SuppressWarnings("null")
     @Test
     void listSessionsUsesBoundedCursorPagesWithOwnershipAndExpiry() {
         String userId = UUID.randomUUID().toString();
@@ -183,7 +186,7 @@ class JdbcTokenStorageTest {
         do {
             var page = storage.listSessions(userId, 37, cursor);
             seen.addAll(page.items().stream()
-                    .map(io.github.brenomega.authkit.service.spi.SessionMetadata::jti)
+                    .map(SessionMetadata::jti)
                     .toList());
             cursor = page.nextCursor();
         } while (cursor != null);
@@ -197,7 +200,9 @@ class JdbcTokenStorageTest {
                 storage.listSessions(UUID.randomUUID().toString(), 1, ownedPage.nextCursor()));
 
         var expiringPage = storage.listSessions(userId, 1, null);
-        jdbcTemplate.update("update auth_session_cursors set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_session_cursors set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
         assertThrows(InvalidSessionCursorException.class, () ->
                 storage.listSessions(userId, 1, expiringPage.nextCursor()));
 
@@ -217,11 +222,21 @@ class JdbcTokenStorageTest {
                 "oauth-jti",
                 Timestamp.from(Instant.now().minusSeconds(1)),
                 Timestamp.from(Instant.now().minusSeconds(60)));
-        jdbcTemplate.update("update auth_refresh_sessions set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
-        jdbcTemplate.update("update auth_refresh_token_families set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
-        jdbcTemplate.update("update auth_recovery_tokens set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
-        jdbcTemplate.update("update auth_mfa_login_challenges set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
-        jdbcTemplate.update("update auth_session_cursors set expires_at = ?", Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_refresh_sessions set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_refresh_token_families set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_recovery_tokens set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_mfa_login_challenges set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
+        jdbcTemplate.update(
+            "update auth_session_cursors set expires_at = ?",
+            Timestamp.from(Instant.now().minusSeconds(1)));
 
         assertTrue(storage.deleteExpired() >= 5);
         assertEquals(0, jdbcTemplate.queryForObject("select count(*) from auth_refresh_sessions", Integer.class));
@@ -237,7 +252,7 @@ class JdbcTokenStorageTest {
         String jti = UUID.randomUUID().toString();
         var current = RefreshTokenCodec.issue(userId, jti);
         Instant created = Instant.now().minusSeconds(600);
-        var metadata = new io.github.brenomega.authkit.service.spi.SessionMetadata(
+        var metadata = new SessionMetadata(
                 UUID.randomUUID().toString(), jti, created, created, Instant.now().plusSeconds(604800),
                 List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
                 "192.0.2.***", "192.0.2.***");
@@ -271,7 +286,13 @@ class JdbcTokenStorageTest {
                                RefreshTokenCodec.IssuedRefreshToken next) throws Exception {
         start.await();
         try {
-            return storage.rotateRefreshToken(userId, current.jti(), current.rawToken(), next.jti(), next.rawToken(), 7);
+            return storage.rotateRefreshToken(
+                userId,
+                current.jti(),
+                current.rawToken(),
+                next.jti(),
+                next.rawToken(),
+                7);
         } catch (TokenFamilyCompromisedException ex) {
             return ex;
         }
@@ -308,8 +329,10 @@ class JdbcTokenStorageTest {
                 )
                 """);
         jdbc.execute("create unique index uq_auth_refresh_sessions_jti on auth_refresh_sessions (jti)");
-        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on auth_refresh_sessions (public_session_id)");
-        jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on auth_refresh_sessions (user_id, expires_at, jti)");
+        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on " +
+            "auth_refresh_sessions (public_session_id)");
+        jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on " +
+            "auth_refresh_sessions (user_id, expires_at, jti)");
         jdbc.execute("""
                 create table auth_recovery_tokens (
                     email_hash char(64) primary key,

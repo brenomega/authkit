@@ -14,10 +14,6 @@ import io.github.brenomega.authkit.exception.AccountNotActiveException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for the {@link User} entity's PII-safe {@code toString()}
- * implementation (DT 3.4.9).
- */
 class UserTest {
 
     private static final String TEST_EMAIL = "user@example.com";

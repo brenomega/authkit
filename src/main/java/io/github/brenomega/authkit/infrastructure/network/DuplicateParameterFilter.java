@@ -16,7 +16,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-/** Rejects duplicate query and form keys before controller binding can collapse them. */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class DuplicateParameterFilter extends OncePerRequestFilter {
@@ -30,11 +29,10 @@ public class DuplicateParameterFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
-        String duplicate = request.getParameterMap().entrySet().stream()
+        boolean duplicate = request.getParameterMap().entrySet().stream()
                 .filter(entry -> entry.getValue() != null && entry.getValue().length > 1)
-                .map(Map.Entry::getKey)
-                .findFirst().orElse(null);
-        if (duplicate == null) {
+                .findFirst().isPresent();
+        if (!duplicate) {
             filterChain.doFilter(request, response);
             return;
         }

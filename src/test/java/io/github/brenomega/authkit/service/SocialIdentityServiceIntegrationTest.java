@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +48,7 @@ import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
 import io.github.brenomega.authkit.repository.SocialIdentityRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
+import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -59,15 +59,24 @@ import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class SocialIdentityServiceIntegrationTest {
-    @Autowired SocialIdentityService service;
-    @Autowired SocialIdentityProviderRepository providers;
-    @Autowired SocialIdentityRepository identities;
-    @Autowired UserRepository users;
-    @Autowired SocialSecretCipher cipher;
-    @Autowired PasswordEncoder passwords;
-    @Autowired SocialProviderAdminService providerAdminService;
-    @Autowired io.github.brenomega.authkit.repository.PasskeyCredentialRepository passkeyRepository;
-    @MockitoBean SocialOidcClient oidc;
+    @Autowired
+    SocialIdentityService service;
+    @Autowired
+    SocialIdentityProviderRepository providers;
+    @Autowired
+    SocialIdentityRepository identities;
+    @Autowired
+    UserRepository users;
+    @Autowired
+    SocialSecretCipher cipher;
+    @Autowired
+    PasswordEncoder passwords;
+    @Autowired
+    SocialProviderAdminService providerAdminService;
+    @Autowired
+    PasskeyCredentialRepository passkeyRepository;
+    @MockitoBean
+    SocialOidcClient oidc;
 
     @BeforeEach
     void metadata() {

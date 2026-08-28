@@ -19,7 +19,6 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.domain.user.dto.BootstrapAdminRequest;
 import io.github.brenomega.authkit.service.BootstrapAdminService;
 
-/** Offline bootstrap command. The secret document is never accepted as a command-line argument. */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 @ConditionalOnProperty(name = "authkit.bootstrap.enabled", havingValue = "true")
@@ -45,6 +44,7 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         this.inputFile = inputFile;
     }
 
+    @SuppressWarnings("null")
     @Override
     public void run(ApplicationArguments args) throws Exception {
         if (args.containsOption("password") || args.containsOption("secret") || !args.getNonOptionArgs().isEmpty()) {
@@ -64,7 +64,8 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         }
 
         bootstrapAdminService.bootstrap(request);
-        System.out.println("Platform administrator bootstrap completed; enroll local MFA or a passkey before administrative mutations.");
+        System.out.println("Platform administrator bootstrap completed; enroll local MFA or " +
+            "a passkey before administrative mutations.");
         applicationContext.close();
     }
 
@@ -84,7 +85,8 @@ public class BootstrapAdminRunner implements ApplicationRunner {
             }
         }
         if (bytes.length == 0) {
-            throw new IllegalArgumentException("Bootstrap input is required on stdin or through AUTHKIT_BOOTSTRAP_INPUT_FILE");
+            throw new IllegalArgumentException("Bootstrap input is required on stdin or through " +
+                "AUTHKIT_BOOTSTRAP_INPUT_FILE");
         }
         return objectMapper.readValue(bytes, BootstrapAdminRequest.class);
     }

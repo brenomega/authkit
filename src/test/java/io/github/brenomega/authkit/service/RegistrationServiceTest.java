@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.Optional;
 import java.time.Instant;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +35,9 @@ import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxServic
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.exception.RegistrationRestrictedException;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 @ExtendWith(MockitoExtension.class)
 class RegistrationServiceTest {
@@ -55,7 +59,7 @@ class RegistrationServiceTest {
     private ConsentEventService consentEventService;
     private AbuseThrottleService abuseThrottleService;
     private PasswordPolicyService passwordPolicyService;
-    private io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer emailTemplateRenderer;
+    private EmailTemplateRenderer emailTemplateRenderer;
 
     @BeforeEach
     void setUp() {
@@ -69,7 +73,7 @@ class RegistrationServiceTest {
         abuseThrottleService = org.mockito.Mockito.mock(AbuseThrottleService.class);
         passwordPolicyService = org.mockito.Mockito.mock(PasswordPolicyService.class);
         emailTemplateRenderer = org.mockito.Mockito.mock(
-                io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer.class);
+                EmailTemplateRenderer.class);
         service = new RegistrationService(
                 userRepository,
                 passwordEncoder,
@@ -182,18 +186,20 @@ class RegistrationServiceTest {
     @DisplayName("Email confirmation rejects invalid or expired tokens")
     void confirmEmail_invalidToken() {
         String rawToken = "bad-token";
-        when(userRepository.findByEmailConfirmationTokenForUpdate(TokenHasher.sha256Hex(rawToken))).thenReturn(Optional.empty());
+        when(userRepository.findByEmailConfirmationTokenForUpdate(TokenHasher.sha256Hex(rawToken)))
+                .thenReturn(Optional.empty());
 
         assertThrows(InvalidTokenException.class,
                 () -> service.confirmEmail(rawToken));
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     @DisplayName("Restricted registration mode rejects public account creation before any side effect")
     void restrictedRegistrationRejectsPublicSignup() {
         authProperties.getRegistration().setMode("restricted");
 
-        assertThrows(io.github.brenomega.authkit.exception.RegistrationRestrictedException.class,
+        assertThrows(RegistrationRestrictedException.class,
                 () -> service.registerUser(new RegisterRequest(
                         "restricted@example.com", "Password123!", true, true)));
 
@@ -203,8 +209,8 @@ class RegistrationServiceTest {
 
     private void stubEmailTemplateRenderer() {
         when(emailTemplateRenderer.render(any(), any(), any())).thenAnswer(invocation ->
-                new io.github.brenomega.authkit.service.spi.EmailPayload(
+                new EmailPayload(
                         invocation.getArgument(1), "subject",
-                        ((java.util.Map<?, ?>) invocation.getArgument(2)).get("action_url").toString()));
+                        ((Map<?, ?>) invocation.getArgument(2)).get("action_url").toString()));
     }
 }

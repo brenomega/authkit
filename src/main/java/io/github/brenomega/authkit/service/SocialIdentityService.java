@@ -3,11 +3,13 @@ package io.github.brenomega.authkit.service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Arrays;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -102,6 +104,7 @@ public class SocialIdentityService {
         transactions.save(new SocialLoginTransaction(TokenHasher.sha256Hex(state), provider.getId(), purpose,
                 userId, nonce, cipher.encrypt(verifier), terms, privacy, now, now.plusSeconds(ttlSeconds)));
 
+        @SuppressWarnings("null")
         String url = UriComponentsBuilder.fromUriString(metadata.authorizationEndpoint())
                 .queryParam("response_type", "code")
                 .queryParam("client_id", provider.getClientId())
@@ -116,7 +119,7 @@ public class SocialIdentityService {
         audit.record(SecurityEventType.SOCIAL_LOGIN_STARTED, SecurityEventOutcome.INFO,
                 SecurityEventSeverity.LOW, userId, userId, null, null,
                 purpose == SocialLoginPurpose.LOGIN ? "social_login_started" : "social_link_started",
-                java.util.Map.of("provider", provider.getProviderKey()));
+                Map.of("provider", provider.getProviderKey()));
         return new SocialAuthorizationResponse(url, ttlSeconds);
     }
 
@@ -141,7 +144,7 @@ public class SocialIdentityService {
             tokenStorage.revokeAllSessions(user.getId().toString());
             audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_IDENTITY_LINKED,
                     SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, user,
-                    "social_identity_linked", java.util.Map.of("provider", provider.getProviderKey()));
+                    "social_identity_linked", Map.of("provider", provider.getProviderKey()));
             return new CallbackResult(SocialCallbackResponse.linked(), null);
         }
 
@@ -177,17 +180,23 @@ public class SocialIdentityService {
         }
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_IDENTITY_LINKED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, user,
-                "social_only_account_created", java.util.Map.of("provider", provider.getProviderKey()));
+                "social_only_account_created", Map.of("provider", provider.getProviderKey()));
         return user;
     }
 
-    private void link(User user, SocialIdentityProvider provider, SocialOidcClient.FederatedIdentity claimed, Instant now) {
+    private void link(
+        User user,
+        SocialIdentityProvider provider,
+        SocialOidcClient.FederatedIdentity claimed,
+        Instant now) {
         var existing = identities.findByIssuerAndSubject(claimed.issuer(), claimed.subject());
         if (existing.isPresent()) {
             if (!existing.get().getUserId().equals(user.getId())) throw new InvalidSocialLoginException();
             return;
         }
-        if (identities.existsByUserIdAndProviderId(user.getId(), provider.getId())) throw new InvalidSocialLoginException();
+        if (identities.existsByUserIdAndProviderId(
+            user.getId(),
+            provider.getId())) throw new InvalidSocialLoginException();
         identities.saveAndFlush(new SocialIdentity(user.getId(), user.getTenantId(), provider.getId(),
                 claimed.issuer(), claimed.subject(), normalizedNullableEmail(claimed.email()),
                 claimed.emailVerified(), now));
@@ -196,17 +205,23 @@ public class SocialIdentityService {
     @Transactional(readOnly = true)
     public List<SocialIdentityResponse> list(UUID userId) {
         return identities.findByUserIdOrderByCreatedAtDesc(userId).stream().map(identity -> {
-            String providerKey = providers.findById(identity.getProviderId()).map(SocialIdentityProvider::getProviderKey).orElse("disabled");
+            @SuppressWarnings("null")
+            String providerKey = providers.findById(identity.getProviderId())
+                    .map(SocialIdentityProvider::getProviderKey)
+                    .orElse("disabled");
             return new SocialIdentityResponse(identity.getId(), providerKey, identity.getIssuer(),
                     identity.getEmailAtLink(), identity.getCreatedAt(), identity.getLastLoginAt());
         }).toList();
     }
 
+    @SuppressWarnings("null")
     @Transactional
     public void unlink(UUID userId, UUID identityId, Jwt jwt, StepUpRequest request) {
         User user = activeUserForUpdate(userId);
         requireStrongStepUp(user, jwt, request, "social_unlink");
-        SocialIdentity identity = identities.findByIdAndUserId(identityId, userId).orElseThrow(UserNotFoundException::new);
+        SocialIdentity identity = identities.findByIdAndUserId(
+            identityId,
+            userId).orElseThrow(UserNotFoundException::new);
         long authenticators = (user.getPassword() == null ? 0 : 1)
                 + passkeys.countByUserIdAndDisabledAtIsNull(userId)
                 + identities.countByUserId(userId);
@@ -216,7 +231,7 @@ public class SocialIdentityService {
         tokenStorage.revokeAllSessions(userId.toString());
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_IDENTITY_UNLINKED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, user,
-                "social_identity_unlinked", java.util.Map.of("issuer", identity.getIssuer()));
+                "social_identity_unlinked", Map.of("issuer", identity.getIssuer()));
     }
 
     private void requireStrongStepUp(User user, Jwt jwt, StepUpRequest request, String reason) {
@@ -233,18 +248,21 @@ public class SocialIdentityService {
         if (!freshWebauthn) throw new InvalidCredentialsException();
     }
 
+    @SuppressWarnings("null")
     private User activeUserForUpdate(UUID id) {
         return users.findByIdForUpdate(id).filter(User::isActive).orElseThrow(UserNotFoundException::new);
     }
     private SocialIdentityProvider enabledProvider(String key) {
+        @SuppressWarnings("null")
         SocialIdentityProvider provider = providers.findByProviderKey(key)
                 .filter(SocialIdentityProvider::isEnabled).orElseThrow(InvalidSocialLoginException::new);
         requireAllowedIssuer(provider);
         return provider;
     }
     private void requireAllowedIssuer(SocialIdentityProvider provider) {
-        Set<String> allowed = java.util.Arrays.stream(properties.getSocial().getIssuerAllowlist().split(","))
-                .map(String::trim).filter(v -> !v.isBlank()).collect(java.util.stream.Collectors.toSet());
+        @SuppressWarnings("null")
+        Set<String> allowed = Arrays.stream(properties.getSocial().getIssuerAllowlist().split(","))
+                .map(String::trim).filter(v -> !v.isBlank()).collect(Collectors.toSet());
         if (!allowed.contains(provider.getIssuer())) throw new InvalidSocialLoginException();
         if (provider.getProviderType() == SocialProviderType.GOOGLE
                 && !"https://accounts.google.com".equals(provider.getIssuer())) throw new InvalidSocialLoginException();

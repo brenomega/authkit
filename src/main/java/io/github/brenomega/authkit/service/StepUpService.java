@@ -1,5 +1,7 @@
 package io.github.brenomega.authkit.service;
 
+import java.time.Instant;
+import java.util.Optional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,13 +23,6 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
-/**
- * Applies current-password and lockout policy to sensitive operations.
- *
- * <p>Verification is fresh for each call; possession of an access token alone is
- * insufficient. Failures increment the same progressive lockout state used by
- * login and emit the caller-selected security event.</p>
- */
 @Service
 public class StepUpService {
 
@@ -53,7 +48,6 @@ public class StepUpService {
         this.authProperties = authProperties;
     }
 
-    /** Compatibility constructor for isolated tests; runtime injection uses the validated configuration. */
     public StepUpService(PasswordEncoder passwordEncoder,
                          Argon2ConcurrencyLimiter argon2Limiter,
                          AccountLockoutService lockoutService,
@@ -109,10 +103,12 @@ public class StepUpService {
     private boolean hasFreshLocalPasskey() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) return false;
-        java.util.List<String> amr = jwt.getClaimAsStringList("amr");
-        return amr != null && amr.contains("webauthn") && jwt.getIssuedAt() != null
-                && jwt.getIssuedAt().isAfter(java.time.Instant.now().minusSeconds(
-                        authProperties.getStepUp().getPasskeyFreshnessSeconds()));
+        return Optional.ofNullable(jwt.getClaimAsStringList("amr"))
+                .filter(amr -> amr.contains("webauthn"))
+                .flatMap(amr -> Optional.ofNullable(jwt.getIssuedAt()))
+                .map(issuedAt -> issuedAt.isAfter(Instant.now().minusSeconds(
+                        authProperties.getStepUp().getPasskeyFreshnessSeconds())))
+                .orElse(false);
     }
 
     public void recordFailedStepUp(User user,

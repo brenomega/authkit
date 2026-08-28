@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.Objects;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -33,18 +34,15 @@ import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.github.brenomega.authkit.repository.OAuthAuthorizationTransactionRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
-/**
- * Purges expired audit, ceremony, authorization, and deleted-account data.
- *
- * <p>The scheduled run is protected by a distributed lock. Each bounded batch
- * executes in its own {@code REQUIRES_NEW} transaction, so an already committed
- * batch remains deleted if a later batch fails. Deleted-account purging removes
- * dependent security and consent records before deleting the account row.</p>
- */
 @Service
-@ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.compliance",
+    name = "retention-job-enabled",
+    havingValue = "true",
+    matchIfMissing = true)
 public class DataRetentionService {
 
     private static final Logger log = LoggerFactory.getLogger(DataRetentionService.class);
@@ -110,7 +108,6 @@ public class DataRetentionService {
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    /** Executes one retention pass and propagates failures for scheduler visibility. */
     @Scheduled(cron = "${authkit.auth.compliance.retention-job-cron:0 30 3 * * *}")
     @SchedulerLock(name = "dataRetention",
             lockAtMostFor = "${authkit.auth.scheduler.retention-lock-at-most:PT2H}",
@@ -144,14 +141,16 @@ public class DataRetentionService {
         }
 
         @SuppressWarnings("null")
-        int deletedPasskeyChallenges = transactionTemplate.execute(status -> passkeyChallengeRepository.deleteExpired(now));
+        int deletedPasskeyChallenges = transactionTemplate.execute(
+                status -> passkeyChallengeRepository.deleteExpired(now));
         if (deletedPasskeyChallenges > 0) {
             meterRegistry.counter("security.retention.deleted", "dataset", "passkey_challenges")
                     .increment(deletedPasskeyChallenges);
         }
 
         @SuppressWarnings("null")
-        int deletedAuthorizationCodes = transactionTemplate.execute(status -> oauthAuthorizationCodeRepository.deleteExpired(now));
+        int deletedAuthorizationCodes = transactionTemplate.execute(
+                status -> oauthAuthorizationCodeRepository.deleteExpired(now));
         if (deletedAuthorizationCodes > 0) {
             meterRegistry.counter("security.retention.deleted", "dataset", "oauth_authorization_codes")
                     .increment(deletedAuthorizationCodes);
@@ -217,13 +216,14 @@ public class DataRetentionService {
         }
         List<String> emails = userRepository.findAllById(ids).stream()
                 .map(user -> user.getEmail())
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .toList();
         passkeyChallengeRepository.deleteByUserIdIn(ids);
         socialLoginTransactionRepository.deleteByUserIdIn(ids);
         socialIdentityRepository.deleteByUserIdIn(ids);
+        @SuppressWarnings("null")
         List<UUID> oauthRefreshFamilyIds = oauthRefreshTokenFamilyRepository.findByUserIdIn(ids).stream()
-                .map(io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily::getId)
+                .map(OAuthRefreshTokenFamily::getId)
                 .toList();
         if (!oauthRefreshFamilyIds.isEmpty()) {
             oauthRefreshTokenRepository.deleteByFamilyIdIn(oauthRefreshFamilyIds);

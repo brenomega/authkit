@@ -36,20 +36,6 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
-/**
- * Coordinates stealth password-recovery initiation and one-time reset.
- *
- * <p>Initiation returns the same externally visible outcome for known and unknown
- * accounts. For an eligible account, a newly stored recovery secret replaces the
- * previous secret and the raw value is sent only through the email outbox.</p>
- *
- * <p>Reset consumes the recovery token before loading and updating the user. The
- * token store is outside the JPA transaction, so a later database or policy
- * failure does not restore the consumed token. A successful reset records password
- * history, clears lockout, revokes every session, and enqueues confirmation.</p>
- *
- * @see AccountLockoutService
- */
 @Service
 public class PasswordRecoveryService {
 
@@ -92,11 +78,6 @@ public class PasswordRecoveryService {
         this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
-    /**
-     * Initiates recovery without disclosing account existence.
-     *
-     * @param email the email to send the recovery link to
-     */
     @LogExecutionTime
     @Transactional
     public void requestRecovery(String email) {
@@ -125,7 +106,7 @@ public class PasswordRecoveryService {
                     long ttlMinutes = authProperties.getToken().getRecoveryTokenTtlMinutes();
                     tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
                     registerRecoveryRequestCompensation(normalizedEmail, token);
-                    
+
                     String resetLink = authProperties.getFrontend().getPasswordResetUrl()
                             + "#token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
                             + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
@@ -146,14 +127,6 @@ public class PasswordRecoveryService {
         );
     }
 
-    /**
-     * Consumes a recovery token and replaces the account password.
-     *
-     * @param email       the user's email
-     * @param token       the recovery token
-     * @param newPassword the new password
-     * @throws InvalidTokenException if the token is invalid, expired, or already consumed
-     */
     @Transactional
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {
@@ -196,8 +169,6 @@ public class PasswordRecoveryService {
             throw new UserNotFoundException();
         }
 
-        // Password recovery proves control of an email channel, not authority to add a
-        // new local authenticator to a social-only account.
         if (user.getPassword() == null) {
             securityEventService.recordForTargetUser(
                     SecurityEventType.PASSWORD_RESET_FAILED,
@@ -213,10 +184,8 @@ public class PasswordRecoveryService {
         user.setPassword(encodeWithCapacity(newPassword));
         userRepository.save(user);
 
-        // Clear progressive lockout after the complete recovery ceremony succeeds.
         lockoutService.clearLockout(normalizedEmail);
 
-        // RF 2.1.12: Revoke all active sessions to force re-authentication
         tokenStorage.revokeAllSessions(user.getId().toString());
 
         EmailPayload confirmation = emailTemplateRenderer.render(

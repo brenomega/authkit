@@ -3,13 +3,6 @@ package io.github.brenomega.authkit.service.spi;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Privacy-preserving metadata exposed for a first-party login session.
- *
- * <p>The internal JWT identifier is deliberately kept inside the SPI and must
- * never be serialized by public controllers. Callers revoke sessions through
- * {@link #publicSessionId()}.</p>
- */
 public record SessionMetadata(
         String publicSessionId,
         String jti,

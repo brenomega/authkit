@@ -35,7 +35,11 @@ class DirectEmailDispatchStrategyTest {
         EmailProvider emailProvider = mock(EmailProvider.class);
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         CapturingExecutor executor = new CapturingExecutor();
-        DirectEmailDispatchStrategy strategy = newStrategy(emailProvider, outboxService, executor, new SimpleMeterRegistry());
+        DirectEmailDispatchStrategy strategy = newStrategy(
+            emailProvider,
+            outboxService,
+            executor,
+            new SimpleMeterRegistry());
         UUID messageId = UUID.randomUUID();
         EmailPayload payload = new EmailPayload(messageId, "to@example.com", "Subject", "Body");
         EmailOutboxMessage message = mock(EmailOutboxMessage.class);
@@ -61,7 +65,11 @@ class DirectEmailDispatchStrategyTest {
         EmailProvider emailProvider = mock(EmailProvider.class);
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         CapturingExecutor executor = new CapturingExecutor();
-        DirectEmailDispatchStrategy strategy = newStrategy(emailProvider, outboxService, executor, new SimpleMeterRegistry());
+        DirectEmailDispatchStrategy strategy = newStrategy(
+            emailProvider,
+            outboxService,
+            executor,
+            new SimpleMeterRegistry());
         UUID messageId = UUID.randomUUID();
         EmailPayload payload = new EmailPayload(messageId, "to@example.com", "Subject", "Body");
         EmailOutboxMessage message = mock(EmailOutboxMessage.class);
@@ -133,7 +141,12 @@ class DirectEmailDispatchStrategyTest {
             EmailOutboxService outboxService,
             Executor executor,
             SimpleMeterRegistry meterRegistry) {
-        return new DirectEmailDispatchStrategy(emailProvider, outboxService, new AuthProperties(), executor, meterRegistry);
+        return new DirectEmailDispatchStrategy(
+            emailProvider,
+            outboxService,
+            new AuthProperties(),
+            executor,
+            meterRegistry);
     }
 
     private static class CapturingExecutor implements Executor {

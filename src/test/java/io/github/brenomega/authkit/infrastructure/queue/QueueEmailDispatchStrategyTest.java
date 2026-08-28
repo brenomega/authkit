@@ -21,9 +21,9 @@ import io.github.brenomega.authkit.service.spi.QueuePublisher;
 class QueueEmailDispatchStrategyTest {
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("Queue strategy publishes payload and marks outbox message queued")
     void dispatch_publishesAndMarksQueued() {
+        @SuppressWarnings("unchecked")
         QueuePublisher<EmailPayload> emailPublisher = mock(QueuePublisher.class);
         EmailOutboxService outboxService = mock(EmailOutboxService.class);
         AuthProperties authProperties = new AuthProperties();

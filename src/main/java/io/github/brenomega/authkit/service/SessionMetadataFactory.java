@@ -14,7 +14,6 @@ import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import jakarta.servlet.http.HttpServletRequest;
 
-/** Creates deliberately coarse session metadata from the trusted request boundary. */
 @Component
 public class SessionMetadataFactory {
 

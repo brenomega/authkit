@@ -6,17 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for {@link LoggingAspect} PII sanitization logic (DT 3.4.1).
- *
- * <p>These tests verify that sensitive parameter names are correctly
- * identified and masked before any value can reach log output.</p>
- */
 class LoggingAspectTest {
-
-    // -------------------------------------------------------------------------
-    // Sensitivity detection
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("'password' is detected as sensitive")
@@ -62,10 +52,6 @@ class LoggingAspectTest {
         assertTrue(LoggingAspect.isSensitive("code"));
         assertTrue(LoggingAspect.isSensitive("backupCodes"));
     }
-
-    // -------------------------------------------------------------------------
-    // Non-sensitive parameters
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("'email' is not redacted by keyword because it is masked separately")

@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.List;
 
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.hibernate.Filter;
@@ -30,7 +32,6 @@ class TenantFilterAspectTest {
         SecurityContextHolder.clearContext();
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Enables and disables tenant filter around authenticated service calls")
     void enforceTenantFilter_validTenantClaim_enablesAndDisablesFilter() throws Throwable {
@@ -44,7 +45,9 @@ class TenantFilterAspectTest {
         when(session.enableFilter("tenantFilter")).thenReturn(filter);
         when(filter.setParameter("tenantId", tenantId)).thenReturn(filter);
         when(joinPoint.proceed()).thenReturn("done");
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of("tenant_id", tenantId))));
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of(
+            "tenant_id",
+            tenantId))));
 
         Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
 
@@ -54,7 +57,6 @@ class TenantFilterAspectTest {
         verify(session).disableFilter("tenantFilter");
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Ignores malformed tenant claims without blocking the service call")
     void enforceTenantFilter_invalidTenantClaim_doesNotEnableFilter() throws Throwable {
@@ -62,7 +64,9 @@ class TenantFilterAspectTest {
         ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
 
         when(joinPoint.proceed()).thenReturn("done");
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of("tenant_id", "not-a-uuid"))));
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of(
+            "tenant_id",
+            "not-a-uuid"))));
 
         Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
 
@@ -70,7 +74,6 @@ class TenantFilterAspectTest {
         verify(entityManager, never()).unwrap(Session.class);
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Platform administrators are not restricted to their personal tenant partition")
     void enforceTenantFilter_platformAdmin_doesNotEnableFilter() throws Throwable {
@@ -81,7 +84,7 @@ class TenantFilterAspectTest {
         when(joinPoint.proceed()).thenReturn("done");
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
                 jwt(Map.of("tenant_id", tenantId)),
-                java.util.List.of(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"))));
+                List.of(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"))));
 
         Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
 
@@ -91,7 +94,7 @@ class TenantFilterAspectTest {
 
     private Jwt jwt(Map<String, Object> claims) {
         Instant now = Instant.now();
-        java.util.HashMap<String, Object> allClaims = new java.util.HashMap<>(claims);
+        HashMap<String, Object> allClaims = new HashMap<>(claims);
         allClaims.put("sub", UUID.randomUUID().toString());
         return new Jwt(
                 "token",

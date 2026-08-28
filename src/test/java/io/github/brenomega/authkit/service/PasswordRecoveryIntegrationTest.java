@@ -51,19 +51,19 @@ public class PasswordRecoveryIntegrationTest {
         String existingEmail = "exists@example.com";
         registrationService.registerUser(new RegisterRequest(existingEmail, "Pass123!", true, true));
 
-        // 1. Existing email
         mockMvc.perform(post("/api/v1/auth/password-recovery/request")
                         .contentType("application/json")
                         .content("{\"email\": \"" + existingEmail + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").value("If an account exists with this email, a recovery link has been sent."));
+                .andExpect(jsonPath("$.data").value(
+                        "If an account exists with this email, a recovery link has been sent."));
 
-        // 2. Non-existing email
         mockMvc.perform(post("/api/v1/auth/password-recovery/request")
                         .contentType("application/json")
                         .content("{\"email\": \"nonexistent@example.com\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").value("If an account exists with this email, a recovery link has been sent."));
+                .andExpect(jsonPath("$.data").value(
+                        "If an account exists with this email, a recovery link has been sent."));
     }
 
     @Test
@@ -78,14 +78,12 @@ public class PasswordRecoveryIntegrationTest {
         userRepository.save(user);
         emailOutboxRepository.deleteAll();
 
-        // 1. Request recovery
         mockMvc.perform(post("/api/v1/auth/password-recovery/request")
                         .contentType("application/json")
                         .content("{\"email\": \"" + email + "\"}"))
                 .andExpect(status().isOk());
         assertSecurityEvent(user, SecurityEventType.PASSWORD_RESET_REQUESTED);
 
-        // 2. Capture the generated token from the durable outbox event
         String htmlBody = emailOutboxRepository.findTopByRecipientOrderByCreatedAtDesc(email)
                 .orElseThrow()
                 .getBody();
@@ -93,7 +91,6 @@ public class PasswordRecoveryIntegrationTest {
         assertTrue(tokenMatcher.find());
         String token = tokenMatcher.group(1);
 
-        // 3. Reset password using the captured token
         mockMvc.perform(post("/api/v1/auth/password-recovery/reset")
                         .param("email", email)
                         .contentType("application/json")
@@ -102,7 +99,6 @@ public class PasswordRecoveryIntegrationTest {
                 .andExpect(jsonPath("$.data").value("Password successfully reset."));
         assertSecurityEvent(user, SecurityEventType.PASSWORD_RESET_COMPLETED);
 
-        // 4. Verify login works with NEW password and fails with OLD
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content("{\"email\": \"" + email + "\", \"password\": \"" + newPass + "\"}"))
@@ -113,12 +109,11 @@ public class PasswordRecoveryIntegrationTest {
                         .content("{\"email\": \"" + email + "\", \"password\": \"" + oldPass + "\"}"))
                 .andExpect(status().isUnauthorized());
 
-        // 5. Verify token is revoked (cannot use it again)
         mockMvc.perform(post("/api/v1/auth/password-recovery/reset")
                         .param("email", email)
                         .contentType("application/json")
                         .content("{\"token\": \"" + token + "\", \"newPassword\": \"AnotherPass1!\"}"))
-                .andExpect(status().isBadRequest()); // Should fail as token is gone
+                .andExpect(status().isBadRequest());
     }
 
     private void assertSecurityEvent(User user, SecurityEventType eventType) {

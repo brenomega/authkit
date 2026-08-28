@@ -53,7 +53,7 @@ public class RegistrationIntegrationTest {
     @Test
     @DisplayName("Registers user and prevents mass assignment maliciously attempting to inject role")
     void registration_preventsMassAssignment() throws Exception {
-        // Attempting to explicitly force role = ADMIN
+
         String payload = """
                 {
                    "email": "hacker@example.com",
@@ -68,9 +68,7 @@ public class RegistrationIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType("application/json")
                         .content(payload))
-                // The global ObjectMapper is configured with strict-duplicate-detection AND 
-                // fail-on-unknown-properties. Because `role` is not in RegisterRequest DTO,
-                // Spring returns 400 Bad Request directly, protecting the entity.
+
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors").isArray());
     }
@@ -94,7 +92,7 @@ public class RegistrationIntegrationTest {
                 .andExpect(jsonPath("$.data.email").value("legit@example.com"))
                 .andExpect(jsonPath("$.data.tenantId").exists())
                 .andExpect(jsonPath("$.data.id").exists())
-                // Ensure no password hashes or tokens are leaked in the response
+
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.emailConfirmationToken").doesNotExist());
 
@@ -104,7 +102,6 @@ public class RegistrationIntegrationTest {
         assertNotNull(consentHistory.getFirst().getEventHash());
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Email confirmation endpoint confirms account and consumes token")
     void emailConfirmation_success() throws Exception {

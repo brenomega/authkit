@@ -32,15 +32,11 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
+import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
-/**
- * Unit tests for ProfileService (DT 3.4.5).
- * Validates RF 2.1.6, RF 2.1.7, RF 2.1.8, IDOR protection (DT 3.2.24),
- * and lockout enforcement on management endpoints (DT 3.2.23).
- */
 class ProfileServiceTest {
 
     private UserRepository userRepository;
@@ -63,7 +59,7 @@ class ProfileServiceTest {
         mfaService = mock(MfaService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
-        var argon2Limiter = new io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter();
+        var argon2Limiter = new Argon2ConcurrencyLimiter();
         profileService = new ProfileService(
                 userRepository,
                 passwordEncoder,
@@ -72,7 +68,12 @@ class ProfileServiceTest {
                 argon2Limiter,
                 securityEventService,
                 mfaService,
-                new StepUpService(passwordEncoder, argon2Limiter, lockoutService, securityEventService, abuseThrottleService),
+                new StepUpService(
+                    passwordEncoder,
+                    argon2Limiter,
+                    lockoutService,
+                    securityEventService,
+                    abuseThrottleService),
                 abuseThrottleService,
                 passwordPolicyService);
     }
@@ -82,9 +83,6 @@ class ProfileServiceTest {
         SecurityContextHolder.clearContext();
     }
 
-    /**
-     * RF 2.1.7 — Password Change: Confirms successful reset when current password is valid.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Successful change revokes other sessions")
@@ -96,7 +94,7 @@ class ProfileServiceTest {
         when(user.getEmail()).thenReturn("test@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("old-pass", "old-hashed")).thenReturn(true);
         when(passwordEncoder.encode("new-pass")).thenReturn("new-hashed");
@@ -114,9 +112,6 @@ class ProfileServiceTest {
                 "password_changed");
     }
 
-    /**
-     * RF 2.1.7 — Password Security: Confirms failure when current password is invalid.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Change fails with invalid current password")
@@ -127,17 +122,14 @@ class ProfileServiceTest {
         when(user.getEmail()).thenReturn("test@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
 
-        assertThrows(InvalidCredentialsException.class, () -> 
+        assertThrows(InvalidCredentialsException.class, () ->
             profileService.changePassword(userId, new PasswordChangeRequest("wrong", "new"), "jti"));
     }
 
-    /**
-     * DT 3.2.23 — Lockout Enforcement: Confirms password change is BLOCKED when account is locked.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Password: Change blocked when account is locked (DT 3.2.23)")
@@ -146,19 +138,17 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("locked@example.com");
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("locked@example.com")).thenReturn(true);
 
-        assertThrows(AccountLockedException.class, () -> 
+        assertThrows(AccountLockedException.class, () ->
             profileService.changePassword(userId, new PasswordChangeRequest("pass", "new"), "jti"));
-        
-        // Verify that password check is never reached
-        verify(passwordEncoder, never()).matches(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        verify(
+            passwordEncoder,
+            never()).matches(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
-    /**
-     * DT 3.2.23 — Lockout Enforcement: Confirms session revocation is BLOCKED when account is locked.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Session: Revocation blocked when account is locked (DT 3.2.23)")
@@ -167,19 +157,17 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("locked@example.com");
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("locked@example.com")).thenReturn(true);
 
-        assertThrows(AccountLockedException.class, () -> 
+        assertThrows(AccountLockedException.class, () ->
             profileService.revokeSession(userId, "target-jti"));
-        
-        // Verify that token revocation is never reached
-        verify(tokenStorage, never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+
+        verify(
+            tokenStorage,
+            never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
-    /**
-     * RF 2.1.8 — Session Management: Confirms individual revocation when not locked.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Session: Specific session revocation succeeds when not locked")
@@ -188,7 +176,7 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("test@example.com");
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
 
         profileService.revokeSession(userId, "target-jti");
@@ -211,38 +199,37 @@ class ProfileServiceTest {
         assertThrows(UserNotFoundException.class, () -> profileService.listSessions(userId, 50, null));
         assertThrows(UserNotFoundException.class, () -> profileService.revokeSession(userId, "target-jti"));
         verify(tokenStorage, never()).listSessions(userId, 50, null);
-        verify(tokenStorage, never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(
+            tokenStorage,
+            never()).revokeSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
-    /**
-     * DT 3.2.24 — IDOR Protection: Confirms that updating another user's profile throws 404 (Hidden).
-     */
     @Test
     @DisplayName("Update: Modifying other user's profile throws 404 (IDOR protection)")
     void updateProfile_IdMismatch_Throws404() {
-        assertThrows(UserNotFoundException.class, () -> 
-            profileService.updateProfile("00000000-0000-0000-0000-000000000001", new ProfileUpdateRequest("Name"), "00000000-0000-0000-0000-000000000000"));
+        assertThrows(UserNotFoundException.class, () ->
+            profileService.updateProfile(
+                "00000000-0000-0000-0000-000000000001",
+                new ProfileUpdateRequest("Name"),
+                "00000000-0000-0000-0000-000000000000"));
     }
 
-    /**
-     * RF 2.1.6 — Profile Update: Confirms successful update when IDs match.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Update: Own profile update succeeds")
     void updateProfile_Success() {
         String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.isEmailConfirmed()).thenReturn(true);
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         ProfileUpdateRequest request = new ProfileUpdateRequest("New Name");
         profileService.updateProfile(userId, request, userId);
 
         verify(user).setName("New Name");
-        verify(userRepository).findById(java.util.UUID.fromString(userId));
+        verify(userRepository).findById(UUID.fromString(userId));
     }
 
     @SuppressWarnings("null")
@@ -251,9 +238,10 @@ class ProfileServiceTest {
     void updateProfile_UnconfirmedEmail_Throws403() {
         String userId = "00000000-0000-0000-0000-000000000000";
         User user = mock(User.class);
-        io.github.brenomega.authkit.exception.EmailNotConfirmedException ex = new io.github.brenomega.authkit.exception.EmailNotConfirmedException();
+        EmailNotConfirmedException ex =
+                new EmailNotConfirmedException();
         org.mockito.Mockito.doThrow(ex).when(user).requireEmailConfirmed();
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         assertThrows(EmailNotConfirmedException.class, () ->
                 profileService.updateProfile(userId, new ProfileUpdateRequest("Name"), userId));
@@ -261,17 +249,14 @@ class ProfileServiceTest {
         verify(user, never()).setName(org.mockito.ArgumentMatchers.any());
     }
 
-    /**
-     * Edge Case: User not found in DB should throw UserNotFoundException.
-     */
     @SuppressWarnings("null")
     @Test
     @DisplayName("Update: Missing user in database throws 404")
     void updateProfile_NotFound_ThrowsException() {
         String userId = "00000000-0000-0000-0000-000000000000";
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.empty());
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.empty());
 
-        assertThrows(UserNotFoundException.class, () -> 
+        assertThrows(UserNotFoundException.class, () ->
             profileService.updateProfile(userId, new ProfileUpdateRequest("Any"), userId));
     }
 

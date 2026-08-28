@@ -2,7 +2,6 @@ package io.github.brenomega.authkit.exception;
 
 import org.springframework.http.HttpStatus;
 
-/** Raised when an opted-in high-risk operation cannot use distributed abuse controls. */
 public class AbuseProtectionUnavailableException extends ApiBaseException {
 
     public AbuseProtectionUnavailableException() {

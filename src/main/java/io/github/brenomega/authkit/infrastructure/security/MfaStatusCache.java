@@ -12,10 +12,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
-/**
- * Short-lived MFA status cache used to keep refresh/login hot paths away from
- * repetitive existence checks on the TOTP table.
- */
 @Component
 public class MfaStatusCache {
 

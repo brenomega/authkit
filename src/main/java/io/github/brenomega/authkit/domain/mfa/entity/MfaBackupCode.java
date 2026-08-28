@@ -10,13 +10,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/**
- * Represents one user-bound MFA backup code stored as a keyed digest.
- *
- * <p>The raw code is never persisted. The transition to {@code usedAt} is
- * performed conditionally by the repository so concurrent verification can have
- * only one winner.</p>
- */
 @Entity
 @Table(name = "mfa_backup_codes")
 public class MfaBackupCode {

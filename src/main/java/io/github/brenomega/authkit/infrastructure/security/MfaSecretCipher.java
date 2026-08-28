@@ -10,6 +10,8 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
@@ -19,14 +21,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.stereotype.Component;
 
-/**
- * Encrypts TOTP shared secrets in a versioned, authenticated envelope.
- *
- * <p>New envelopes use AES-256-GCM with a random salt and IV and a PBKDF2-derived
- * key identified by configured key ID. Decryption accepts configured previous
- * keys and legacy envelope versions for rotation, but does not automatically
- * re-encrypt old values.</p>
- */
 @Component
 public class MfaSecretCipher {
 
@@ -52,7 +46,6 @@ public class MfaSecretCipher {
         this.kdfIterations = authProperties.getMfa().getSecretEncryptionKdfIterations();
     }
 
-    /** Encrypts plaintext with the current key ID and KDF iteration count. */
     public String encrypt(String plaintext) {
         try {
             byte[] salt = new byte[SALT_BYTES];
@@ -79,7 +72,6 @@ public class MfaSecretCipher {
         }
     }
 
-    /** Decrypts a current or supported legacy envelope using its recorded key context. */
     public String decrypt(String encryptedValue) {
         if (encryptedValue != null && encryptedValue.startsWith(ENVELOPE_VERSION + ":")) {
             return decryptVersioned(encryptedValue);
@@ -115,10 +107,12 @@ public class MfaSecretCipher {
             if (combined.length <= IV_BYTES) {
                 throw new IllegalArgumentException("Invalid encrypted MFA secret");
             }
-            byte[] iv = java.util.Arrays.copyOfRange(combined, 0, IV_BYTES);
-            byte[] encrypted = java.util.Arrays.copyOfRange(combined, IV_BYTES, combined.length);
+            byte[] iv = Arrays.copyOfRange(combined, 0, IV_BYTES);
+            byte[] encrypted = Arrays.copyOfRange(combined, IV_BYTES, combined.length);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, deriveKey(keyMaterial, salt, iterations), new GCMParameterSpec(TAG_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, deriveKey(keyMaterial, salt, iterations), new GCMParameterSpec(
+                TAG_BITS,
+                iv));
             return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | IllegalArgumentException ex) {
             throw new IllegalStateException("Unable to decrypt MFA secret", ex);
@@ -231,8 +225,8 @@ public class MfaSecretCipher {
         throw new IllegalStateException("Unable to decrypt MFA secret");
     }
 
-    private java.util.List<String> candidateKeyMaterials() {
-        java.util.ArrayList<String> candidates = new java.util.ArrayList<>();
+    private List<String> candidateKeyMaterials() {
+        ArrayList<String> candidates = new ArrayList<>();
         candidates.add(currentSecret);
         candidates.addAll(previousSecrets.values());
         return candidates;

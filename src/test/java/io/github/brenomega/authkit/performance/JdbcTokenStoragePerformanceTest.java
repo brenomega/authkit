@@ -94,8 +94,10 @@ class JdbcTokenStoragePerformanceTest {
                 )
                 """);
         jdbc.execute("create unique index uq_auth_refresh_sessions_jti on auth_refresh_sessions (jti)");
-        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on auth_refresh_sessions (public_session_id)");
-        jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on auth_refresh_sessions (user_id, expires_at, jti)");
+        jdbc.execute("create unique index uq_auth_refresh_sessions_public_id on " +
+            "auth_refresh_sessions (public_session_id)");
+        jdbc.execute("create index ix_auth_refresh_sessions_user_expires_jti on " +
+            "auth_refresh_sessions (user_id, expires_at, jti)");
         jdbc.execute("""
                 create table auth_recovery_tokens (
                     email_hash char(64) primary key,

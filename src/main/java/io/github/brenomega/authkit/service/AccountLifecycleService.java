@@ -3,8 +3,10 @@ package io.github.brenomega.authkit.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Map;
 
-import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.access.AccessDeniedException;
@@ -44,16 +46,8 @@ import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
-/**
- * Coordinates consent visibility, subject-data export, and account deletion.
- *
- * <p>Exports and deletion require password step-up and, when configured, MFA.
- * Deletion anonymizes direct PII and records critical audit events in the same
- * database transaction. Authority-cache eviction, refresh-session revocation,
- * and queued-email cleanup run after commit and are best-effort because their
- * stores do not participate in that transaction.</p>
- */
 @Service
 public class AccountLifecycleService {
 
@@ -114,7 +108,6 @@ public class AccountLifecycleService {
         this.passwordHistoryRepository = passwordHistoryRepository;
     }
 
-    /** Returns the legal-consent state stored on the active account. */
     @Transactional(readOnly = true)
     public ConsentSnapshotResponse getConsentSnapshot(String userId) {
         User user = loadActiveUser(userId);
@@ -127,12 +120,6 @@ public class AccountLifecycleService {
                 user.getLawfulBasis());
     }
 
-    /**
-     * Builds a tenant-scoped export of account, consent, OAuth, and security-event data.
-     *
-     * <p>The operation is read-only but performs fresh step-up verification before
-     * returning privacy-sensitive data.</p>
-     */
     @Transactional(readOnly = true)
     public UserDataExportResponse exportUserData(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
@@ -168,6 +155,7 @@ public class AccountLifecycleService {
                 .map(entry -> new UserDataExportResponse.PasskeyData(entry.getId().toString(), entry.getLabel(),
                         entry.getTransports(), entry.isDiscoverable(), entry.getSignatureCount(), entry.getCreatedAt(),
                         entry.getLastUsedAt(), entry.getDisabledAt())).toList();
+        @SuppressWarnings("null")
         var socialIdentities = socialIdentityRepository.findByUserIdOrderByCreatedAtDesc(user.getId()).stream()
                 .map(entry -> new UserDataExportResponse.SocialIdentityData(entry.getId().toString(),
                         socialIdentityProviderRepository.findById(entry.getProviderId())
@@ -221,8 +209,8 @@ public class AccountLifecycleService {
                 securityEvents);
     }
 
-    private List<io.github.brenomega.authkit.service.spi.SessionMetadata> allSessionMetadata(String userId) {
-        List<io.github.brenomega.authkit.service.spi.SessionMetadata> result = new java.util.ArrayList<>();
+    private List<SessionMetadata> allSessionMetadata(String userId) {
+        List<SessionMetadata> result = new ArrayList<>();
         String cursor = null;
         do {
             var page = tokenStorage.listSessions(userId, 100, cursor);
@@ -235,13 +223,6 @@ public class AccountLifecycleService {
         return List.copyOf(result);
     }
 
-    /**
-     * Requests deletion after step-up verification.
-     *
-     * <p>A positive grace period leaves the account deletion-pending; a zero
-     * period anonymizes it in the same transaction. The last active platform
-     * administrator cannot delete its own account.</p>
-     */
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
@@ -265,7 +246,7 @@ public class AccountLifecycleService {
 
         user.requestDeletion(now);
         int graceDays = authProperties.getCompliance().getDeletionGracePeriodDays();
-        Instant graceExpiresAt = now.plus(java.time.Duration.ofDays(graceDays));
+        Instant graceExpiresAt = now.plus(Duration.ofDays(graceDays));
         if (graceDays == 0) {
             socialLoginTransactionRepository.deleteByUserId(userUuid);
             socialIdentityRepository.deleteByUserId(userUuid);
@@ -283,7 +264,7 @@ public class AccountLifecycleService {
                 tenantId,
                 originalEmail,
                 "account_deletion_requested",
-                java.util.Map.of("grace_days", Integer.toString(graceDays)));
+                Map.of("grace_days", Integer.toString(graceDays)));
         if (graceDays == 0) {
             securityEventService.record(
                     SecurityEventType.ACCOUNT_ANONYMIZED,
@@ -294,8 +275,8 @@ public class AccountLifecycleService {
                     tenantId,
                     originalEmail,
                     "account_anonymized",
-                    java.util.Map.of("direct_pii", "email_name"));
-            emailOutboxService.deleteByRecipients(java.util.List.of(originalEmail));
+                    Map.of("direct_pii", "email_name"));
+            emailOutboxService.deleteByRecipients(List.of(originalEmail));
         }
 
         tokenStorage.revokeAllSessions(userUuid.toString());

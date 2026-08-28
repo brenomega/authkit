@@ -53,7 +53,9 @@ public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
             try {
                 for (AbuseRateLimitPolicy policy : policies) {
                     abuseThrottleService.check(policy, "ip:" + clientIp);
-                    abuseThrottleService.check(policy, "ua:" + clientIp + ':' + (userAgent == null ? "unknown" : userAgent));
+                    abuseThrottleService.check(
+                        policy,
+                        "ua:" + clientIp + ':' + (userAgent == null ? "unknown" : userAgent));
                 }
             } catch (ApiBaseException ex) {
                 sendApiExceptionResponse(response, ex);

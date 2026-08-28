@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.Date;
 
 import org.junit.jupiter.api.Test;
 
@@ -71,7 +73,7 @@ class ContractFixtureTokenGeneratorTest {
                 .issuer("https://issuer.example.invalid")
                 .build());
         claims.put("expired-token", oauth(now.minusSeconds(600), subject, tenant)
-                .expirationTime(java.util.Date.from(now.minusSeconds(60)))
+                .expirationTime(Date.from(now.minusSeconds(60)))
                 .build());
         claims.put("missing-token-use", base(now, subject, tenant)
                 .audience(FIRST_PARTY_AUDIENCE)
@@ -106,12 +108,15 @@ class ContractFixtureTokenGeneratorTest {
         Path output = root.resolve("target/contract-fixtures");
         Files.createDirectories(output);
 
-        List<Map<String, String>> manifest = new java.util.ArrayList<>();
+        List<Map<String, String>> manifest = new ArrayList<>();
         RSASSASigner signer = new RSASSASigner(privateKey);
         for (Map.Entry<String, JWTClaimsSet> entry : claims.entrySet()) {
             String keyId = "revoked-key-id".equals(entry.getKey()) ? "revoked-test-key" : TEST_KEY_ID;
             String token = sign(entry.getValue(), signer, keyId);
-            Files.writeString(output.resolve(entry.getKey() + ".jwt"), token + System.lineSeparator(), StandardCharsets.UTF_8);
+            Files.writeString(
+                output.resolve(entry.getKey() + ".jwt"),
+                token + System.lineSeparator(),
+                StandardCharsets.UTF_8);
             manifest.add(Map.of("name", entry.getKey(), "file", entry.getKey() + ".jwt"));
         }
 
@@ -122,7 +127,10 @@ class ContractFixtureTokenGeneratorTest {
                 StandardCharsets.UTF_8);
         manifest.add(Map.of("name", "revoked-key-id", "file", "revoked-key-id.jwt"));
 
-        Files.writeString(output.resolve("tokens.json"), objectMapper.writeValueAsString(manifest), StandardCharsets.UTF_8);
+        Files.writeString(
+            output.resolve("tokens.json"),
+            objectMapper.writeValueAsString(manifest),
+            StandardCharsets.UTF_8);
     }
 
     private JWTClaimsSet.Builder oauth(Instant now, String subject, String tenant) {
@@ -143,8 +151,8 @@ class ContractFixtureTokenGeneratorTest {
         JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
                 .issuer(TEST_ISSUER)
                 .subject(subject)
-                .issueTime(java.util.Date.from(now))
-                .expirationTime(java.util.Date.from(now.plusSeconds(900)));
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(now.plusSeconds(900)));
         if (tenant != null) {
             builder.claim("tenant_id", tenant);
         }

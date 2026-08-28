@@ -29,13 +29,6 @@ import java.util.List;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Integration tests for the security barrier (DT 3.4.7).
- *
- * <p>Validates HTTP security behavior using the full application context
- * with MockMvc. Tests run under the {@code test} profile (H2 database,
- * external dependencies disabled).</p>
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -50,10 +43,6 @@ class SecurityIntegrationTest {
     @Autowired
     private JwtEncoder jwtEncoder;
 
-    // -------------------------------------------------------------------------
-    // Authentication (DT 3.4.3 — 401)
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("GET to protected endpoint without token returns 401 in ApiResponse envelope")
     void requestWithoutToken_returns401() throws Exception {
@@ -67,10 +56,9 @@ class SecurityIntegrationTest {
     @Test
     @DisplayName("POST to login endpoint without token is permitted (permitAll)")
     void postToLogin_isPermitted() throws Exception {
-        // The endpoint exists now and validates the payload, giving 400 Bad Request,
-        // proving the security layer allows the request through.
+
         mockMvc.perform(post("/api/v1/auth/login")
-                        .header("CF-Connecting-IP", "127.0.0.15") // avoid cache constraints from tests
+                        .header("CF-Connecting-IP", "127.0.0.15")
                         .contentType("application/json")
                         .content("{}"))
                 .andExpect(status().isBadRequest());
@@ -79,17 +67,12 @@ class SecurityIntegrationTest {
     @Test
     @DisplayName("POST to register endpoint without token is permitted (permitAll)")
     void postToRegister_isPermitted() throws Exception {
-        // The endpoint is mapped and will fail @Valid validation (400),
-        // proving the security layer allows the request through.
+
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType("application/json")
                         .content("{}"))
                 .andExpect(status().isBadRequest());
     }
-
-    // -------------------------------------------------------------------------
-    // Response envelope consistency
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("Error responses follow ApiResponse structure with errors and timestamp")
@@ -148,10 +131,6 @@ class SecurityIntegrationTest {
                 .andExpect(jsonPath("$.keys[0].kty").value("RSA"));
     }
 
-    // -------------------------------------------------------------------------
-    // Security headers (DT 3.2.14)
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("Response includes X-Content-Type-Options: nosniff")
     void securityHeader_nosniff() throws Exception {
@@ -166,7 +145,6 @@ class SecurityIntegrationTest {
                 .andExpect(header().string("X-Frame-Options", "DENY"));
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Secure responses include HSTS")
     void securityHeader_hsts() throws Exception {
@@ -176,7 +154,6 @@ class SecurityIntegrationTest {
                 .andExpect(header().string("Strict-Transport-Security", containsString("preload")));
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Responses include strict API Content-Security-Policy")
     void securityHeader_contentSecurityPolicy() throws Exception {
@@ -203,7 +180,6 @@ class SecurityIntegrationTest {
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Oversized request bodies are rejected before controller parsing")
     void requestBodyLimit_rejectsOversizedPayload() throws Exception {
@@ -214,15 +190,11 @@ class SecurityIntegrationTest {
                 .andExpect(jsonPath("$.errors[0]").value("Request body too large"));
     }
 
-    // -------------------------------------------------------------------------
-    // Filter Chain Order (DT 3.2.12)
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("Security filter chain follows DT 3.2.12 specific order")
     void securityFilterChain_followsDT3212Order() {
         List<SecurityFilterChain> filterChains = filterChainProxy.getFilterChains();
-        // Assuming the main API chain is the first or only one containing BearerTokenAuthenticationFilter
+
         SecurityFilterChain targetChain = filterChains.get(0);
         List<Filter> filters = targetChain.getFilters();
 
@@ -251,8 +223,12 @@ class SecurityIntegrationTest {
         assertTrue(authorizationIndex != -1, "AuthorizationFilter must be in the chain");
 
         assertTrue(rateLimitingIndex < bearerIndex, "RateLimitingFilter must precede BearerTokenAuthenticationFilter");
-        assertTrue(rateLimitingIndex < requestBodySizeIndex, "RateLimitingFilter must precede RequestBodySizeLimitFilter");
-        assertTrue(requestBodySizeIndex < bearerIndex, "RequestBodySizeLimitFilter must precede BearerTokenAuthenticationFilter");
+        assertTrue(
+            rateLimitingIndex < requestBodySizeIndex,
+            "RateLimitingFilter must precede RequestBodySizeLimitFilter");
+        assertTrue(
+            requestBodySizeIndex < bearerIndex,
+            "RequestBodySizeLimitFilter must precede BearerTokenAuthenticationFilter");
         assertTrue(bearerIndex < workerIndex, "BearerTokenAuthenticationFilter must precede WorkerAuthFilter");
         assertTrue(workerIndex < userAuthIndex, "WorkerAuthFilter must precede UserAuthoritiesFilter");
         assertTrue(userAuthIndex < authorizationIndex, "UserAuthoritiesFilter must precede AuthorizationFilter");

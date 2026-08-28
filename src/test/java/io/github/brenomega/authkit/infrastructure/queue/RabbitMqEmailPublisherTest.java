@@ -12,9 +12,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
-/**
- * Unit tests for {@link RabbitMqEmailPublisher}.
- */
 @ExtendWith(MockitoExtension.class)
 class RabbitMqEmailPublisherTest {
 

@@ -5,12 +5,6 @@ import java.util.List;
 
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
-/**
- * DTO representing an active authentication session (RF 2.1.8).
- * 
- * <p>The opaque public identifier is distinct from the JWT JTI. IP addresses are
- * masked before storage and exposure.</p>
- */
 public record SessionResponse(
         String sessionId,
         Instant createdAt,

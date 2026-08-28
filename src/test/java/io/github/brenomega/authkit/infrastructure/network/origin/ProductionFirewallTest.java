@@ -20,14 +20,6 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 import java.security.KeyPair;
 
-/**
- * Security boundary validation for the production profile (DT 3.2.19).
- *
- * <p>Ensures that loopback addresses are strictly forbidden when the 'prod'
- * profile is active, verifying that the {@link OriginFirewallFilter} correctly
- * strips loopback CIDRs from the trusted ranges in production. Uses dynamic
- * RSA key generation to comply with security standards (DT 3.2.3, DT 3.2.4).</p>
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("prod")
@@ -39,7 +31,9 @@ import java.security.KeyPair;
     "spring.flyway.enabled=false",
     "spring.jpa.hibernate.ddl-auto=create-drop",
     "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
-    "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
+    "spring.autoconfigure.exclude="
+        + "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,"
+        + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration",
     "spring.rabbitmq.host=localhost",
     "spring.rabbitmq.port=0",
     "spring.rabbitmq.listener.simple.auto-startup=false",

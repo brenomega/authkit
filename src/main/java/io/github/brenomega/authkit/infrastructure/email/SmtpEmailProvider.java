@@ -59,9 +59,7 @@ public class SmtpEmailProvider implements EmailProvider {
             log.info("Email accepted by SMTP provider for: {}", maskedRecipient);
             return new EmailDeliveryResult(providerId);
         } catch (MessagingException | RuntimeException ex) {
-            // SMTP has no portable idempotency contract. Retrying inside this call after an
-            // ambiguous timeout can duplicate a message. The durable outbox owns retries and
-            // reuses the stable X-AuthKit-Message-Id for operator/provider deduplication.
+
             log.error("SMTP email attempt failed for {}", maskedRecipient, ex);
             throw new RuntimeException("Email delivery failed", ex);
         }

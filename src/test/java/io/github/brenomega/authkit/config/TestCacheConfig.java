@@ -13,27 +13,29 @@ import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.script.RedisScript;
 import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
-/**
- * Provides a mock implementation of StringRedisTemplate for testing.
- *
- * <p>Since RedisAutoConfiguration is disabled in the test profile, we must manually
- * construct a bean that fulfills the dependency injections for components like
- * RedisTokenStorage. This mock uses a nested HashMap to simulate Redis Hash operations.</p>
- */
 @Configuration
 @Profile("test")
 public class TestCacheConfig {
 
-    @SuppressWarnings({ "null", "unchecked" })
+    @SuppressWarnings("null")
     @Bean
     @Primary
     public StringRedisTemplate stringRedisTemplate() {
         StringRedisTemplate template = Mockito.mock(StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
         ValueOperations<String, String> valueOps = Mockito.mock(ValueOperations.class);
+        @SuppressWarnings("unchecked")
         HashOperations<String, Object, Object> hashOps = Mockito.mock(HashOperations.class);
-        
+
         Map<String, Map<Object, Object>> hashCache = new HashMap<>();
         Map<String, String> valueCache = new HashMap<>();
         Map<String, Set<String>> setCache = new HashMap<>();
@@ -47,34 +49,32 @@ public class TestCacheConfig {
                 return null;
             }
             byte[] keyBytes = invocation.getArgument(1);
-            String key = new String(keyBytes, java.nio.charset.StandardCharsets.UTF_8);
+            String key = new String(keyBytes, StandardCharsets.UTF_8);
             Map<Object, Object> entries = hashCache.getOrDefault(key, Map.of());
-            java.util.List<byte[]> flattened = new java.util.ArrayList<>();
+            List<byte[]> flattened = new ArrayList<>();
             entries.forEach((field, value) -> {
-                flattened.add(field.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                flattened.add(value.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                flattened.add(field.toString().getBytes(StandardCharsets.UTF_8));
+                flattened.add(value.toString().getBytes(StandardCharsets.UTF_8));
             });
-            return java.util.List.of("0".getBytes(java.nio.charset.StandardCharsets.UTF_8), flattened);
+            return List.of("0".getBytes(StandardCharsets.UTF_8), flattened);
         }).when(redisConnection).execute(
                 Mockito.anyString(), Mockito.any(byte[].class), Mockito.any(byte[].class),
                 Mockito.any(byte[].class), Mockito.any(byte[].class));
         Mockito.doAnswer(invocation -> {
             RedisCallback<?> callback = invocation.getArgument(0);
             return callback.doInRedis(redisConnection);
-        }).when(template).execute(Mockito.any(RedisCallback.class));
-        
-        // Mock ValueOperations — set with TTL
+        }).when(template).execute(Mockito.<RedisCallback<Object>>any());
+
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
             String value = invocation.getArgument(1);
             valueCache.put(key, value);
             return null;
         }).when(valueOps).set(Mockito.anyString(), Mockito.anyString(), Mockito.any(Duration.class));
-        
+
         Mockito.doAnswer(invocation -> valueCache.get(invocation.getArgument(0)))
                .when(valueOps).get(Mockito.anyString());
 
-        // Mock ValueOperations — increment (used by AccountLockoutService DT 3.2.23)
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
             String currentStr = valueCache.get(key);
@@ -83,7 +83,6 @@ public class TestCacheConfig {
             return newVal;
         }).when(valueOps).increment(Mockito.anyString());
 
-        // Mock HashOperations
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
             Object hashKey = invocation.getArgument(1);
@@ -115,7 +114,6 @@ public class TestCacheConfig {
             return 1L;
         }).when(hashOps).delete(Mockito.anyString(), Mockito.any());
 
-        // Mock Template — delete
         Mockito.doAnswer(invocation -> {
             String key = invocation.getArgument(0);
             valueCache.remove(key);
@@ -124,8 +122,10 @@ public class TestCacheConfig {
             return Boolean.TRUE;
         }).when(template).delete(Mockito.anyString());
 
-        // Mock Template — expire (used by AccountLockoutService DT 3.2.23)
-        Mockito.when(template.expire(Mockito.anyString(), Mockito.anyLong(), Mockito.any(java.util.concurrent.TimeUnit.class)))
+        Mockito.when(template.expire(
+            Mockito.anyString(),
+            Mockito.anyLong(),
+            Mockito.any(TimeUnit.class)))
                .thenReturn(Boolean.TRUE);
         Mockito.when(template.expire(Mockito.anyString(), Mockito.any(Duration.class)))
                .thenReturn(Boolean.TRUE);
@@ -135,17 +135,16 @@ public class TestCacheConfig {
             return valueCache.containsKey(key) || hashCache.containsKey(key) || setCache.containsKey(key);
         }).when(template).hasKey(Mockito.anyString());
 
-        // Mock Template - execute (used by RedisTokenStorage Lua script DT 3.2.4)
         Mockito.doAnswer(invocation -> {
-            java.util.List<?> keys = invocation.getArgument(1);
+            List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
             Object[] args = invocation.getArguments();
-            org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+            RedisScript<?> script = invocation.getArgument(0);
 
             if (script.getScriptAsString().contains("current ~= ARGV[2]")) {
                 Map<Object, Object> metadata = hashCache.get(key);
                 String jti = args[2].toString();
-                if (metadata != null && java.util.Objects.equals(metadata.get(jti), args[3])) {
+                if (metadata != null && Objects.equals(metadata.get(jti), args[3])) {
                     metadata.put(jti, args[4]);
                     return 1L;
                 }
@@ -187,10 +186,15 @@ public class TestCacheConfig {
             String value = args[3].toString();
             hashCache.computeIfAbsent(key, k -> new HashMap<>()).put(hashKey, value);
             return Boolean.TRUE;
-        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any());
+        }).when(template).execute(
+            Mockito.<RedisScript<?>>any(),
+            Mockito.anyList(),
+            Mockito.any(),
+            Mockito.any(),
+            Mockito.any());
 
         Mockito.doAnswer(invocation -> {
-            java.util.List<?> keys = invocation.getArgument(1);
+            List<?> keys = invocation.getArgument(1);
             String tokenKey = (String) keys.get(0);
             String familyKey = (String) keys.get(1);
             String familiesKey = (String) keys.get(2);
@@ -199,17 +203,24 @@ public class TestCacheConfig {
             String familyId = invocation.getArgument(5).toString();
             hashCache.computeIfAbsent(tokenKey, k -> new HashMap<>()).put(jti, value);
             valueCache.put(familyKey, jti);
-            setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(familyId);
+            setCache.computeIfAbsent(familiesKey, ignored -> new HashSet<>()).add(familyId);
             hashCache.computeIfAbsent((String) keys.get(3), k -> new HashMap<>())
                     .put(jti, invocation.getArgument(6).toString());
             hashCache.computeIfAbsent((String) keys.get(4), k -> new HashMap<>())
                     .put(invocation.getArgument(7).toString(), jti);
             return Boolean.TRUE;
-        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        }).when(template).execute(
+                Mockito.<RedisScript<?>>any(),
+                Mockito.anyList(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any(),
+                Mockito.any());
 
         Mockito.doAnswer(invocation -> {
-            java.util.List<?> keys = invocation.getArgument(1);
+            List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
             String familyKey = (String) keys.get(1);
             String familiesKey = (String) keys.get(2);
@@ -253,12 +264,11 @@ public class TestCacheConfig {
                         }
                     }
                     valueCache.put(familyKey, nextJti);
-                    setCache.computeIfAbsent(familiesKey, ignored -> new java.util.HashSet<>()).add(storedFamily);
+                    setCache.computeIfAbsent(familiesKey, ignored -> new HashSet<>()).add(storedFamily);
                     return 1L;
                 }
             }
 
-            // Reuse detection: if the old token is replayed, revoke the remaining token family.
             boolean reuseDetected = false;
             for (Map.Entry<Object, Object> entry : sessions.entrySet()) {
                 String val = entry.getValue().toString();
@@ -273,8 +283,8 @@ public class TestCacheConfig {
             }
 
             if (reuseDetected) {
-                // Revoke all keys belonging to this family!
-                java.util.List<Object> keysToRemove = new java.util.ArrayList<>();
+
+                List<Object> keysToRemove = new ArrayList<>();
                 for (Map.Entry<Object, Object> entry : sessions.entrySet()) {
                     String val = entry.getValue().toString();
                     int colonIdx = val.indexOf(':');
@@ -293,12 +303,12 @@ public class TestCacheConfig {
                 if (families != null) {
                     families.remove(currentFamilyId);
                 }
-                return -1L; // Compromised!
+                return -1L;
             }
 
             return 0L;
         }).when(template).execute(
-                Mockito.any(org.springframework.data.redis.core.script.RedisScript.class),
+                Mockito.<RedisScript<?>>any(),
                 Mockito.anyList(),
                 Mockito.any(),
                 Mockito.any(),
@@ -311,9 +321,9 @@ public class TestCacheConfig {
         );
 
         Mockito.doAnswer(invocation -> {
-            java.util.List<?> keys = invocation.getArgument(1);
+            List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
-            org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+            RedisScript<?> script = invocation.getArgument(0);
             if (keys.size() == 2 && script.getScriptAsString().contains("redis.call('GET', KEYS[2])")) {
                 String claimKey = (String) keys.get(1);
                 String claimId = invocation.getArgument(2).toString();
@@ -353,13 +363,16 @@ public class TestCacheConfig {
                 return 1L;
             }
             return 0L;
-        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any());
+        }).when(template).execute(
+            Mockito.<RedisScript<?>>any(),
+            Mockito.anyList(),
+            Mockito.any());
 
         Mockito.doAnswer(invocation -> {
-            java.util.List<?> keys = invocation.getArgument(1);
+            List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
             if (isRefreshTokenKey(key)) {
-                org.springframework.data.redis.core.script.RedisScript<?> script = invocation.getArgument(0);
+                RedisScript<?> script = invocation.getArgument(0);
                 String requestedId = invocation.getArgument(2).toString();
                 String familyKeyPrefix = invocation.getArgument(3).toString();
                 Map<Object, Object> sessions = hashCache.get(key);
@@ -367,7 +380,7 @@ public class TestCacheConfig {
                     return 0L;
                 }
                 if (script.getScriptAsString().contains("fields[i] ~= ARGV[1]")) {
-                    java.util.List<Object> removed = new java.util.ArrayList<>();
+                    List<Object> removed = new ArrayList<>();
                     sessions.keySet().forEach(existingJti -> {
                         if (!existingJti.equals(requestedId)) {
                             removed.add(existingJti);
@@ -409,8 +422,12 @@ public class TestCacheConfig {
                         setCache);
             }
             return 0L;
-        }).when(template).execute(Mockito.any(org.springframework.data.redis.core.script.RedisScript.class), Mockito.anyList(), Mockito.any(), Mockito.any());
-        
+        }).when(template).execute(
+            Mockito.<RedisScript<?>>any(),
+            Mockito.anyList(),
+            Mockito.any(),
+            Mockito.any());
+
         Mockito.when(template.opsForValue()).thenReturn(valueOps);
         Mockito.when(template.opsForHash()).thenReturn(hashOps);
         return template;

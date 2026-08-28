@@ -21,14 +21,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-/**
- * Authenticates internal workers with edge trust and a rotating shared secret.
- *
- * <p>Both the TCP peer address and the worker header must be accepted before
- * {@code ROLE_WORKER} is installed. Previous configured secrets remain valid
- * during rotation, and every comparison is constant-time. A forwarded client
- * address cannot establish edge trust.</p>
- */
 @Component
 public class WorkerAuthFilter extends OncePerRequestFilter {
 
@@ -38,6 +30,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     private final MeterRegistry meterRegistry;
     private static final String HEADER_NAME = "X-Worker-Token";
 
+    @SuppressWarnings("null")
     public WorkerAuthFilter(@Value("${app.security.worker-token}") String workerToken,
                             @Value("${app.security.worker-previous-tokens:}") String previousWorkerTokens,
                             TrustedOriginProvider trustedOriginProvider,
@@ -59,7 +52,10 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
+    protected void doFilterInternal(
+        @NonNull HttpServletRequest request,
+        @NonNull HttpServletResponse response,
+        @NonNull FilterChain filterChain)
             throws ServletException, IOException {
 
         String tokenHeader = request.getHeader(HEADER_NAME);
@@ -77,7 +73,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
         }
 
         if (constantTimeEquals(tokenHeader, workerToken)) {
-            // Apply Worker Role
+
             var workerAuth = new UsernamePasswordAuthenticationToken(
                     "internal-worker",
                     null,

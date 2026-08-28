@@ -13,7 +13,6 @@ import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
-/** Live, authenticated introspection for first-party access tokens. */
 @Service
 public class FirstPartyTokenIntrospectionService {
 
@@ -32,6 +31,7 @@ public class FirstPartyTokenIntrospectionService {
         this.audience = authProperties.getJwt().getAudience();
     }
 
+    @SuppressWarnings("null")
     public FirstPartyIntrospectionResponse introspect(String rawToken) {
         try {
             Jwt jwt = jwtDecoder.decode(rawToken);

@@ -33,7 +33,6 @@ import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
-/** Durable, one-time secure email-change ceremony. */
 @Service
 public class EmailChangeService {
 
@@ -159,7 +158,10 @@ public class EmailChangeService {
     public EmailChangeStatusResponse cancel(String userId, StepUpRequest request) {
         User user = loadActiveUser(userId);
         stepUpService.verifyCurrentPassword(
-                user, request.currentPassword(), SecurityEventType.EMAIL_CHANGE_FAILED, "email_change_cancel_step_up_failed");
+                user,
+                request.currentPassword(),
+                SecurityEventType.EMAIL_CHANGE_FAILED,
+                "email_change_cancel_step_up_failed");
         mfaService.requireMfaIfEnabled(user, request.mfaCode(), "email_change_cancel");
         user.cancelEmailChange();
         userRepository.save(user);
@@ -172,6 +174,7 @@ public class EmailChangeService {
     }
 
     private User loadActiveUser(String userId) {
+        @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId)).orElseThrow(UserNotFoundException::new);
         user.requireEmailConfirmed();
         return user;

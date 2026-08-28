@@ -3,9 +3,6 @@ package io.github.brenomega.authkit.domain.user.dto;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Privacy-safe account data export for LGPD/GDPR access requests.
- */
 public record UserDataExportResponse(
         String schemaVersion,
         Instant generatedAt,

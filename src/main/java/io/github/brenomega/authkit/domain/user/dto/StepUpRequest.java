@@ -2,9 +2,6 @@ package io.github.brenomega.authkit.domain.user.dto;
 
 import jakarta.validation.constraints.Size;
 
-/**
- * Per-request proof for sensitive account lifecycle operations.
- */
 public record StepUpRequest(
         @Size(max = 128)
         String currentPassword,

@@ -27,13 +27,13 @@ import io.github.brenomega.authkit.exception.InvalidSocialLoginException;
 import io.github.brenomega.authkit.infrastructure.security.SocialSecretCipher;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 
-/** Real OIDC discovery, code exchange and signed ID-token verification adapter. */
 @Component
 public class NimbusSocialOidcClient implements SocialOidcClient {
     private final ObjectMapper objectMapper;
     private final SocialSecretCipher cipher;
     private final RestTemplate http;
 
+    @SuppressWarnings("null")
     public NimbusSocialOidcClient(ObjectMapper objectMapper, SocialSecretCipher cipher) {
         this.objectMapper = objectMapper;
         this.cipher = cipher;
@@ -41,6 +41,7 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
                 .connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
+        @SuppressWarnings("null")
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(Duration.ofSeconds(5));
         this.http = new RestTemplate(factory);
@@ -50,6 +51,7 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
     public OidcProviderMetadata metadata(SocialIdentityProvider provider) {
         try {
             String discoveryUrl = provider.getIssuer().replaceAll("/$", "") + "/.well-known/openid-configuration";
+            @SuppressWarnings("null")
             JsonNode document = http.getForObject(URI.create(discoveryUrl), JsonNode.class);
             if (document == null) throw new InvalidSocialLoginException();
             String issuer = requiredHttps(document, "issuer");
@@ -66,6 +68,7 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
         }
     }
 
+    @SuppressWarnings("null")
     @Override
     public FederatedIdentity exchangeAndVerify(SocialIdentityProvider provider, String code, String codeVerifier,
                                                String redirectUri, String expectedNonce) {
@@ -87,6 +90,7 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
                 form.add("client_secret", clientSecret);
             }
 
+            @SuppressWarnings("null")
             String response = http.postForObject(URI.create(metadata.tokenEndpoint()),
                     new HttpEntity<>(form, headers), String.class);
             JsonNode tokenResponse = objectMapper.readTree(response);

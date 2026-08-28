@@ -4,11 +4,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Objects;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.util.StringUtils;
@@ -48,12 +51,6 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
-/**
- * Adapts public first-party authentication and account-entry use cases to HTTP.
- *
- * <p>This controller alone owns refresh and double-submit CSRF cookie creation,
- * renewal, validation, and clearing.</p>
- */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -80,9 +77,7 @@ public class AuthController {
         this.emailChangeService = emailChangeService;
     }
 
-    /**
-     * Authenticates a password and either establishes cookies or returns an MFA continuation.
-     */
+    @SuppressWarnings("null")
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         AuthService.LoginResult result = authService.login(request);
@@ -96,9 +91,7 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
-    /**
-     * Completes login for accounts protected by MFA.
-     */
+    @SuppressWarnings("null")
     @PostMapping("/mfa/verify-login")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyMfaLogin(
             @Valid @RequestBody MfaLoginVerificationRequest request) {
@@ -111,14 +104,13 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
-    /** Starts an enumeration-safe passkey assertion ceremony. */
     @PostMapping("/passkeys/options")
     public ResponseEntity<ApiResponse<PasskeyAssertionOptionsResponse>> passkeyOptions(
             @Valid @RequestBody(required = false) PasskeyAssertionOptionsRequest request) {
         return ResponseEntity.ok(ApiResponse.success(passkeyService.startAssertion(request)));
     }
 
-    /** Completes a passkey assertion and establishes first-party session cookies. */
+    @SuppressWarnings("null")
     @PostMapping("/passkeys/verify")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyPasskey(
             @Valid @RequestBody PasskeyAssertionFinishRequest request) {
@@ -131,9 +123,7 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
-    /**
-     * Applies cookie CSRF protection and rotates the refresh-token family.
-     */
+    @SuppressWarnings("null")
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<LoginResponse>> refresh(HttpServletRequest request) {
         validateCsrfToken(request);
@@ -147,9 +137,6 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
-    /**
-     * Idempotently revokes the current session and clears session cookies.
-     */
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<String>> logout(HttpServletRequest request) {
         validateCsrfToken(request);
@@ -163,9 +150,6 @@ public class AuthController {
                 .body(ApiResponse.success("Logged out successfully."));
     }
 
-    /**
-     * Revokes all sessions after optional MFA step-up and clears session cookies.
-     */
     @PostMapping("/logout-all")
     public ResponseEntity<ApiResponse<String>> logoutAll(
             @AuthenticationPrincipal Jwt jwt,
@@ -178,9 +162,6 @@ public class AuthController {
                 .body(ApiResponse.success("All sessions successfully revoked."));
     }
 
-    /**
-     * Registers an inactive account using the configured enumeration-safe conflict policy.
-     */
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<?>> register(
             @Valid @RequestBody RegisterRequest request) {
@@ -217,9 +198,6 @@ public class AuthController {
                         "If this registration can be processed, an activation email will be sent.")));
     }
 
-    /**
-     * Consumes an activation token and confirms its account email.
-     */
     @PostMapping("/email-confirmation/confirm")
     public ResponseEntity<ApiResponse<String>> confirmEmail(
             @Valid @RequestBody EmailConfirmationConfirmRequest request) {
@@ -227,7 +205,6 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
     }
 
-    /** Requests another activation email without disclosing account state. */
     @PostMapping("/email-confirmation/resend")
     public ResponseEntity<ApiResponse<String>> resendEmailConfirmation(
             @Valid @RequestBody EmailConfirmationResendRequest request) {
@@ -243,38 +220,34 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Email address changed. Sign in again."));
     }
 
-    /**
-     * Requests recovery without disclosing whether an eligible account exists.
-     */
     @PostMapping("/password-recovery/request")
     public ResponseEntity<ApiResponse<String>> requestRecovery(
             @Valid @RequestBody PasswordRecoveryRequest request) {
-        
+
         recoveryService.requestRecovery(request.email());
-        
+
         return ResponseEntity.ok(ApiResponse.success(
                 "If an account exists with this email, a recovery link has been sent."));
     }
 
-    /**
-     * Consumes a recovery token and invalidates all sessions after password replacement.
-     */
     @PostMapping("/password-recovery/reset")
     public ResponseEntity<ApiResponse<String>> resetPassword(
             @RequestParam String email,
             @Valid @RequestBody PasswordResetRequest request) {
-        
+
         recoveryService.resetPassword(email, request.token(), request.newPassword());
-        
+
         return ResponseEntity.ok(ApiResponse.success("Password successfully reset."));
     }
 
     @SuppressWarnings("null")
-    private ResponseCookie refreshCookie(String refreshToken) {
-        AuthProperties.Cookie cookie = authProperties.getCookie();
+    private ResponseCookie refreshCookie(@NonNull String refreshToken) {
+        AuthProperties.Cookie cookie = Objects.requireNonNull(
+                authProperties.getCookie(), "authkit.auth.cookie");
+        String refreshName = Objects.requireNonNull(
+                cookie.getRefreshName(), "authkit.auth.cookie.refresh-name");
 
-        // DT 3.2.22: HttpOnly cookie prevents client-side script access.
-        return ResponseCookie.from(cookie.getRefreshName(), refreshToken)
+        return ResponseCookie.from(refreshName, refreshToken)
                 .httpOnly(cookie.isHttpOnly())
                 .secure(cookie.isSecure())
                 .sameSite(cookie.getSameSite())
@@ -284,11 +257,15 @@ public class AuthController {
     }
 
     @SuppressWarnings("null")
-    private ResponseCookie csrfCookie(String csrfToken) {
-        AuthProperties.Cookie cookie = authProperties.getCookie();
-        AuthProperties.Csrf csrf = authProperties.getCsrf();
+    private ResponseCookie csrfCookie(@NonNull String csrfToken) {
+        AuthProperties.Cookie cookie = Objects.requireNonNull(
+                authProperties.getCookie(), "authkit.auth.cookie");
+        AuthProperties.Csrf csrf = Objects.requireNonNull(
+                authProperties.getCsrf(), "authkit.auth.csrf");
+        String cookieName = Objects.requireNonNull(
+                csrf.getCookieName(), "authkit.auth.csrf.cookie-name");
 
-        return ResponseCookie.from(csrf.getCookieName(), csrfToken)
+        return ResponseCookie.from(cookieName, csrfToken)
                 .httpOnly(false)
                 .secure(cookie.isSecure())
                 .sameSite(cookie.getSameSite())
@@ -297,11 +274,13 @@ public class AuthController {
                 .build();
     }
 
-    @SuppressWarnings("null")
     private ResponseCookie clearRefreshCookie() {
-        AuthProperties.Cookie cookie = authProperties.getCookie();
+        AuthProperties.Cookie cookie = Objects.requireNonNull(
+                authProperties.getCookie(), "authkit.auth.cookie");
+        String refreshName = Objects.requireNonNull(
+                cookie.getRefreshName(), "authkit.auth.cookie.refresh-name");
 
-        return ResponseCookie.from(cookie.getRefreshName(), "")
+        return ResponseCookie.from(refreshName, "")
                 .httpOnly(cookie.isHttpOnly())
                 .secure(cookie.isSecure())
                 .sameSite(cookie.getSameSite())
@@ -310,12 +289,15 @@ public class AuthController {
                 .build();
     }
 
-    @SuppressWarnings("null")
     private ResponseCookie clearCsrfCookie() {
-        AuthProperties.Cookie cookie = authProperties.getCookie();
-        AuthProperties.Csrf csrf = authProperties.getCsrf();
+        AuthProperties.Cookie cookie = Objects.requireNonNull(
+                authProperties.getCookie(), "authkit.auth.cookie");
+        AuthProperties.Csrf csrf = Objects.requireNonNull(
+                authProperties.getCsrf(), "authkit.auth.csrf");
+        String cookieName = Objects.requireNonNull(
+                csrf.getCookieName(), "authkit.auth.csrf.cookie-name");
 
-        return ResponseCookie.from(csrf.getCookieName(), "")
+        return ResponseCookie.from(cookieName, "")
                 .httpOnly(false)
                 .secure(cookie.isSecure())
                 .sameSite(cookie.getSameSite())
@@ -324,7 +306,8 @@ public class AuthController {
                 .build();
     }
 
-    private void addSessionCookies(HttpHeaders headers, String refreshToken) {
+    @SuppressWarnings("null")
+    private void addSessionCookies(@NonNull HttpHeaders headers, @NonNull String refreshToken) {
         headers.add(HttpHeaders.SET_COOKIE, refreshCookie(refreshToken).toString());
         if (authProperties.getCsrf().isEnabled()) {
             headers.add(HttpHeaders.SET_COOKIE, csrfCookie(newCsrfToken()).toString());
@@ -347,7 +330,8 @@ public class AuthController {
         String headerToken = request.getHeader(csrf.getHeaderName());
         String cookieToken = readCookie(request, csrf.getCookieName());
 
-        if (!StringUtils.hasText(headerToken) || !StringUtils.hasText(cookieToken)
+        if (headerToken == null || cookieToken == null
+                || !StringUtils.hasText(headerToken) || !StringUtils.hasText(cookieToken)
                 || !MessageDigest.isEqual(
                         headerToken.getBytes(StandardCharsets.UTF_8),
                         cookieToken.getBytes(StandardCharsets.UTF_8))) {
@@ -359,10 +343,13 @@ public class AuthController {
         return SecureTokenGenerator.randomUrlSafeToken(authProperties.getCsrf().getTokenBytes());
     }
 
+    @Nullable
     private String readRefreshToken(HttpServletRequest request) {
         return readCookie(request, authProperties.getCookie().getRefreshName());
     }
 
+    @SuppressWarnings("null")
+    @Nullable
     private String readCookie(HttpServletRequest request, String cookieName) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) {

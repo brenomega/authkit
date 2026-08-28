@@ -34,13 +34,6 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
-/**
- * Coordinates registration, consent capture, and email activation.
- *
- * <p>Registration normalizes email addresses, applies password and abuse policy,
- * stores only the activation-token hash, and writes the user, immutable consent
- * event, and activation outbox message in one database transaction.</p>
- */
 @Service
 public class RegistrationService {
 
@@ -74,12 +67,6 @@ public class RegistrationService {
         this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
-    /**
-     * Registers an inactive user and queues the one-time activation secret.
-     *
-     * @param request defined by the DTO whitelist
-     * @return the persisted user, which is not login-eligible until confirmed
-     */
     @Transactional
     @LogExecutionTime
     public User registerUser(RegisterRequest request) {
@@ -110,7 +97,7 @@ public class RegistrationService {
                 authProperties.getCompliance().getTermsVersion(),
                 authProperties.getCompliance().getPrivacyPolicyVersion(),
                 authProperties.getCompliance().getLawfulBasis(),
-                java.time.Instant.now());
+                Instant.now());
 
         try {
             user = userRepository.save(user);
@@ -124,13 +111,6 @@ public class RegistrationService {
         return user;
     }
 
-    /**
-     * Confirms an email with a matching, unexpired activation token.
-     *
-     * <p>The stored token hash and expiry are cleared on success. An expired token
-     * is also cleared before the operation reports failure.</p>
-     */
-    @SuppressWarnings("null")
     @Transactional
     @LogExecutionTime
     public void confirmEmail(String token) {
@@ -141,7 +121,8 @@ public class RegistrationService {
         String tokenHash = TokenHasher.sha256Hex(token);
         User user = userRepository.findByEmailConfirmationTokenForUpdate(tokenHash)
                 .orElseThrow(InvalidTokenException::new);
-        if (user.getEmailConfirmationExpiresAt() == null || !user.getEmailConfirmationExpiresAt().isAfter(Instant.now())) {
+        if (user.getEmailConfirmationExpiresAt() == null
+                || !user.getEmailConfirmationExpiresAt().isAfter(Instant.now())) {
             user.setEmailConfirmationToken(null);
             user.setEmailConfirmationExpiresAt(null);
             userRepository.save(user);
@@ -160,12 +141,7 @@ public class RegistrationService {
                 "email_verified");
     }
 
-    /**
-     * Replaces and re-sends an activation token without revealing account state.
-     *
-     * <p>Unknown, deleted, and already confirmed accounts are indistinguishable
-     * no-ops after abuse controls are applied.</p>
-     */
+    @SuppressWarnings("null")
     @Transactional
     @LogExecutionTime
     public void resendEmailConfirmation(String emailInput) {

@@ -16,8 +16,7 @@ public final class EmailOutboxTiming {
 
     public static Duration providerRetryBudget(AuthProperties authProperties) {
         AuthProperties.EmailProvider provider = authProperties.getEmailProvider();
-        // SMTP has no portable idempotency guarantee, so a claim makes one transport
-        // attempt. Resend safely retries with the stable outbox UUID as idempotency key.
+
         long attempts = "smtp".equalsIgnoreCase(provider.getType()) ? 1 : provider.getMaxAttempts();
         long attemptBudgetMs = provider.getConnectTimeoutMs() + provider.getReadTimeoutMs();
         long retryBackoffMs = Math.max(0, attempts - 1) * provider.getRetryBackoffMs();

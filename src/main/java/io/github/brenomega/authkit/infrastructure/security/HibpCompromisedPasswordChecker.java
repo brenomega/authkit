@@ -9,6 +9,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.HashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,7 +74,7 @@ public class HibpCompromisedPasswordChecker implements CompromisedPasswordChecke
     private Map<String, Long> fetchAndParse(String prefix) {
         try {
             String body = rangeClient.fetchRange(prefix);
-            Map<String, Long> results = new java.util.HashMap<>();
+            Map<String, Long> results = new HashMap<>();
             for (String line : body.split("\\R")) {
                 int separator = line.indexOf(':');
                 if (separator != 35) {
@@ -83,7 +84,7 @@ public class HibpCompromisedPasswordChecker implements CompromisedPasswordChecke
                 try {
                     results.put(suffix, Long.parseLong(line.substring(separator + 1).trim()));
                 } catch (NumberFormatException ignored) {
-                    // Ignore malformed provider rows and preserve fail-open behavior.
+
                 }
             }
             return Map.copyOf(results);

@@ -21,7 +21,11 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * not exactly-once delivery.</p>
  */
 @Component
-@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.email-outbox",
+    name = "enabled",
+    havingValue = "true",
+    matchIfMissing = true)
 public class EmailOutboxProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(EmailOutboxProcessor.class);

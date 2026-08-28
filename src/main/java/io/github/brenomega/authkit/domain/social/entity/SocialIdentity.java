@@ -13,7 +13,8 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "social_identities")
 public class SocialIdentity {
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     @Column(name = "user_id", nullable = false, updatable = false)
     private UUID userId;

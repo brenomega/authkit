@@ -8,7 +8,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** Singleton database guard that serializes the one-shot first-admin bootstrap. */
 @Entity
 @Table(name = "authkit_bootstrap_state")
 public class BootstrapState {

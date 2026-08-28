@@ -13,7 +13,11 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 public class EmailOutboxExecutionConfig {
 
     @Bean(name = "emailOutboxTaskScheduler")
-    @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(
+        prefix = "authkit.auth.email-outbox",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = true)
     public ThreadPoolTaskScheduler emailOutboxTaskScheduler(AuthProperties authProperties) {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setThreadNamePrefix("email-outbox-scheduler-");

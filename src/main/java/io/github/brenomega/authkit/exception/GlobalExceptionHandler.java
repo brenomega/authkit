@@ -1,6 +1,9 @@
 package io.github.brenomega.authkit.exception;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Locale;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,17 +20,6 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.response.FieldError;
 import io.micrometer.core.instrument.MeterRegistry;
 
-/**
- * Centralized exception handler for the entire API (DT 3.4.2).
- *
- * <p>Intercepts all exceptions thrown by controllers and converts them
- * into standardized {@link ApiResponse} envelopes. This ensures:</p>
- * <ul>
- *   <li>No raw stack traces leak to the client.</li>
- *   <li>Generic 500 errors return opaque messages (DT 3.4.2).</li>
- *   <li>Validation failures include per-field details (DT 3.4.10).</li>
- * </ul>
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -38,15 +30,6 @@ public class GlobalExceptionHandler {
         this.meterRegistry = meterRegistry;
     }
 
-    /**
-     * Handles Jakarta Bean Validation failures (HTTP 400).
-     *
-     * <p>Extracts per-field error details so clients can map errors
-     * programmatically (DT 3.4.10).</p>
-     *
-     * @param ex the validation exception
-     * @return a 400 response with structured field errors
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<List<FieldError>>> handleValidation(
             MethodArgumentNotValidException ex) {
@@ -63,11 +46,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.validationError(fieldErrors));
     }
 
-    /**
-     * Handles Jackson parse errors (e.g. strict duplicate keys, unknown properties).
-     *
-     * <p>Prevents Mass Assignment by failing the request cleanly (HTTP 400).</p>
-     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleMessageNotReadable(HttpMessageNotReadableException ex) {
         log.warn("Malformed JSON request: {}", ex.getClass().getSimpleName());
@@ -77,29 +55,22 @@ public class GlobalExceptionHandler {
                         "Malformed JSON request or unknown properties provided"));
     }
 
-    /**
-     * Handles domain-specific exceptions that extend {@link ApiBaseException}.
-     *
-     * <p>The HTTP status is determined by the exception itself.</p>
-     *
-     * @param ex the domain exception
-     * @return a response with the appropriate status and message
-     */
-    @SuppressWarnings("null")
     @ExceptionHandler(ApiBaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiBaseException ex) {
         if (ex instanceof AuthenticationCapacityExceededException) {
             meterRegistry.counter("security.argon2.capacity_exceeded").increment();
         }
-        log.warn("Domain exception [{}]: {}", ex.getStatus(), ex.getMessage());
+        String message = Objects.requireNonNullElse(ex.getMessage(), "Request failed");
+        log.warn("Domain exception [{}]: {}", ex.getStatus(), message);
         return ResponseEntity
                 .status(ex.getStatus())
                 .headers(headersFor(ex.getStatus()))
-                .body(ApiResponse.error(machineCode(ex), ex.getMessage()));
+                .body(ApiResponse.error(machineCode(ex), message));
     }
 
+    @SuppressWarnings("null")
     @ExceptionHandler(OAuthProtocolException.class)
-    public ResponseEntity<java.util.Map<String, String>> handleOAuthProtocol(OAuthProtocolException ex) {
+    public ResponseEntity<Map<String, String>> handleOAuthProtocol(OAuthProtocolException ex) {
         var builder = ResponseEntity.status(ex.protocolStatus())
                 .cacheControl(org.springframework.http.CacheControl.noStore())
                 .header(org.springframework.http.HttpHeaders.PRAGMA, "no-cache");
@@ -107,16 +78,10 @@ public class GlobalExceptionHandler {
             builder.header(org.springframework.http.HttpHeaders.WWW_AUTHENTICATE,
                     "Basic realm=\"oauth2/client\"");
         }
-        return builder.body(java.util.Map.of(
+        return builder.body(Map.of(
                 "error", ex.getError(), "error_description", ex.getDescription()));
     }
 
-    /**
-     * Handles Spring's NoResourceFoundException for unmapped endpoints (HTTP 404).
-     *
-     * @param ex the no-resource exception
-     * @return a 404 response in ApiResponse format
-     */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException ex) {
         return ResponseEntity
@@ -124,9 +89,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("resource_not_found", "Resource not found"));
     }
 
-    /**
-     * Handles database connectivity and persistence failures without leaking internals.
-     */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccess(DataAccessException ex) {
         meterRegistry.counter("security.infrastructure.failure", "component", "postgres").increment();
@@ -145,16 +107,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("forbidden", "Forbidden"));
     }
 
-    /**
-     * Catch-all handler for unexpected exceptions (HTTP 500).
-     *
-     * <p>Returns an opaque "Internal Server Error" message to prevent
-     * infrastructure detail leakage (DT 3.4.2). The full stack trace
-     * is logged at ERROR level for operational debugging.</p>
-     *
-     * @param ex the unexpected exception
-     * @return a 500 response with an opaque message
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex) {
         log.error("Unhandled exception", ex);
@@ -173,6 +125,6 @@ public class GlobalExceptionHandler {
 
     private String machineCode(ApiBaseException ex) {
         String simple = ex.getClass().getSimpleName().replaceFirst("Exception$", "");
-        return simple.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(java.util.Locale.ROOT);
+        return simple.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase(Locale.ROOT);
     }
 }

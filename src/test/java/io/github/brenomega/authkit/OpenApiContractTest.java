@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,18 +68,26 @@ class OpenApiContractTest {
 
         var authorize = result.getOpenAPI().getPaths().get("/oauth2/authorize").getGet();
         assertTrue(authorize.getParameters().stream()
-                .filter(parameter -> Set.of("state", "code_challenge", "code_challenge_method").contains(parameter.getName()))
+                .filter(parameter -> Set.of(
+                    "state",
+                    "code_challenge",
+                    "code_challenge_method").contains(parameter.getName()))
                 .allMatch(parameter -> Boolean.TRUE.equals(parameter.getRequired())));
-        assertEquals(Set.of("S256"), Set.copyOf(authorize.getParameters().stream()
+        assertEquals(List.of("S256"), authorize.getParameters().stream()
                 .filter(parameter -> "code_challenge_method".equals(parameter.getName()))
-                .findFirst().orElseThrow().getSchema().getEnum()));
+                .findFirst().orElseThrow().getSchema().getEnum());
 
         var tokenResponse = result.getOpenAPI().getComponents().getSchemas().get("OAuthTokenResponse");
-        assertTrue(tokenResponse.getProperties().keySet().containsAll(
-                Set.of("access_token", "id_token", "refresh_token", "token_type", "expires_in", "scope")));
+        assertTrue(tokenResponse.getProperties().containsKey("access_token"));
+        assertTrue(tokenResponse.getProperties().containsKey("id_token"));
+        assertTrue(tokenResponse.getProperties().containsKey("refresh_token"));
+        assertTrue(tokenResponse.getProperties().containsKey("token_type"));
+        assertTrue(tokenResponse.getProperties().containsKey("expires_in"));
+        assertTrue(tokenResponse.getProperties().containsKey("scope"));
         assertEquals(Boolean.FALSE, tokenResponse.getAdditionalProperties());
         var apiResponse = result.getOpenAPI().getComponents().getSchemas().get("ApiResponse");
-        assertTrue(apiResponse.getRequired().containsAll(Set.of("timestamp", "requestId")));
+        assertTrue(apiResponse.getRequired().contains("timestamp"));
+        assertTrue(apiResponse.getRequired().contains("requestId"));
         assertTrue(apiResponse.getProperties().containsKey("code"));
 
         result.getOpenAPI().getComponents().getSchemas().forEach((name, schema) -> {
@@ -124,7 +134,7 @@ class OpenApiContractTest {
 
     private void assertControllerInputsDocumented(OpenAPI openApi, String path, Operation operation,
             org.springframework.web.method.HandlerMethod handler) {
-        List<Parameter> parameters = new java.util.ArrayList<>();
+        List<Parameter> parameters = new ArrayList<>();
         if (openApi.getPaths().get(path).getParameters() != null) {
             parameters.addAll(openApi.getPaths().get(path).getParameters());
         }
@@ -145,7 +155,10 @@ class OpenApiContractTest {
 
             PathVariable pathVariable = methodParameter.getParameterAnnotation(PathVariable.class);
             if (pathVariable != null) {
-                String name = annotationName(pathVariable.name(), pathVariable.value(), methodParameter.getParameterName());
+                String name = annotationName(
+                    pathVariable.name(),
+                    pathVariable.value(),
+                    methodParameter.getParameterName());
                 assertTrue(parameters.stream().anyMatch(parameter ->
                                 "path".equals(parameter.getIn()) && name.equals(parameter.getName())
                                         && Boolean.TRUE.equals(parameter.getRequired())),
@@ -174,19 +187,26 @@ class OpenApiContractTest {
                 body.get$ref().substring(body.get$ref().lastIndexOf('/') + 1));
     }
 
-    @SuppressWarnings("rawtypes")
-    private java.util.Optional<Schema> formSchema(OpenAPI openApi, Operation operation) {
+    private Optional<Schema<?>> formSchema(OpenAPI openApi, Operation operation) {
         var body = effectiveRequestBody(openApi, operation.getRequestBody());
         if (body == null || body.getContent() == null
                 || body.getContent().get("application/x-www-form-urlencoded") == null) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
-        Schema schema = body.getContent().get("application/x-www-form-urlencoded").getSchema();
-        if (schema != null && schema.get$ref() != null) {
-            schema = openApi.getComponents().getSchemas().get(
+        Object rawSchema = body.getContent().get("application/x-www-form-urlencoded").getSchema();
+        if (!(rawSchema instanceof Schema<?> raw)) {
+            return Optional.empty();
+        }
+        Schema<?> schema = raw;
+        if (schema.get$ref() != null) {
+            Object resolved = openApi.getComponents().getSchemas().get(
                     schema.get$ref().substring(schema.get$ref().lastIndexOf('/') + 1));
+            if (!(resolved instanceof Schema<?> resolvedSchema)) {
+                return Optional.empty();
+            }
+            schema = resolvedSchema;
         }
-        return java.util.Optional.ofNullable(schema);
+        return Optional.ofNullable(schema);
     }
 
     private String annotationName(String name, String value, String parameterName) {

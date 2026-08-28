@@ -35,16 +35,6 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-/**
- * Defines the stateless request-security boundary and filter ordering.
- *
- * <p>Spring Security sessions and framework CSRF are disabled for bearer-token
- * traffic. Refresh and logout remain cookie-backed operations and enforce the
- * project's configurable double-submit CSRF contract in the controller when a
- * refresh cookie is present. The chain places origin, size, rate-limit, worker,
- * and current-authority controls around JWT authentication in security-sensitive
- * order.</p>
- */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
@@ -61,14 +51,8 @@ public class SecurityConfig {
     private final DuplicateParameterFilter duplicateParameterFilter;
     private final AuthProperties authProperties;
 
-    /**
-     * @param objectMapper Jackson mapper for serializing error responses
-     * @param userAuthoritiesFilter Dynamic authority enforcement filter
-     * @param originFirewallFilter Origin TCP blocking bound wrapper (DT 3.2.19)
-     * @param rateLimitingFilter Volumetric capacity restriction block
-     */
     public SecurityConfig(
-            ObjectMapper objectMapper, 
+            ObjectMapper objectMapper,
             UserAuthoritiesFilter userAuthoritiesFilter,
             OriginFirewallFilter originFirewallFilter,
             RateLimitingFilter rateLimitingFilter,
@@ -90,28 +74,20 @@ public class SecurityConfig {
         this.authProperties = authProperties;
     }
 
-    /**
-     * Defines the security filter chain for the application.
-     *
-     * @param http the {@link HttpSecurity} builder
-     * @return the configured {@link SecurityFilterChain}
-     * @throws Exception if configuration fails
-     */
+    @SuppressWarnings("null")
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // Cookie-backed refresh/logout use the controller's double-submit check.
+
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> {})
 
-            // DT 3.2.5 — No HTTP sessions
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
-            // DT 3.2.14 — Security headers
             .headers(headers -> headers
-                .contentTypeOptions(cto -> {})          // X-Content-Type-Options: nosniff
-                .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)          // X-Frame-Options: DENY
+                .contentTypeOptions(cto -> {})
+                .frameOptions(HeadersConfigurer.FrameOptionsConfig::deny)
                 .httpStrictTransportSecurity(hsts -> hsts
                         .includeSubDomains(true)
                         .preload(true)
@@ -119,10 +95,10 @@ public class SecurityConfig {
                 .referrerPolicy(referrer -> referrer
                         .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                 .contentSecurityPolicy(csp -> csp
-                        .policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"))
+                        .policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'; " +
+                            "form-action 'none'"))
             )
 
-            // DT 3.2.8 — Authorization rules (Enforcing Deny-by-Default pattern)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/social/*/start").permitAll()
@@ -151,31 +127,24 @@ public class SecurityConfig {
                 .anyRequest().denyAll()
             )
 
-            // DT 3.2.7 — OAuth2 Resource Server with JWT validation
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> {})
                 .authenticationEntryPoint(this::handleAuthenticationError)
                 .accessDeniedHandler(this::handleAccessDenied)
             )
 
-            // DT 3.2.19 — Firewall dropping untrusted direct origins
             .addFilterBefore(originFirewallFilter, DisableEncodeUrlFilter.class)
             .addFilterBefore(requestIdFilter, OriginFirewallFilter.class)
             .addFilterAfter(duplicateParameterFilter, OriginFirewallFilter.class)
 
-            // DT 3.2.21 — Bucket4j limit enforced prior to Auth decode extraction limits
             .addFilterBefore(rateLimitingFilter, BearerTokenAuthenticationFilter.class)
 
-            // Endpoint-specific abuse throttles use IP and device/user-agent dimensions.
             .addFilterAfter(endpointAbuseRateLimitingFilter, RateLimitingFilter.class)
 
-            // DT 3.1.30 — Reject oversized bodies before JSON parsing or password hashing.
             .addFilterBefore(requestBodySizeLimitFilter, BearerTokenAuthenticationFilter.class)
 
-            // DT 3.2.11 — Worker Auth injection immediately after standard extraction
             .addFilterAfter(workerAuthFilter, BearerTokenAuthenticationFilter.class)
 
-            // DT 3.2.10 — Immediate Permission Revocation via active snapshot alignment
             .addFilterAfter(userAuthoritiesFilter, WorkerAuthFilter.class);
 
         return http.build();
@@ -198,6 +167,7 @@ public class SecurityConfig {
         return source;
     }
 
+    @SuppressWarnings("null")
     private List<String> splitCsv(String value) {
         if (value == null || value.isBlank()) {
             return List.of();
@@ -208,11 +178,6 @@ public class SecurityConfig {
                 .toList();
     }
 
-    /**
-     * Handles authentication failures (missing/invalid/expired token).
-     *
-     * <p>Returns HTTP 401 with an {@link ApiResponse} envelope (DT 3.4.3).</p>
-     */
     private void handleAuthenticationError(
             HttpServletRequest request,
             HttpServletResponse response,
@@ -221,11 +186,6 @@ public class SecurityConfig {
         writeErrorResponse(response, HttpStatus.UNAUTHORIZED, "Unauthorized");
     }
 
-    /**
-     * Handles authorization failures (insufficient permissions).
-     *
-     * <p>Returns HTTP 403 with an {@link ApiResponse} envelope (DT 3.4.3).</p>
-     */
     private void handleAccessDenied(
             HttpServletRequest request,
             HttpServletResponse response,
@@ -234,14 +194,6 @@ public class SecurityConfig {
         writeErrorResponse(response, HttpStatus.FORBIDDEN, "Forbidden");
     }
 
-    /**
-     * Writes a JSON error response wrapped in the {@link ApiResponse} envelope.
-     *
-     * @param response   the servlet response
-     * @param status     the HTTP status code
-     * @param message    the error message
-     * @throws IOException if writing fails
-     */
     private void writeErrorResponse(
             HttpServletResponse response, HttpStatus status, String message) throws IOException {
 

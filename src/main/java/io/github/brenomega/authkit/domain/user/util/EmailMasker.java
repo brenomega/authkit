@@ -1,8 +1,5 @@
 package io.github.brenomega.authkit.domain.user.util;
 
-/**
- * Shared privacy-safe email masking for logs and security-event exports.
- */
 public final class EmailMasker {
 
     private EmailMasker() {

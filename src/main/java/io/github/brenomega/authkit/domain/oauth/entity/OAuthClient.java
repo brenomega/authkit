@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.springframework.lang.Nullable;
 
 /**
  * Defines an OAuth client, its exact redirects, permitted scopes, and tenant boundary.
@@ -133,7 +134,12 @@ public class OAuthClient {
         return disabledAt;
     }
 
-    public void update(String displayName, Set<String> redirectUris, Set<String> scopes, boolean requirePkce, Instant now) {
+    public void update(
+        String displayName,
+        Set<String> redirectUris,
+        Set<String> scopes,
+        boolean requirePkce,
+        Instant now) {
         this.displayName = displayName;
         this.redirectUris = join(redirectUris);
         this.scopes = join(scopes);
@@ -155,6 +161,7 @@ public class OAuthClient {
         this.updatedAt = now;
     }
 
+    @SuppressWarnings("null")
     private static String join(Set<String> values) {
         return values.stream()
                 .map(String::trim)
@@ -163,7 +170,8 @@ public class OAuthClient {
                 .collect(Collectors.joining("\n"));
     }
 
-    private static Set<String> split(String value) {
+    @SuppressWarnings("null")
+    private static Set<String> split(@Nullable String value) {
         if (value == null || value.isBlank()) {
             return Set.of();
         }

@@ -30,7 +30,11 @@ class EmailOutboxProcessorTest {
 
         when(outboxService.claimDueMessages(eq(50), any(Duration.class))).thenReturn(List.of(message));
 
-        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(
+            outboxService,
+            dispatchStrategy,
+            authProperties,
+            new SimpleMeterRegistry());
         processor.publishDueMessages();
 
         verify(dispatchStrategy).dispatch(message);
@@ -51,7 +55,11 @@ class EmailOutboxProcessorTest {
                 eq(EmailOutboxTiming.directProcessingLockTimeout(authProperties))))
                 .thenReturn(List.of(message));
 
-        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(
+            outboxService,
+            dispatchStrategy,
+            authProperties,
+            new SimpleMeterRegistry());
         processor.publishDueMessages();
 
         verify(dispatchStrategy).dispatch(message);
@@ -70,7 +78,11 @@ class EmailOutboxProcessorTest {
         when(outboxService.claimDueMessages(eq(50), any(Duration.class))).thenReturn(List.of(message));
         doThrow(new IllegalStateException("broker down")).when(dispatchStrategy).dispatch(message);
 
-        EmailOutboxProcessor processor = new EmailOutboxProcessor(outboxService, dispatchStrategy, authProperties, new SimpleMeterRegistry());
+        EmailOutboxProcessor processor = new EmailOutboxProcessor(
+            outboxService,
+            dispatchStrategy,
+            authProperties,
+            new SimpleMeterRegistry());
         processor.publishDueMessages();
 
         verify(outboxService).markFailed(messageId, "broker down");

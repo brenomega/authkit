@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -43,7 +44,7 @@ public class AuditDigestService {
                     HMAC_SHA_256);
             mac.init(key);
             return toHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.GeneralSecurityException ex) {
+        } catch (GeneralSecurityException ex) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", ex);
         }
     }

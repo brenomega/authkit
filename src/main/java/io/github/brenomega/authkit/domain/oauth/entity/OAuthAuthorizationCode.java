@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.springframework.lang.Nullable;
 
 /**
  * Persists a hashed, expiring authorization code and every value bound to its exchange.
@@ -153,7 +154,8 @@ public class OAuthAuthorizationCode {
         return values.stream().sorted().collect(Collectors.joining(" "));
     }
 
-    private static Set<String> split(String value) {
+    @SuppressWarnings("null")
+    private static Set<String> split(@Nullable String value) {
         if (value == null || value.isBlank()) {
             return Set.of();
         }

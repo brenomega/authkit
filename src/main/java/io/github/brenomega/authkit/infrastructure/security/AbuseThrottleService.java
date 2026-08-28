@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import java.util.Locale;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +65,8 @@ public class AbuseThrottleService {
                 .orElse(null);
 
         if (this.proxyManager == null) {
-            log.warn("AbuseThrottleService initialized without Redis. High-risk auth endpoints use strict degraded local limits.");
+            log.warn("AbuseThrottleService initialized without Redis. High-risk auth " +
+                "endpoints use strict degraded local limits.");
             meterRegistry.counter("security.abuse_control.degraded", "state", "startup_no_redis").increment();
         } else {
             log.info("AbuseThrottleService initialized with distributed Redis-backed endpoint/account throttles.");
@@ -89,7 +91,9 @@ public class AbuseThrottleService {
             failClosed(policy, "redis_unavailable_startup");
         }
 
-        Bucket localBucket = localBuckets.get(key, ignored -> createBucket(scaledCapacity(policy.degradedLocalCapacity()), policy.window()));
+        Bucket localBucket = localBuckets.get(key, ignored -> createBucket(
+            scaledCapacity(policy.degradedLocalCapacity()),
+            policy.window()));
         if (!localBucket.tryConsume(1)) {
             recordBlocked(policy, "local");
             throw new RateLimitExceededException();
@@ -119,7 +123,10 @@ public class AbuseThrottleService {
             if (shouldFailClosed(policy)) {
                 failClosed(policy, "redis_runtime_failure");
             }
-            logDegraded("Redis unavailable for abuse throttle policy " + policy.key() + ". Strict local fallback remains active.");
+            logDegraded(
+                    "Redis unavailable for abuse throttle policy "
+                            + policy.key()
+                            + ". Strict local fallback remains active.");
         }
     }
 
@@ -162,7 +169,12 @@ public class AbuseThrottleService {
 
     private void recordDegraded(AbuseRateLimitPolicy policy, String reason) {
         if (policy.highRisk()) {
-            meterRegistry.counter("security.abuse_control.degraded", "policy", policy.key(), "reason", reason).increment();
+            meterRegistry.counter(
+                "security.abuse_control.degraded",
+                "policy",
+                policy.key(),
+                "reason",
+                reason).increment();
         }
     }
 
@@ -192,6 +204,6 @@ public class AbuseThrottleService {
         if (value == null || value.isBlank()) {
             return "unknown";
         }
-        return value.trim().toLowerCase(java.util.Locale.ROOT);
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 }

@@ -19,7 +19,11 @@ import io.github.brenomega.authkit.service.spi.QueuePublisher;
  * between them may result in a later duplicate publication.</p>
  */
 @Component
-@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.email-outbox",
+    name = "dispatch-mode",
+    havingValue = "queue",
+    matchIfMissing = true)
 public class QueueEmailDispatchStrategy implements EmailDispatchStrategy {
 
     private final QueuePublisher<EmailPayload> emailPublisher;

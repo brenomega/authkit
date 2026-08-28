@@ -33,7 +33,7 @@ public class NetworkSecurityIntegrationTest {
     @Test
     @DisplayName("Origin Firewall: untrusted IP returns 403 (DT 3.2.19)")
     void originFirewall_untrustedIp_returns403() throws Exception {
-        // Simulating a direct connection bypassing the trusted edge (with an IP not in OriginFirewallFilter ranges)
+
         mockMvc.perform(post("/api/v1/auth/register")
                         .with(request -> {
                             request.setRemoteAddr("8.8.8.8");
@@ -53,20 +53,17 @@ public class NetworkSecurityIntegrationTest {
                    "password": "Password123!"
                 }
                 """;
-        
-        // Loop consuming bucket tokens using a unique spoofed IP for this exact test mapping
+
         String uniqueIp = "100.100.100.100";
         for (int i = 0; i < 10; i++) {
             mockMvc.perform(post("/api/v1/auth/login")
                             .header("CF-Connecting-IP", uniqueIp)
                             .contentType("application/json")
                             .content(payload))
-                   // Rate Limit is capacity 10. Stealth Lockout triggers at 5. 
-                   // Both will hit sequentially. We just want to exhaust the 10 tokens.
+
                    .andReturn();
         }
 
-        // The 11th request matches the Bucket4j 10-limit Block
         mockMvc.perform(post("/api/v1/auth/login")
                         .header("CF-Connecting-IP", uniqueIp)
                         .contentType("application/json")
@@ -91,16 +88,14 @@ public class NetworkSecurityIntegrationTest {
 
         userRepository.save(new User(email, "Hash123", null, true, true, null));
 
-        // 5 failed attempts usually return 401 Unauthorized
         for (int i = 0; i < 5; i++) {
             mockMvc.perform(post("/api/v1/auth/login")
-                            .header("CF-Connecting-IP", "127.0.0.12") // unique IP for brute force test isolation
+                            .header("CF-Connecting-IP", "127.0.0.12")
                             .contentType("application/json")
                             .content(payload))
                     .andExpect(status().isUnauthorized());
         }
 
-        // The 6th attempt and beyond remains a generic 401 to avoid fake-token issuance.
         mockMvc.perform(post("/api/v1/auth/login")
                         .header("CF-Connecting-IP", "127.0.0.12")
                         .contentType("application/json")
@@ -112,8 +107,7 @@ public class NetworkSecurityIntegrationTest {
     @Test
     @DisplayName("Stateless Simulation: Mocking horizontal nodes verifies Shared Bucket Logic degradation accurately")
     void rateLimiter_distributedMockTest() throws Exception {
-        // By evaluating multiple sequential proxy calls, we ensure that if Redis is absent (Fail-Open), 
-        // the native Layer 1 Local Caffeine proxy correctly bounds request loads to maintain availability without 500 crashes (DT 3.4.11).
+
         String payload = """
                 {
                    "email": "distributed@example.com",
@@ -138,8 +132,7 @@ public class NetworkSecurityIntegrationTest {
     @Test
     @DisplayName("Failover Check: Redis exhaustion fails-open gracefully leveraging local Caffeine layer (DT 3.2.21)")
     void rateLimiter_failOpenTest() throws Exception {
-        // Activating an endpoint without throwing 500 Internal Server errors when ProxyManager evaluates to null 
-        // or connection timeouts via Fail-Open mechanisms.
+
         String payload = """
                 {
                    "email": "failopen@example.com",
@@ -150,6 +143,6 @@ public class NetworkSecurityIntegrationTest {
                         .header("CF-Connecting-IP", "99.99.99.99")
                         .contentType("application/json")
                         .content(payload))
-                .andExpect(status().isUnauthorized()); // Passes the rate limit Filter cleanly then hits Auth
+                .andExpect(status().isUnauthorized());
     }
 }

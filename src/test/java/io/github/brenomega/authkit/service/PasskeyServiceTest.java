@@ -89,7 +89,8 @@ class PasskeyServiceTest {
         assertNull(passkeyCredentialRepository.findById(credential.getId()).orElseThrow().getDisabledAt());
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     @DisplayName("Social-only account cannot disable its last passkey without a replacement authenticator")
     void disable_rejectsLastAuthenticator() {
         User user = new User("passkey-last@example.com", null, "Passkey Only", true, true, null);

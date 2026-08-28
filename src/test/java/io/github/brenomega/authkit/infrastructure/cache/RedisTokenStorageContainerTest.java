@@ -24,6 +24,7 @@ import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
 @Testcontainers(disabledWithoutDocker = true)
 class RedisTokenStorageContainerTest {
@@ -152,6 +153,7 @@ class RedisTokenStorageContainerTest {
     @Test
     @DisplayName("Session metadata rotation, throttled touch, and public-ID revocation are atomic in Redis")
     void sessionMetadataLifecycleRunsAgainstRedis() {
+        @SuppressWarnings("null")
         RedisStandaloneConfiguration configuration =
                 new RedisStandaloneConfiguration(REDIS.getHost(), REDIS.getMappedPort(6379));
         LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(configuration);
@@ -164,7 +166,7 @@ class RedisTokenStorageContainerTest {
             String jti = UUID.randomUUID().toString();
             var current = RefreshTokenCodec.issue(userId, jti);
             Instant created = Instant.now().minusSeconds(600);
-            var metadata = new io.github.brenomega.authkit.service.spi.SessionMetadata(
+            var metadata = new SessionMetadata(
                     UUID.randomUUID().toString(), jti, created, created, Instant.now().plusSeconds(604800),
                     List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
                     "192.0.2.***", "192.0.2.***");

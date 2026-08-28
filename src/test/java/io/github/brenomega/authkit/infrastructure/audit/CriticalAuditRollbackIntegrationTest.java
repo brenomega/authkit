@@ -58,7 +58,7 @@ class CriticalAuditRollbackIntegrationTest {
     @MockitoBean
     private SecurityEventWriter securityEventWriter;
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Critical audit persistence failure returns 503 and rolls back account anonymization")
     void criticalAuditFailureRollsBackBusinessTransaction() throws Exception {
@@ -100,7 +100,8 @@ class CriticalAuditRollbackIntegrationTest {
         Assertions.assertFalse(persisted.isDeleted());
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("Critical bootstrap audit failure rolls back both the admin and one-shot guard")
     void criticalAuditFailureRollsBackBootstrap() {
         bootstrapStateRepository.saveAndFlush(new BootstrapState(BootstrapState.SINGLETON_ID));

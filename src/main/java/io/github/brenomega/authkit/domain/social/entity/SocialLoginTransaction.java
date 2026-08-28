@@ -15,7 +15,8 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "social_login_transactions")
 public class SocialLoginTransaction {
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     @Column(name = "state_hash", nullable = false, unique = true, length = 64, updatable = false)
     private String stateHash;

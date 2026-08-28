@@ -10,13 +10,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/**
- * Represents an encrypted TOTP credential bound to one user and tenant.
- *
- * <p>A credential becomes active only after confirmation and remains inactive
- * after disablement. {@code lastUsedTimeStep} is the monotonic replay guard
- * advanced through a conditional repository update.</p>
- */
 @Entity
 @Table(name = "mfa_totp_credentials")
 public class MfaTotpCredential {

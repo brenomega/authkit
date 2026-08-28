@@ -14,9 +14,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/**
- * Append-only durable security event for abuse detection, forensics, and privacy audits.
- */
 @Entity
 @Immutable
 @Table(name = "security_events")

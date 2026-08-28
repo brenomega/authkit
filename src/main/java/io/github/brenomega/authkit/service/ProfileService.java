@@ -24,25 +24,14 @@ import io.github.brenomega.authkit.domain.user.dto.SessionResponse;
 import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
-import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import java.util.List;
+import java.util.UUID;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-/**
- * Coordinates self-service profile, password, and session management.
- *
- * <p>User identifiers are checked against the authenticated principal and tenant
- * before data is returned or changed. Cross-user access is reported as not found
- * to avoid identifier enumeration. Password changes preserve the current session
- * while revoking every other refresh session.</p>
- *
- * @see AccountLockoutService
- * @see TokenStorage
- */
 @Service
 public class ProfileService {
 
@@ -77,46 +66,29 @@ public class ProfileService {
         this.passwordPolicyService = passwordPolicyService;
     }
 
-    /**
-     * Retrieves the profile information for the authenticated user (RF 2.1.6).
-     *
-     * @param userId the authenticated user's ID from the JWT subject
-     * @return the user's profile data
-     * @throws UserNotFoundException if the user does not exist
-     */
     @LogExecutionTime
     public ProfileResponse getProfile(String userId) {
         @SuppressWarnings("null")
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
+        User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
         requireActive(user);
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
-    /**
-     * Updates profile info, enforcing that callers can only modify strictly their own data (RF 2.1.6).
-     *
-     * <p>A generic 404 is thrown for ID mismatches to halt enumeration (DT 3.2.24).</p>
-     *
-     * @param targetUserId        the ID provided in the URI
-     * @param request             the validated properties to update
-     * @param authenticatedUserId the Subject extracted from the Token context
-     * @return the updated profile response
-     * @throws UserNotFoundException if IDs do not match or user does not exist
-     */
-    @SuppressWarnings("null")
     @Transactional
     @LogExecutionTime
-    public ProfileResponse updateProfile(String targetUserId, ProfileUpdateRequest request, String authenticatedUserId) {
-        // Enforce strict horizontal ID level authorization boundary to prevent insecure direct object reference (IDOR).
-        // A generic 404 is thrown to halt enumeration attempts (DT 3.2.24).
+    public ProfileResponse updateProfile(
+        String targetUserId,
+        ProfileUpdateRequest request,
+        String authenticatedUserId) {
+
         if (!targetUserId.equals(authenticatedUserId)) {
             throw new UserNotFoundException();
         }
 
         @SuppressWarnings("null")
-        User user = userRepository.findById(java.util.UUID.fromString(targetUserId))
+        User user = userRepository.findById(UUID.fromString(targetUserId))
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
@@ -124,7 +96,6 @@ public class ProfileService {
         user.requireEmailConfirmed();
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
-        // Update conditionally
         if (request.name() != null) {
             user.setName(request.name());
         }
@@ -132,31 +103,17 @@ public class ProfileService {
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
-    /**
-     * Changes the password and revokes every session except the current {@code jti}.
-     *
-     * <p>Password history and the new hash are written in one database transaction;
-     * token-store revocation is an external side effect and is not transactionally
-     * coupled to that write. Locked accounts cannot use this operation.</p>
-     *
-     * @param userId     the authenticated user's ID
-     * @param request    the password change payload with current and new passwords
-     * @param currentJti the JTI of the current session (preserved during revocation)
-     * @throws AccountLockedException    if the account is locked
-     * @throws InvalidCredentialsException if the current password is invalid
-     */
     @Transactional
     @LogExecutionTime
     public void changePassword(String userId, PasswordChangeRequest request, String currentJti) {
         @SuppressWarnings("null")
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
+        User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
         requireActive(user);
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
-        // DT 3.2.23: Block management operations while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
             securityEventService.recordForAuthenticatedUser(
                     SecurityEventType.PASSWORD_CHANGED,
@@ -183,7 +140,7 @@ public class ProfileService {
         }
 
         try {
-            // Bound Argon2 encode work to prevent authenticated hashing DoS.
+
             passwordPolicyService.recordCurrentPassword(user);
             user.setPassword(passwordEncoder.encode(request.newPassword()));
             userRepository.save(user);
@@ -191,7 +148,6 @@ public class ProfileService {
             argon2Limiter.release();
         }
 
-        // Session Revocation: Revoke all other active Refresh Tokens except current session (RF 2.1.12)
         tokenStorage.revokeOtherSessions(userId, currentJti);
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.PASSWORD_CHANGED,
@@ -201,18 +157,12 @@ public class ProfileService {
                 "password_changed");
     }
 
-    /**
-     * Lists a non-snapshot page of active refresh sessions for the user.
-     *
-     * @param userId the authenticated user's ID
-     * @return session JTIs and an opaque continuation cursor
-     */
     public SessionPageResponse listSessions(String userId, String currentJti, int limit, String cursor) {
         if (limit < 1 || limit > 100) {
             throw new InvalidSessionCursorException();
         }
         @SuppressWarnings("null")
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
+        User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
         requireActive(user);
@@ -229,25 +179,15 @@ public class ProfileService {
         return listSessions(userId, null, limit, cursor);
     }
 
-    /**
-     * Revokes a user-owned session after optional MFA step-up.
-     *
-     * <p>The operation is blocked while the account is locked.</p>
-     *
-     * @param userId the authenticated user's ID
-     * @param publicSessionId the opaque public identifier of the session to revoke
-     * @throws AccountLockedException if the account is locked
-     */
     public void revokeSession(String userId, String publicSessionId, String mfaCode) {
         @SuppressWarnings("null")
-        User user = userRepository.findById(java.util.UUID.fromString(userId))
+        User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
         requireActive(user);
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.PROFILE_WRITE_USER, user);
 
-        // DT 3.2.23: Block session management while account is locked
         if (lockoutService.isLocked(user.getEmail())) {
             throw new AccountLockedException();
         }

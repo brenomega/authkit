@@ -26,11 +26,16 @@ import io.github.brenomega.authkit.repository.UserRepository;
 @Transactional
 class BootstrapAdminServiceTest {
 
-    @Autowired private BootstrapAdminService bootstrapAdminService;
-    @Autowired private BootstrapStateRepository bootstrapStateRepository;
-    @Autowired private UserRepository userRepository;
-    @Autowired private SecurityEventRepository securityEventRepository;
-    @Autowired private ConsentEventRepository consentEventRepository;
+    @Autowired
+    private BootstrapAdminService bootstrapAdminService;
+    @Autowired
+    private BootstrapStateRepository bootstrapStateRepository;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private SecurityEventRepository securityEventRepository;
+    @Autowired
+    private ConsentEventRepository consentEventRepository;
 
     @Test
     void createsVerifiedFirstAdminWithConsentAndCriticalAuditThenRejectsRepeat() {

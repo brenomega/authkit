@@ -45,7 +45,6 @@ class AuthCookieConfigurationIntegrationTest {
     @MockitoBean
     private QueuePublisher<EmailPayload> emailPublisher;
 
-    @SuppressWarnings("null")
 @Test
     @DisplayName("Configured refresh cookie name is used for login and refresh")
     void configuredRefreshCookieName_isUsedForLoginAndRefresh() throws Exception {
@@ -65,6 +64,7 @@ class AuthCookieConfigurationIntegrationTest {
                 }
                 """;
 
+        @SuppressWarnings("null")
         MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType("application/json")
                         .content(payload))

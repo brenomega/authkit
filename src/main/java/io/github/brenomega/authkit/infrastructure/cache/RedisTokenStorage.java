@@ -13,6 +13,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.UUID;
 
 import io.lettuce.core.ScanArgs;
 import io.lettuce.core.ScanCursor;
@@ -32,16 +33,8 @@ import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.service.spi.SessionPage;
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 
-/**
- * Implements revocable token state and one-time challenges in Redis.
- *
- * <p>Raw secrets are reduced to SHA-256 hashes before storage. Lua scripts make
- * refresh-family rotation, replay-triggered family revocation, recovery-token
- * consumption, MFA challenge consumption, and session revocation atomic within
- * Redis. Session cursors are hashed, owner-bound, single-use, and expire after
- * five minutes.</p>
- */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",
         havingValue = "redis", matchIfMissing = true)
@@ -275,7 +268,7 @@ public class RedisTokenStorage implements TokenStorage {
         String hashedToken = hashToken(rawToken);
         long durationSeconds = Duration.ofDays(durationDays).getSeconds();
 
-        // Extract token family ID from the raw token structure
+        @SuppressWarnings("null")
         String familyId = RefreshTokenCodec.parse(rawToken)
                 .map(RefreshTokenCodec.IssuedRefreshToken::familyId)
                 .orElseThrow(() -> new IllegalArgumentException("Malformed refresh token"));
@@ -297,9 +290,9 @@ public class RedisTokenStorage implements TokenStorage {
                 metadata.publicSessionId());
     }
 
-    @SuppressWarnings("null")
     @Override
     public boolean validateToken(String userId, String jti, String rawToken) {
+        @SuppressWarnings("null")
         Object storedValObj = redisTemplate.opsForHash().get(tokenKey(userId), jti);
 
         if (storedValObj == null) {
@@ -315,7 +308,6 @@ public class RedisTokenStorage implements TokenStorage {
 
         String inputHash = hashToken(rawToken);
 
-        // DT 3.2.13: Preventing Side-Channel Timing Attacks using constant-time comparison
         return MessageDigest.isEqual(
                 storedHash.getBytes(StandardCharsets.UTF_8),
                 inputHash.getBytes(StandardCharsets.UTF_8)
@@ -331,7 +323,6 @@ public class RedisTokenStorage implements TokenStorage {
         return redisTemplate.opsForHash().get(tokenKey(userId), jti) != null;
     }
 
-    @SuppressWarnings("null")
     @Override
     public boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
                                       String nextJti, String nextRawToken, long durationDays) {
@@ -356,6 +347,7 @@ public class RedisTokenStorage implements TokenStorage {
 
         String currentFamilyId = currentToken.familyId();
 
+        @SuppressWarnings("null")
         Long result = redisTemplate.execute(
                 ROTATE_REFRESH_SCRIPT,
                 List.of(tokenKey(userId), familyKey(userId, currentFamilyId), familiesKey(userId),
@@ -377,7 +369,6 @@ public class RedisTokenStorage implements TokenStorage {
         return result != null && result == 1L;
     }
 
-    @SuppressWarnings("null")
     @Override
     public SessionPage listSessions(String userId, int limit, String cursor) {
         if (limit < 1 || limit > 100) {
@@ -420,7 +411,6 @@ public class RedisTokenStorage implements TokenStorage {
         return new SessionPage(items, nextCursor);
     }
 
-    @SuppressWarnings("null")
     private HashScanResult scanHash(String key, String cursor, int count) {
         byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
         byte[] cursorBytes = cursor.getBytes(StandardCharsets.UTF_8);
@@ -445,15 +435,15 @@ public class RedisTokenStorage implements TokenStorage {
         return result == null ? new HashScanResult("0", List.of()) : result;
     }
 
-    @SuppressWarnings("unchecked")
     private static HashScanResult scanHashWithNativeLettuce(Object nativeConnection,
-                                                           byte[] key,
-                                                           String cursor,
-                                                           int count) {
+                                                             byte[] key,
+                                                             String cursor,
+                                                             int count) {
         ScanCursor scanCursor = ScanCursor.of(cursor);
         ScanArgs args = new ScanArgs().limit(count);
         try {
             if (nativeConnection instanceof RedisHashAsyncCommands<?, ?> hashCommands) {
+                @SuppressWarnings("unchecked")
                 var commands = (RedisHashAsyncCommands<byte[], byte[]>) hashCommands;
                 return parseHashScanResponse(commands.hscan(key, scanCursor, args).get());
             }
@@ -596,7 +586,7 @@ public class RedisTokenStorage implements TokenStorage {
 
     @SuppressWarnings("null")
     private String storeCursor(CursorState state) {
-        String token = io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator.randomUrlSafeToken(24);
+        String token = SecureTokenGenerator.randomUrlSafeToken(24);
         String serialized = state.userId() + "\n" + state.redisCursor() + "\n"
                 + String.join(",", state.overflow());
         redisTemplate.opsForValue().set(SESSION_CURSOR_PREFIX + token, serialized, SESSION_CURSOR_TTL);
@@ -620,6 +610,7 @@ public class RedisTokenStorage implements TokenStorage {
                 familyKeyPrefix(userId));
     }
 
+    @SuppressWarnings("null")
     @Override
     public void revokeSessionByJti(String userId, String jti) {
         redisTemplate.execute(
@@ -630,8 +621,10 @@ public class RedisTokenStorage implements TokenStorage {
                 familyKeyPrefix(userId));
     }
 
+    @SuppressWarnings("null")
     @Override
     public void touchSession(String userId, String jti, Instant seenAt, String maskedIp, long throttleSeconds) {
+        @SuppressWarnings("null")
         Object raw = redisTemplate.opsForHash().get(sessionMetadataKey(userId), jti);
         if (!(raw instanceof String serialized)) {
             return;
@@ -681,6 +674,7 @@ public class RedisTokenStorage implements TokenStorage {
     @Override
     public boolean validateRecoveryToken(String email, String rawToken) {
         String key = recoveryTokenKey(email);
+        @SuppressWarnings("null")
         String storedHash = redisTemplate.opsForValue().get(key);
 
         if (storedHash == null) {
@@ -694,18 +688,19 @@ public class RedisTokenStorage implements TokenStorage {
         );
     }
 
-    @SuppressWarnings("null")
     @Override
     public boolean consumeRecoveryToken(String email, String rawToken) {
         String key = recoveryTokenKey(email);
         String inputHash = hashToken(rawToken);
 
+        @SuppressWarnings("null")
         Long consumed = redisTemplate.execute(CONSUME_VALUE_SCRIPT, List.of(key), inputHash);
         return consumed != null && consumed == 1L;
     }
 
     @Override
     public boolean claimRecoveryToken(String email, String rawToken, String claimId, long claimTtlSeconds) {
+        @SuppressWarnings("null")
         Long claimed = redisTemplate.execute(
                 CLAIM_RECOVERY_SCRIPT,
                 List.of(recoveryTokenKey(email), recoveryClaimKey(email)),
@@ -713,6 +708,7 @@ public class RedisTokenStorage implements TokenStorage {
         return claimed != null && claimed == 1L;
     }
 
+    @SuppressWarnings("null")
     @Override
     public void completeRecoveryTokenClaim(String email, String claimId) {
         redisTemplate.execute(
@@ -721,6 +717,7 @@ public class RedisTokenStorage implements TokenStorage {
                 claimId);
     }
 
+    @SuppressWarnings("null")
     @Override
     public void releaseRecoveryTokenClaim(String email, String claimId) {
         redisTemplate.execute(
@@ -729,6 +726,7 @@ public class RedisTokenStorage implements TokenStorage {
                 claimId);
     }
 
+    @SuppressWarnings("null")
     @Override
     public void revokeRecoveryToken(String email) {
         String key = recoveryTokenKey(email);
@@ -743,12 +741,12 @@ public class RedisTokenStorage implements TokenStorage {
         redisTemplate.opsForValue().set(key, hashToken(rawToken), Duration.ofMinutes(durationMinutes));
     }
 
-    @SuppressWarnings("null")
     @Override
     public boolean consumeMfaChallenge(String userId, String jti, String rawToken) {
         String key = "mfa:challenge:" + userId + ":" + jti;
         String inputHash = hashToken(rawToken);
 
+        @SuppressWarnings("null")
         Long consumed = redisTemplate.execute(CONSUME_VALUE_SCRIPT, List.of(key), inputHash);
         return consumed != null && consumed == 1L;
     }
@@ -791,16 +789,19 @@ public class RedisTokenStorage implements TokenStorage {
         return hashTaggedPrefix(userId) + SESSION_PUBLIC_INDEX_KEY_SUFFIX;
     }
 
+    @SuppressWarnings("null")
     private SessionMetadata readOrBackfillMetadata(String userId, String jti) {
+        @SuppressWarnings("null")
         Object raw = redisTemplate.opsForHash().get(sessionMetadataKey(userId), jti);
         if (raw instanceof String serialized) {
             return deserializeMetadata(jti, serialized);
         }
         Instant now = Instant.now();
+        @SuppressWarnings("null")
         Long ttl = redisTemplate.getExpire(tokenKey(userId));
         long seconds = ttl == null || ttl < 1 ? 1 : ttl;
         SessionMetadata metadata = new SessionMetadata(
-                java.util.UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(seconds),
+                UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(seconds),
                 List.of(), "Unknown client", null, "unknown", "unknown");
         redisTemplate.opsForHash().put(sessionMetadataKey(userId), jti, serializeMetadata(metadata));
         redisTemplate.opsForHash().put(sessionPublicIndexKey(userId), metadata.publicSessionId(), jti);

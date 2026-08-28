@@ -13,14 +13,12 @@ import org.springframework.lang.NonNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-/**
- * RabbitMQ broker configuration.
- *
- * <p>Configures the JSON message converter and defines the topology (Exchange,
- * Queue, and Binding) for asynchronous email notifications.</p>
- */
 @Configuration
-@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.email-outbox",
+    name = "dispatch-mode",
+    havingValue = "queue",
+    matchIfMissing = true)
 public class RabbitMqConfig {
 
     public static final String EXCHANGE_API = "authkit.api.exchange";
@@ -30,20 +28,11 @@ public class RabbitMqConfig {
     public static final String ROUTING_KEY_EMAIL = "email.send";
     public static final String ROUTING_KEY_EMAIL_DLQ = "email.dead";
 
-    /**
-     * Replaces the default Java serialization with JSON.
-     *
-     * @param objectMapper the global Jackson mapper (reuse strict duplicate settings)
-     * @return the JSON AMQP converter
-     */
     @Bean
     public Jackson2JsonMessageConverter messageConverter(@NonNull ObjectMapper objectMapper) {
         return new Jackson2JsonMessageConverter(objectMapper);
     }
 
-    /**
-     * Declares the main Topic Exchange for the application.
-     */
     @Bean
     public TopicExchange apiExchange() {
         return new TopicExchange(EXCHANGE_API);
@@ -54,9 +43,6 @@ public class RabbitMqConfig {
         return new TopicExchange(EXCHANGE_DLX);
     }
 
-    /**
-     * Declares the durable queue for email notifications.
-     */
     @Bean
     public Queue emailQueue() {
         return QueueBuilder.durable(QUEUE_EMAIL)
@@ -70,9 +56,6 @@ public class RabbitMqConfig {
         return QueueBuilder.durable(QUEUE_EMAIL_DLQ).build();
     }
 
-    /**
-     * Binds the email queue to the API exchange using the designated routing key.
-     */
     @Bean
     public Binding emailBinding(Queue emailQueue, TopicExchange apiExchange) {
         return BindingBuilder.bind(emailQueue).to(apiExchange).with(ROUTING_KEY_EMAIL);

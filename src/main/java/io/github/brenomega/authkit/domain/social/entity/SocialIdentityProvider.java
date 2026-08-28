@@ -19,7 +19,8 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "social_identity_providers")
 public class SocialIdentityProvider {
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "provider_key", nullable = false, unique = true, length = 64, updatable = false)
@@ -93,6 +94,7 @@ public class SocialIdentityProvider {
 
     public void disable(Instant now) { enabled = false; disabledAt = now; updatedAt = now; }
 
+    @SuppressWarnings("null")
     private static String join(Set<String> values) {
         return values.stream().map(String::trim).filter(v -> !v.isBlank()).sorted().collect(Collectors.joining(" "));
     }

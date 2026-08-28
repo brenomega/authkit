@@ -21,7 +21,12 @@ public enum AbuseRateLimitPolicy {
     REGISTRATION_IP("registration_ip", 20, 8, Duration.ofHours(1), true),
     REGISTRATION_EMAIL("registration_email", 3, 2, Duration.ofHours(24), true),
     EMAIL_CONFIRMATION_RESEND_IP("email_confirmation_resend_ip", 10, 5, Duration.ofHours(1), true),
-    EMAIL_CONFIRMATION_RESEND_EMAIL_COOLDOWN("email_confirmation_resend_email_cooldown", 1, 1, Duration.ofMinutes(10), true),
+    EMAIL_CONFIRMATION_RESEND_EMAIL_COOLDOWN(
+        "email_confirmation_resend_email_cooldown",
+        1,
+        1,
+        Duration.ofMinutes(10),
+        true),
     EMAIL_CONFIRMATION_RESEND_EMAIL_DAILY("email_confirmation_resend_email_daily", 5, 3, Duration.ofHours(24), true),
     PASSWORD_RECOVERY_IP("password_recovery_ip", 10, 5, Duration.ofHours(1), true),
     PASSWORD_RECOVERY_EMAIL_COOLDOWN("password_recovery_email_cooldown", 1, 1, Duration.ofMinutes(10), true),
@@ -47,7 +52,12 @@ public enum AbuseRateLimitPolicy {
     private final Duration window;
     private final boolean highRisk;
 
-    AbuseRateLimitPolicy(String key, long globalCapacity, long degradedLocalCapacity, Duration window, boolean highRisk) {
+    AbuseRateLimitPolicy(
+        String key,
+        long globalCapacity,
+        long degradedLocalCapacity,
+        Duration window,
+        boolean highRisk) {
         this.key = key;
         this.globalCapacity = globalCapacity;
         this.degradedLocalCapacity = degradedLocalCapacity;

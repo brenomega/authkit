@@ -15,7 +15,6 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import jakarta.annotation.PostConstruct;
 
-/** Loads operator-owned templates and performs only escaped variable substitution. */
 @Component
 public class EmailTemplateRenderer {
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([a-z_]+)}}");

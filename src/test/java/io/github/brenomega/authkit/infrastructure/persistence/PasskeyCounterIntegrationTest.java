@@ -19,9 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class PasskeyCounterIntegrationTest {
 
-    @Autowired private UserRepository users;
-    @Autowired private PasskeyCredentialRepository credentials;
+    @Autowired
+    private UserRepository users;
+    @Autowired
+    private PasskeyCredentialRepository credentials;
 
+    @SuppressWarnings("null")
     @Test
     void signatureCounterNeverDecreasesAndPositiveReplayIsRejected() {
         User user = new User("counter@example.test", "hash", null, true, true, null);

@@ -26,7 +26,7 @@ class RegistrationStealthIntegrationTest {
     @Autowired
     private UserRepository userRepository;
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Stealth registration mode hides duplicate email conflicts")
     void register_duplicateEmail_returnsSameAcceptedShape() throws Exception {

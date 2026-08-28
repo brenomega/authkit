@@ -2,6 +2,9 @@ package io.github.brenomega.authkit.service;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -40,24 +43,8 @@ import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 
-/**
- * Coordinates first-party authentication and refresh-session lifecycle.
- *
- * <p>Password login normalizes the identifier, applies abuse and progressive
- * lockout controls, and performs a dummy Argon2 verification for unknown users.
- * No refresh session is created until every required factor has succeeded.
- * Authentication failures intentionally do not disclose whether an account
- * exists, is locked, or has an invalid password.</p>
- *
- * <p>Issued first-party access tokens are bound by {@code jti} to a server-side
- * refresh session. Consequently, session revocation invalidates both refresh use
- * and subsequent access-token authorization through
- * {@link io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter}.</p>
- *
- * @see AccountLockoutService
- * @see TokenStorage
- */
 @Service
 public class AuthService {
 
@@ -99,28 +86,14 @@ public class AuthService {
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
     }
 
-    /**
-     * Keeps the HTTP-safe response separate from the refresh secret that is
-     * written only to a protected cookie.
-     */
     public record LoginResult(LoginResponse response, String refreshToken) {}
 
-    /**
-     * Authenticates a password or starts the MFA continuation of that login.
-     *
-     * <p>An MFA continuation is a short-lived, single-use challenge rather than
-     * an authenticated session. Lockout state is cleared only after the entire
-     * ceremony succeeds.</p>
-     *
-     * @param request the login credentials
-     * @return a token pair, or a response containing only an MFA challenge
-     */
-    @LogExecutionTime
+@SuppressWarnings("null")
+@LogExecutionTime
     public LoginResult login(LoginRequest request) {
         String email = EmailNormalizer.normalize(request.email());
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.LOGIN_EMAIL, email);
-        
-        // DT 3.2.15 & DT 3.2.23: return the same credential failure while locked.
+
         if (lockoutService.isLocked(email)) {
             log.warn("Login rejected because lockout is active for normalized email.");
             securityEventService.recordForEmail(
@@ -150,8 +123,9 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
 
+        @SuppressWarnings("null")
         String hashToCheck = userOptional.map(User::getPassword).orElse(dummyPasswordHash);
-                
+
         boolean passwordMatches = matchesWithCapacity(request.password(), hashToCheck);
 
         if (userOptional.isEmpty() || !passwordMatches) {
@@ -192,7 +166,7 @@ public class AuthService {
                     "email_not_confirmed");
         }
         user.requireEmailConfirmed();
-        
+
         if (mfaService.isMfaEnabled(user)) {
             IssuedMfaChallenge mfaChallenge = MfaChallengeCodec.issue(user.getId().toString());
             tokenStorage.storeMfaChallenge(
@@ -209,7 +183,6 @@ public class AuthService {
             return new LoginResult(LoginResponse.mfaRequired(mfaChallenge.rawToken()), null);
         }
 
-        // Clear limits only after the full authentication ceremony has completed.
         lockoutService.clearLockout(email);
 
         String jti = UUID.randomUUID().toString();
@@ -220,7 +193,7 @@ public class AuthService {
                 refreshToken.rawToken(),
                 authProperties.getToken().getRefreshTokenTtlDays(),
                 sessionMetadataFactory.create(
-                        jti, java.util.List.of("pwd"), authProperties.getToken().getRefreshTokenTtlDays())
+                        jti, List.of("pwd"), authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -230,16 +203,9 @@ public class AuthService {
                 user,
                 "login_success");
 
-        return issueTokenPair(user, refreshToken, java.util.List.of("pwd"));
+        return issueTokenPair(user, refreshToken, List.of("pwd"));
     }
 
-    /**
-     * Completes a pending password login with TOTP or a backup code.
-     *
-     * <p>The login challenge is consumed before the factor is verified and cannot
-     * be replayed after either success or failure. A successful backup code is
-     * also consumed exactly once by {@link MfaService}.</p>
-     */
     @LogExecutionTime
     public LoginResult verifyMfaLogin(MfaLoginVerificationRequest request) {
         IssuedMfaChallenge challenge = MfaChallengeCodec.parse(request.mfaToken())
@@ -253,7 +219,7 @@ public class AuthService {
                             null,
                             null,
                             "malformed_mfa_challenge",
-                            java.util.Map.of());
+                            Map.of());
                     return new InvalidMfaCodeException();
                 });
 
@@ -271,7 +237,7 @@ public class AuthService {
                             null,
                             null,
                             "mfa_challenge_user_not_found",
-                            java.util.Map.of());
+                            Map.of());
                     return new InvalidMfaCodeException();
                 });
 
@@ -327,7 +293,7 @@ public class AuthService {
 
         lockoutService.clearLockout(user.getEmail());
 
-        java.util.List<String> completedAmr = new java.util.ArrayList<>(challenge.initialAmr());
+        List<String> completedAmr = new ArrayList<>(challenge.initialAmr());
         completedAmr.add(mfaResult.method());
         completedAmr = completedAmr.stream().distinct().toList();
         String jti = UUID.randomUUID().toString();
@@ -348,7 +314,7 @@ public class AuthService {
                 SecurityEventSeverity.MEDIUM,
                 user,
                 "login_mfa_verified",
-                java.util.Map.of("method", mfaResult.method()));
+                Map.of("method", mfaResult.method()));
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.LOGIN_SUCCESS,
                 SecurityEventOutcome.SUCCESS,
@@ -359,13 +325,6 @@ public class AuthService {
         return issueTokenPair(user, refreshToken, completedAmr);
     }
 
-    /**
-     * Rotates a refresh token and returns its successor token pair.
-     *
-     * <p>Rotation is delegated to {@link TokenStorage} as an atomic family
-     * transition. Replay of an already rotated token revokes the active family
-     * member and is reported as a compromised family.</p>
-     */
     @LogExecutionTime
     public LoginResult refresh(String rawRefreshToken) {
         IssuedRefreshToken currentRefreshToken = RefreshTokenCodec.parse(rawRefreshToken)
@@ -379,7 +338,7 @@ public class AuthService {
                             null,
                             null,
                             "malformed_refresh_token",
-                            java.util.Map.of());
+                            Map.of());
                     return new InvalidRefreshTokenException();
                 });
 
@@ -396,7 +355,7 @@ public class AuthService {
                             null,
                             null,
                             "refresh_user_not_found",
-                            java.util.Map.of());
+                            Map.of());
                     return new InvalidRefreshTokenException();
                 });
 
@@ -470,23 +429,17 @@ public class AuthService {
                 user,
                 "refresh_token_rotated");
 
-        java.util.List<String> amr = mfaService.isMfaEnabled(user)
-                ? java.util.List.of("pwd", "mfa")
-                : java.util.List.of("pwd");
+        List<String> amr = mfaService.isMfaEnabled(user)
+                ? List.of("pwd", "mfa")
+                : List.of("pwd");
         return issueTokenPair(user, nextRefreshToken, amr);
     }
 
-    /**
-     * Revokes all refresh sessions after any configured MFA step-up.
-     */
     @LogExecutionTime
     public void logoutAll(String userId) {
         logoutAll(userId, null);
     }
 
-    /**
-     * Revokes all refresh sessions, requiring an MFA code when the user has MFA enabled.
-     */
     @LogExecutionTime
     public void logoutAll(String userId, String mfaCode) {
         @SuppressWarnings("null")
@@ -506,12 +459,6 @@ public class AuthService {
                 "logout_all");
     }
 
-    /**
-     * Revokes a refresh-token-backed session.
-     *
-     * <p>Malformed, expired, absent, or already revoked tokens are cleanup no-ops,
-     * making logout idempotent from the caller's perspective.</p>
-     */
     @LogExecutionTime
     public void logout(String rawRefreshToken) {
         RefreshTokenCodec.parse(rawRefreshToken)
@@ -528,21 +475,11 @@ public class AuthService {
                             null,
                             null,
                             "logout_current_session",
-                            java.util.Map.of());
+                            Map.of());
                 });
     }
 
-    /**
-     * Issues a first-party session for a user already verified by a non-password ceremony.
-     *
-     * <p>Callers are responsible for the ceremony's cryptographic verification;
-     * this method still enforces account activity and email confirmation before
-     * creating the session.</p>
-     *
-     * @param amr authentication-method references to preserve in the JWT
-     * @param reason stable audit reason for the successful login
-     */
-    public LoginResult issueLoginForVerifiedUser(User user, java.util.List<String> amr, String reason) {
+    public LoginResult issueLoginForVerifiedUser(User user, List<String> amr, String reason) {
         if (!user.isActive()) {
             throw new InvalidCredentialsException();
         }
@@ -571,7 +508,7 @@ public class AuthService {
     }
 
     public LoginResult beginFederatedLogin(User user, String providerKey) {
-        java.util.List<String> amr = java.util.List.of("federated", "oidc:" + providerKey);
+        List<String> amr = List.of("federated", "oidc:" + providerKey);
         if (!mfaService.isMfaEnabled(user)) {
             return issueLoginForVerifiedUser(user, amr, "login_success_social");
         }
@@ -587,20 +524,20 @@ public class AuthService {
         return new LoginResult(LoginResponse.mfaRequired(challenge.rawToken()), null);
     }
 
-    private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken, java.util.List<String> amr) {
+    private LoginResult issueTokenPair(User user, IssuedRefreshToken refreshToken, List<String> amr) {
         Instant now = Instant.now();
         long accessTokenTtlSeconds = authProperties.getToken().getAccessTokenTtlSeconds();
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(authProperties.getJwt().getIssuer())
-                .audience(java.util.List.of(authProperties.getJwt().getAudience()))
+                .audience(List.of(authProperties.getJwt().getAudience()))
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(accessTokenTtlSeconds))
                 .subject(user.getId().toString())
-                .id(refreshToken.jti()) // DT 3.2.3: bind access token to refresh session JTI
+                .id(refreshToken.jti())
                 .claim("tenant_id", user.getTenantId().toString())
-                .claim(io.github.brenomega.authkit.infrastructure.security.JwtTokenUse.CLAIM,
-                        io.github.brenomega.authkit.infrastructure.security.JwtTokenUse.FIRST_PARTY_ACCESS)
+                .claim(JwtTokenUse.CLAIM,
+                        JwtTokenUse.FIRST_PARTY_ACCESS)
                 .claim("amr", amr)
                 .claim("mfa", amr.stream().anyMatch(method -> !"pwd".equals(method)))
                 .build();

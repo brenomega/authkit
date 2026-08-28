@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
+import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +35,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.github.brenomega.authkit.domain.mfa.dto.MfaTotpConfirmRequest;
-import io.github.brenomega.authkit.domain.mfa.entity.MfaBackupCode;
 import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 import io.github.brenomega.authkit.domain.mfa.util.Base32;
 import io.github.brenomega.authkit.domain.mfa.util.TotpGenerator;
@@ -155,7 +156,7 @@ class MfaServiceTest {
     @DisplayName("TOTP confirmation enables MFA, generates hashed backup codes, and revokes sessions")
     void confirmTotp_generatesBackupCodesAndRevokesSessions() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000204");
-        String secret = Base32.encode("12345678901234567890".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String secret = Base32.encode("12345678901234567890".getBytes(StandardCharsets.UTF_8));
         MfaTotpCredential credential = new MfaTotpCredential(
                 USER_ID, TENANT_ID, mfaSecretCipher.encrypt(secret), Instant.now());
         ReflectionTestUtils.setField(credential, "id", credentialId);
@@ -175,11 +176,8 @@ class MfaServiceTest {
         response.backupCodes().forEach(rawCode -> assertTrue(rawCode.matches("[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}")));
         verify(backupCodeRepository).deleteByUserIdAndUsedAtIsNull(USER_ID);
         verify(backupCodeRepository).saveAll(argThat(codes -> {
-            int count = 0;
-            for (@SuppressWarnings("unused") MfaBackupCode ignored : codes) {
-                count++;
-            }
-            return count == authProperties.getMfa().getBackupCodeCount();
+            return StreamSupport.stream(codes.spliterator(), false).count()
+                    == authProperties.getMfa().getBackupCodeCount();
         }));
         verify(tokenStorage).revokeAllSessions(USER_ID.toString());
         verify(securityEventService).recordForAuthenticatedUser(
@@ -194,7 +192,7 @@ class MfaServiceTest {
     @DisplayName("MFA verification accepts a fresh TOTP only after atomic replay marker update")
     void verifyMfaCode_acceptsFreshTotpWithAtomicReplayMarker() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000205");
-        String secret = Base32.encode("totp-secret-for-test1".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String secret = Base32.encode("totp-secret-for-test1".getBytes(StandardCharsets.UTF_8));
         MfaTotpCredential credential = new MfaTotpCredential(
                 USER_ID, TENANT_ID, mfaSecretCipher.encrypt(secret), Instant.now());
         ReflectionTestUtils.setField(credential, "id", credentialId);
@@ -215,7 +213,7 @@ class MfaServiceTest {
     @DisplayName("Backup codes require active MFA and are consumed atomically")
     void verifyMfaCode_consumesBackupCodeAtomically() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000206");
-        String secret = Base32.encode("totp-secret-for-test2".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String secret = Base32.encode("totp-secret-for-test2".getBytes(StandardCharsets.UTF_8));
         MfaTotpCredential credential = new MfaTotpCredential(
                 USER_ID, TENANT_ID, mfaSecretCipher.encrypt(secret), Instant.now());
         ReflectionTestUtils.setField(credential, "id", credentialId);
@@ -283,7 +281,7 @@ class MfaServiceTest {
     @DisplayName("TOTP confirmation rejects invalid codes")
     void confirmTotp_invalidCodeThrows() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000207");
-        String secret = Base32.encode("12345678901234567890".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String secret = Base32.encode("12345678901234567890".getBytes(StandardCharsets.UTF_8));
         MfaTotpCredential credential = new MfaTotpCredential(
                 USER_ID, TENANT_ID, mfaSecretCipher.encrypt(secret), Instant.now());
         ReflectionTestUtils.setField(credential, "id", credentialId);
@@ -291,7 +289,10 @@ class MfaServiceTest {
         when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.of(credential));
 
         assertThrows(InvalidMfaCodeException.class, () ->
-                service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(credentialId, "current-pass", "000000")));
+                service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(
+                    credentialId,
+                    "current-pass",
+                    "000000")));
 
         verify(backupCodeRepository, never()).saveAll(any());
         verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
@@ -305,7 +306,10 @@ class MfaServiceTest {
         when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.empty());
 
         assertThrows(InvalidMfaCodeException.class, () ->
-                service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(credentialId, "current-pass", "123456")));
+                service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(
+                    credentialId,
+                    "current-pass",
+                    "123456")));
 
         verify(backupCodeRepository, never()).saveAll(any());
         verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());

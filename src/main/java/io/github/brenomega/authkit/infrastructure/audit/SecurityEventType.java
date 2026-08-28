@@ -1,8 +1,5 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
-/**
- * Durable security event names used for incident response and compliance review.
- */
 public enum SecurityEventType {
     BOOTSTRAP,
     LOGIN_SUCCESS,

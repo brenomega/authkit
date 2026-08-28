@@ -4,18 +4,12 @@ import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-/**
- * Implements RFC 6238 TOTP generation and bounded-window verification.
- *
- * <p>Verification accepts the previous, current, or next 30-second step and uses
- * constant-time code comparison. A supplied last-used step excludes that step and
- * every earlier one; cross-thread atomicity is provided by the repository's
- * conditional update, not by this stateless calculation.</p>
- */
 public class TotpGenerator {
 
     public static final int DEFAULT_DIGITS = 6;
@@ -32,11 +26,6 @@ public class TotpGenerator {
         this.clock = clock;
     }
 
-    /**
-     * Finds a valid, not-previously-used time step for a six- to eight-digit code.
-     *
-     * @return the matched step for conditional persistence, or an invalid result
-     */
     public VerificationResult verify(String base32Secret, String code, Long lastUsedTimeStep) {
         if (code == null || !code.matches("\\d{6,8}")) {
             return VerificationResult.invalid();
@@ -84,9 +73,9 @@ public class TotpGenerator {
     }
 
     private boolean constantTimeEquals(String expected, String actual) {
-        return java.security.MessageDigest.isEqual(
-                expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                actual.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                actual.getBytes(StandardCharsets.UTF_8));
     }
 
     public record VerificationResult(boolean valid, long timeStep) {

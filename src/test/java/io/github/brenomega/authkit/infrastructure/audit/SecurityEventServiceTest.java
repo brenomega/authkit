@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
+import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -34,7 +35,7 @@ class SecurityEventServiceTest {
         RequestContextHolder.resetRequestAttributes();
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Security events persist privacy-safe identifiers and metrics")
     void recordForEmail_persistsPrivacySafeIdentifiers() throws Exception {
@@ -66,7 +67,7 @@ class SecurityEventServiceTest {
                 SecurityEventSeverity.MEDIUM,
                 "User@Example.COM",
                 "invalid_credentials",
-                java.util.Map.of("resetToken", "secret-token", "policy", "login"));
+                Map.of("resetToken", "secret-token", "policy", "login"));
 
         ArgumentCaptor<SecurityEvent> eventCaptor = ArgumentCaptor.forClass(SecurityEvent.class);
         verify(writer).persistNonCritical(eventCaptor.capture());
@@ -87,7 +88,7 @@ class SecurityEventServiceTest {
         assertEquals(1.0, meterRegistry.counter("security.login.failed").count());
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Security events persist synchronously when the async writer is saturated")
     void recordForEmail_writerSaturated_persistsSynchronously() {
@@ -129,7 +130,7 @@ class SecurityEventServiceTest {
                 "severity", SecurityEventSeverity.MEDIUM.name()).count());
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Critical audit persistence fails closed with an opaque service error")
     void criticalPersistenceFailureFailsClosed() {
@@ -148,7 +149,7 @@ class SecurityEventServiceTest {
         assertEquals(1.0, meters.find("security.audit.fail_closed").counter().count());
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 @Test
     @DisplayName("Noncritical audit persistence failure records a drop without failing the operation")
     void nonCriticalPersistenceFailureIsBestEffort() {

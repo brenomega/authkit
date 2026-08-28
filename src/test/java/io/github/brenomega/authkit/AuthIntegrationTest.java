@@ -1,5 +1,10 @@
 package io.github.brenomega.authkit;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -19,7 +24,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.brenomega.authkit.domain.user.dto.RegisterRequest;
@@ -62,7 +66,7 @@ public class AuthIntegrationTest {
     @Test
     @DisplayName("Successful login protects refresh token in HttpOnly SameSite cookie and returns JWT Access Token")
     void login_success_returnsTokens() throws Exception {
-        // Pre-create user mimicking standard Argon2id configurations
+
         RegisterRequest registerRequest = new RegisterRequest(
                 "logintarget@example.com",
                 "SuperPassword123!",
@@ -83,8 +87,8 @@ public class AuthIntegrationTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.accessToken").exists())
-                .andExpect(jsonPath("$.data.expiresIn").value(900)) // 15 mins default
-                // Validate DT 3.2.22 Secure Transport mapping
+                .andExpect(jsonPath("$.data.expiresIn").value(900))
+
                 .andExpect(cookie().exists("Refresh-Token"))
                 .andExpect(cookie().httpOnly("Refresh-Token", true))
                 .andExpect(cookie().secure("Refresh-Token", true))
@@ -143,7 +147,8 @@ public class AuthIntegrationTest {
                         .cookie(originalCookie, originalCsrfCookie)
                         .header("X-XSRF-TOKEN", originalCsrfCookie.getValue()))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.errors[0]").value("Refresh token reuse detected. All sessions revoked for your security."));
+                .andExpect(jsonPath("$.errors[0]").value(
+                        "Refresh token reuse detected. All sessions revoked for your security."));
 
         User user = userRepository.findByEmail("refresh-flow@example.com").orElseThrow();
         assertSecurityEvent(user, SecurityEventType.REFRESH_TOKEN_ROTATED);
@@ -235,12 +240,13 @@ public class AuthIntegrationTest {
         assertSecurityEvent(user, SecurityEventType.LOGOUT);
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     @DisplayName("Authenticated worker introspection reports first-party session liveness and observes revocation")
     void firstPartyIntrospection_requiresWorkerAndObservesImmediateRevocation() throws Exception {
         MvcResult login = login("introspection-flow@example.com", "SuperPassword123!");
         String accessToken = accessToken(login);
-        String request = objectMapper.writeValueAsString(java.util.Map.of("token", accessToken));
+        String request = objectMapper.writeValueAsString(Map.of("token", accessToken));
 
         mockMvc.perform(post("/api/v1/internal/tokens/introspect")
                         .contentType("application/json")
@@ -306,7 +312,7 @@ public class AuthIntegrationTest {
     }
 
     @SuppressWarnings("null")
-    @Test
+@Test
     @DisplayName("Oversized login password is rejected before hashing")
     void login_oversizedPassword_returns400() throws Exception {
         String payload = """
@@ -362,7 +368,7 @@ public class AuthIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 private void assertAccessTokenRevokedAfterPasswordReset() throws Exception {
         MvcResult login = login("reset-revoke@example.com", "SuperPassword123!");
         String accessToken = accessToken(login);
@@ -399,7 +405,7 @@ private void assertAccessTokenRevokedAfterPasswordReset() throws Exception {
                 .andExpect(status().isUnauthorized());
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 private MvcResult login(String email, String password) throws Exception {
         registerConfirmed(new RegisterRequest(email, password, true, true));
         return mockMvc.perform(post("/api/v1/auth/login")
@@ -418,20 +424,14 @@ private MvcResult login(String email, String password) throws Exception {
                 .asText();
     }
 
-    private JsonNode jwtClaim(String accessToken, String claim) throws Exception {
-        String payload = accessToken.split("\\.")[1];
-        byte[] decoded = java.util.Base64.getUrlDecoder().decode(payload);
-        return objectMapper.readTree(decoded).path(claim);
-    }
-
     private String queryParameter(String text, String name) {
-        java.util.regex.Matcher matcher = java.util.regex.Pattern
+        Matcher matcher = Pattern
                 .compile(name + "=([^&\\s\"']+)")
                 .matcher(text);
         if (!matcher.find()) {
             throw new IllegalStateException("Missing query parameter " + name);
         }
-        return java.net.URLDecoder.decode(matcher.group(1), java.nio.charset.StandardCharsets.UTF_8);
+        return URLDecoder.decode(matcher.group(1), StandardCharsets.UTF_8);
     }
 
     private void assertSecurityEvent(User user, SecurityEventType eventType) {

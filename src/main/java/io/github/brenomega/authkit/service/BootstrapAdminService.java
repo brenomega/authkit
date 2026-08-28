@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.service;
 
 import java.time.Instant;
+import java.util.Map;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,7 +22,6 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.BootstrapStateRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
-/** Transactional, database-serialized creation of the first platform administrator. */
 @Service
 public class BootstrapAdminService {
 
@@ -97,7 +97,7 @@ public class BootstrapAdminService {
                 admin.getTenantId(),
                 admin.getEmail(),
                 "first_platform_admin_bootstrapped",
-                java.util.Map.of("mfa_enrollment_required", "true"));
+                Map.of("mfa_enrollment_required", "true"));
         state.complete(admin.getId(), Instant.now());
         bootstrapStateRepository.save(state);
         return admin;

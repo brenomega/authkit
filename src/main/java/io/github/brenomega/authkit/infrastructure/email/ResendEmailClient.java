@@ -2,11 +2,13 @@ package io.github.brenomega.authkit.infrastructure.email;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -16,16 +18,12 @@ import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
-/**
- * Submits rendered email to Resend with bounded retries.
- *
- * <p>The outbox UUID becomes a stable provider idempotency key, allowing retries
- * of the same message identity without intentionally creating another submission.
- * Provider acceptance is returned as metadata and does not prove recipient
- * delivery. Calls are expected from outbox workers rather than request transactions.</p>
- */
 @Component
-@ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "resend", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.email-provider",
+    name = "type",
+    havingValue = "resend",
+    matchIfMissing = true)
 public class ResendEmailClient implements EmailProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ResendEmailClient.class);
@@ -33,19 +31,12 @@ public class ResendEmailClient implements EmailProvider {
     private final RestClient resendRestClient;
     private final AuthProperties authProperties;
 
-    /**
-     * @param resendRestClient configured HTTP client connected to Resend
-     */
     public ResendEmailClient(RestClient resendRestClient,
                              AuthProperties authProperties) {
         this.resendRestClient = resendRestClient;
         this.authProperties = authProperties;
     }
 
-    /**
-     * Submits the payload with a stable idempotency key when it has an outbox identity.
-     */
-    @SuppressWarnings("null")
     @Override
     public EmailDeliveryResult send(EmailPayload payload) {
         Map<String, Object> requestBody = Map.of(
@@ -65,12 +56,12 @@ public class ResendEmailClient implements EmailProvider {
         int attempts = authProperties.getEmailProvider().getMaxAttempts();
         for (int attempt = 1; attempt <= attempts; attempt++) {
             try {
-                @SuppressWarnings("rawtypes")
-                Map response = resendRestClient.post()
+                @SuppressWarnings("null")
+                Map<String, Object> response = Objects.requireNonNullElse(resendRestClient.post()
                         .header("Idempotency-Key", idempotencyKey)
                         .body(requestBody)
                         .retrieve()
-                        .body(Map.class);
+                        .body(new ParameterizedTypeReference<Map<String, Object>>() {}), Map.of());
                 String providerId = response == null || response.get("id") == null
                         ? null
                         : response.get("id").toString();

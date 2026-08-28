@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.Locale;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,15 +29,6 @@ import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.exception.AuditUnavailableException;
 
-/**
- * Builds privacy-safe security events and selects their durability policy.
- *
- * <p>Email, IP address, and user agent are hashed with the configured audit pepper;
- * display values are masked, metadata keys associated with credentials are
- * redacted, and stored text is bounded. Critical events are persisted synchronously
- * in the caller's transaction and fail closed. Other events use a bounded executor
- * or a configured synchronous fallback and are best-effort.</p>
- */
 @Service
 public class SecurityEventService {
 
@@ -80,7 +72,16 @@ public class SecurityEventService {
                                            SecurityEventSeverity severity,
                                            User user,
                                            String reason) {
-        record(type, outcome, severity, user.getId(), user.getId(), user.getTenantId(), user.getEmail(), reason, Map.of());
+        record(
+            type,
+            outcome,
+            severity,
+            user.getId(),
+            user.getId(),
+            user.getTenantId(),
+            user.getEmail(),
+            reason,
+            Map.of());
     }
 
     public void recordForAuthenticatedUser(SecurityEventType type,
@@ -89,7 +90,16 @@ public class SecurityEventService {
                                            User user,
                                            String reason,
                                            Map<String, String> metadata) {
-        record(type, outcome, severity, user.getId(), user.getId(), user.getTenantId(), user.getEmail(), reason, metadata);
+        record(
+            type,
+            outcome,
+            severity,
+            user.getId(),
+            user.getId(),
+            user.getTenantId(),
+            user.getEmail(),
+            reason,
+            metadata);
     }
 
     public void recordForTargetUser(SecurityEventType type,
@@ -126,12 +136,6 @@ public class SecurityEventService {
         record(type, outcome, severity, null, null, null, email, reason, metadata);
     }
 
-    /**
-     * Captures request context, sanitizes supplied data, signs the row, and records the event.
-     *
-     * @throws io.github.brenomega.authkit.exception.AuditUnavailableException
-     *         if a critical event cannot be durably joined to the business operation
-     */
     public void record(SecurityEventType type,
                        SecurityEventOutcome outcome,
                        SecurityEventSeverity severity,
@@ -183,7 +187,14 @@ public class SecurityEventService {
                 metadataJson,
                 eventHash);
 
-        meterRegistry.counter("security.events", "type", type.name(), "outcome", outcome.name(), "severity", severity.name())
+        meterRegistry.counter(
+            "security.events",
+            "type",
+            type.name(),
+            "outcome",
+            outcome.name(),
+            "severity",
+            severity.name())
                 .increment();
         recordSpecificMetric(type, storedReason);
         if (isCritical(type, storedReason)) {
@@ -284,7 +295,8 @@ public class SecurityEventService {
             case MFA_CHALLENGE_VERIFIED -> meterRegistry.counter("security.mfa.login.verified").increment();
             case MFA_CHALLENGE_FAILED -> recordMfaFailureMetric(reason);
             case MFA_BACKUP_CODE_USED -> meterRegistry.counter("security.mfa.backup_code.used").increment();
-            case MFA_BACKUP_CODES_REGENERATED -> meterRegistry.counter("security.mfa.backup_codes.regenerated").increment();
+            case MFA_BACKUP_CODES_REGENERATED ->
+                    meterRegistry.counter("security.mfa.backup_codes.regenerated").increment();
             case MFA_CHANGED -> meterRegistry.counter("security.mfa.changed").increment();
             default -> {
             }
@@ -293,7 +305,7 @@ public class SecurityEventService {
 
     private void recordMfaFailureMetric(String reason) {
         meterRegistry.counter("security.mfa.challenge.failed").increment();
-        String normalizedReason = reason == null ? "" : reason.toLowerCase(java.util.Locale.ROOT);
+        String normalizedReason = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
         if (normalizedReason.startsWith("login_mfa") || normalizedReason.contains("mfa_challenge")) {
             meterRegistry.counter("security.mfa.login.failed").increment();
             return;
@@ -336,7 +348,9 @@ public class SecurityEventService {
         metadata.forEach((key, value) -> {
             if (key != null && value != null) {
                 String storedKey = truncate(key, MAX_METADATA_KEY_LENGTH);
-                String storedValue = isSensitiveMetadataKey(key) ? REDACTED : truncate(value, MAX_METADATA_VALUE_LENGTH);
+                String storedValue = isSensitiveMetadataKey(key) ? REDACTED : truncate(
+                    value,
+                    MAX_METADATA_VALUE_LENGTH);
                 sanitized.put(storedKey, storedValue);
             }
         });
@@ -354,7 +368,7 @@ public class SecurityEventService {
     }
 
     private boolean isSensitiveMetadataKey(String key) {
-        String normalized = key.toLowerCase(java.util.Locale.ROOT);
+        String normalized = key.toLowerCase(Locale.ROOT);
         return SENSITIVE_METADATA_TOKENS.stream().anyMatch(normalized::contains);
     }
 

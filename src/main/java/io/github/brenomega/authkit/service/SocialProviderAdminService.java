@@ -4,9 +4,11 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.Map;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -64,7 +66,9 @@ public class SocialProviderAdminService {
     @Transactional
     public AdminSocialProviderResponse create(Jwt jwt, AdminSocialProviderCreateRequest request) {
         User admin = requireAdminStepUp(jwt, request.currentPassword(), request.mfaCode(), "social_provider_create");
-        if (request.providerType() == null || request.clientAuthMethod() == null) throw new InvalidSocialLoginException();
+        if (request.providerType() == null || request.clientAuthMethod() == null) {
+            throw new InvalidSocialLoginException();
+        }
         String issuer = normalizeIssuer(request.issuer());
         validateIssuer(issuer, request.providerType());
         validateScopes(request.scopes());
@@ -76,28 +80,31 @@ public class SocialProviderAdminService {
                 request.providerType(), issuer, request.clientId(), cipher.encrypt(request.clientSecret()),
                 request.scopes(), request.clientAuthMethod(), now);
         provider = providers.saveAndFlush(provider);
-        oidc.metadata(provider); // Reject mismatched issuer or unusable discovery before committing.
+        oidc.metadata(provider);
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_PROVIDER_CREATED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, admin,
-                "social_provider_created", java.util.Map.of("provider", provider.getProviderKey(), "issuer", issuer));
+                "social_provider_created", Map.of("provider", provider.getProviderKey(), "issuer", issuer));
         return response(provider);
     }
 
     @Transactional
     public AdminSocialProviderResponse update(Jwt jwt, UUID id, AdminSocialProviderUpdateRequest request) {
         User admin = requireAdminStepUp(jwt, request.currentPassword(), request.mfaCode(), "social_provider_update");
+        @SuppressWarnings("null")
         SocialIdentityProvider provider = providers.findById(id).orElseThrow(InvalidSocialLoginException::new);
         validateScopes(request.scopes());
         String encrypted = request.clientSecret() == null || request.clientSecret().isBlank()
                 ? null : cipher.encrypt(request.clientSecret());
         provider.update(request.displayName(), request.clientId(), encrypted, request.scopes(),
-                request.clientAuthMethod() == null ? OidcClientAuthMethod.CLIENT_SECRET_BASIC : request.clientAuthMethod(),
+                request.clientAuthMethod() == null
+                        ? OidcClientAuthMethod.CLIENT_SECRET_BASIC
+                        : request.clientAuthMethod(),
                 Instant.now());
         providers.flush();
         oidc.metadata(provider);
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_PROVIDER_UPDATED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, admin,
-                "social_provider_updated", java.util.Map.of("provider", provider.getProviderKey(),
+                "social_provider_updated", Map.of("provider", provider.getProviderKey(),
                         "secret_rotated", Boolean.toString(encrypted != null)));
         return response(provider);
     }
@@ -105,14 +112,16 @@ public class SocialProviderAdminService {
     @Transactional
     public void disable(Jwt jwt, UUID id, String currentPassword, String mfaCode) {
         User admin = requireAdminStepUp(jwt, currentPassword, mfaCode, "social_provider_disable");
+        @SuppressWarnings("null")
         SocialIdentityProvider provider = providers.findById(id).orElseThrow(InvalidSocialLoginException::new);
         provider.disable(Instant.now());
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_PROVIDER_UPDATED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, admin,
-                "social_provider_disabled", java.util.Map.of("provider", provider.getProviderKey()));
+                "social_provider_disabled", Map.of("provider", provider.getProviderKey()));
     }
 
     private User requireAdmin(Jwt jwt) {
+        @SuppressWarnings("null")
         User admin = users.findById(UUID.fromString(jwt.getSubject())).filter(User::isActive)
                 .orElseThrow(UserNotFoundException::new);
         if (admin.getRole() != Role.PLATFORM_ADMIN) throw new AccessDeniedException("Admin-plane role required");
@@ -125,9 +134,12 @@ public class SocialProviderAdminService {
         boolean hasTotp = mfa.isMfaEnabled(admin);
         boolean hasPasskey = passkeys.countByUserIdAndDisabledAtIsNull(admin.getId()) > 0;
         if (!hasTotp && !hasPasskey) throw new MfaRequiredException();
-        List<String> amr = jwt.getClaimAsStringList("amr");
-        boolean freshPasskey = amr != null && amr.contains("webauthn") && jwt.getIssuedAt() != null
-                && jwt.getIssuedAt().isAfter(Instant.now().minusSeconds(properties.getStepUp().getPasskeyFreshnessSeconds()));
+        boolean freshPasskey = Optional.ofNullable(jwt.getClaimAsStringList("amr"))
+                .filter(amr -> amr.contains("webauthn"))
+                .flatMap(amr -> Optional.ofNullable(jwt.getIssuedAt()))
+                .map(issuedAt -> issuedAt.isAfter(
+                        Instant.now().minusSeconds(properties.getStepUp().getPasskeyFreshnessSeconds())))
+                .orElse(false);
         if (!freshPasskey) {
             if (!hasTotp) throw new MfaRequiredException();
             mfa.requireMfaIfEnabled(admin, mfaCode, reason);
@@ -136,9 +148,14 @@ public class SocialProviderAdminService {
     }
     private void validateIssuer(String issuer, SocialProviderType type) {
         URI uri;
-        try { uri = URI.create(issuer); } catch (IllegalArgumentException ex) { throw new InvalidSocialLoginException(); }
+        try {
+            uri = URI.create(issuer);
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidSocialLoginException();
+        }
         if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null
                 || uri.getFragment() != null || uri.getQuery() != null) throw new InvalidSocialLoginException();
+        @SuppressWarnings("null")
         Set<String> allowlist = Arrays.stream(properties.getSocial().getIssuerAllowlist().split(","))
                 .map(String::trim).filter(v -> !v.isBlank()).collect(Collectors.toSet());
         if (!allowlist.contains(issuer)) throw new InvalidSocialLoginException();

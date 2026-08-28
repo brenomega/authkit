@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -39,7 +40,6 @@ class UserAuthoritiesFilterTest {
         SecurityContextHolder.clearContext();
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Authority lookup is cached for the configured short TTL")
     void doFilterInternal_cachesUserAuthorityLookup() throws Exception {
@@ -67,7 +67,6 @@ class UserAuthoritiesFilterTest {
         verify(userRepository, times(1)).findById(userId);
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Unconfirmed users are rejected before authorities are granted")
     void doFilterInternal_rejectsUnconfirmedUser() throws Exception {
@@ -93,7 +92,6 @@ class UserAuthoritiesFilterTest {
         assertEquals(401, response.getStatus());
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Inactive server-side session rejects otherwise valid access token")
     void doFilterInternal_rejectsRevokedAccessTokenSession() throws Exception {
@@ -116,7 +114,6 @@ class UserAuthoritiesFilterTest {
         verify(userRepository, times(0)).findById(userId);
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Live authority dependency failure is an opaque fail-closed 503")
     void doFilterInternal_returns503WhenAuthorityStoreIsUnavailable() throws Exception {
@@ -142,7 +139,6 @@ class UserAuthoritiesFilterTest {
         org.junit.jupiter.api.Assertions.assertFalse(response.getContentAsString().contains("database unavailable"));
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Transaction acquisition failure in live authority lookup is an opaque 503")
     void doFilterInternal_returns503WhenAuthorityTransactionCannotStart() throws Exception {
@@ -168,7 +164,6 @@ class UserAuthoritiesFilterTest {
         org.junit.jupiter.api.Assertions.assertFalse(response.getContentAsString().contains("database unavailable"));
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("OAuth access tokens are rejected before first-party session lookup")
     void doFilterInternal_rejectsOAuthTokenClassBeforeSessionLookup() throws Exception {
@@ -182,15 +177,22 @@ class UserAuthoritiesFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt(userId, UUID.randomUUID().toString(), JwtTokenUse.OAUTH_ACCESS, "client-api")));
+                new JwtAuthenticationToken(jwt(
+                    userId,
+                    UUID.randomUUID().toString(),
+                    JwtTokenUse.OAUTH_ACCESS,
+                    "client-api")));
         filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
 
         assertEquals(401, response.getStatus());
-        verify(tokenStorage, times(0)).isSessionActive(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(
+            tokenStorage,
+            times(0)).isSessionActive(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString());
         verify(userRepository, times(0)).findById(userId);
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("ID tokens are rejected before first-party session lookup")
     void doFilterInternal_rejectsIdTokenClassBeforeSessionLookup() throws Exception {
@@ -204,11 +206,19 @@ class UserAuthoritiesFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt(userId, UUID.randomUUID().toString(), JwtTokenUse.ID_TOKEN, "client-api")));
+                new JwtAuthenticationToken(jwt(
+                    userId,
+                    UUID.randomUUID().toString(),
+                    JwtTokenUse.ID_TOKEN,
+                    "client-api")));
         filter.doFilter(new MockHttpServletRequest(), response, new MockFilterChain());
 
         assertEquals(401, response.getStatus());
-        verify(tokenStorage, times(0)).isSessionActive(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
+        verify(
+            tokenStorage,
+            times(0)).isSessionActive(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString());
         verify(userRepository, times(0)).findById(userId);
     }
 
@@ -224,7 +234,7 @@ class UserAuthoritiesFilterTest {
                 now.plusSeconds(300),
                 Map.of("alg", "RS256"),
                 Map.of("sub", userId.toString(), "jti", jti,
-                        "aud", java.util.List.of(audience),
+                        "aud", List.of(audience),
                         "token_use", tokenUse,
                         "tenant_id", UUID.randomUUID().toString()));
     }

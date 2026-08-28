@@ -9,7 +9,6 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Component;
 
-/** HIBP range API client that sends only a five-character SHA-1 prefix. */
 @Component
 public class HttpHibpRangeClient implements HibpRangeClient {
 

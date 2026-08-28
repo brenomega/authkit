@@ -10,16 +10,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Configures CIDR ranges whose TCP peers may reach the application origin.
- *
- * <p>Ranges describe reverse proxies or edge networks, not end-user addresses.
- * In the {@code prod} profile the known IPv4 and IPv6 loopback CIDRs are always
- * removed from the effective list, even if present in external configuration.</p>
- *
- * @see io.github.brenomega.authkit.infrastructure.network.origin.ConfiguredOriginsProvider
- * @see io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter
- */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "network.security.trusted-origins")
@@ -40,11 +30,6 @@ public class NetworkSecurityProperties {
         this.ranges = ranges;
     }
 
-    /**
-     * Returns the configured ranges after production loopback exclusion.
-     *
-     * @return the effective list of trusted CIDR ranges
-     */
     public List<String> getEffectiveRanges() {
         List<String> source = (ranges == null) ? Collections.emptyList() : ranges;
 
@@ -53,7 +38,7 @@ public class NetworkSecurityProperties {
                     .filter(range -> !isLoopback(range))
                     .toList();
         }
-        
+
         return Collections.unmodifiableList(source);
     }
 

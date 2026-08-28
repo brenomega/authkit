@@ -12,9 +12,6 @@ import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
-/**
- * Local-only email provider that records safe delivery metadata without exposing tokens.
- */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "logging")
 public class LoggingEmailProvider implements EmailProvider {
@@ -25,7 +22,8 @@ public class LoggingEmailProvider implements EmailProvider {
     public EmailDeliveryResult send(EmailPayload payload) {
         String providerId = "logging-" + UUID.randomUUID();
         log.info(
-                "Email accepted by logging provider: recipient={}, subject={}, messageId={}, providerId={}, bodyLength={}",
+                "Email accepted by logging provider: recipient={}, subject={}, " +
+                    "messageId={}, providerId={}, bodyLength={}",
                 EmailMasker.mask(payload.to()),
                 payload.subject(),
                 payload.messageId(),

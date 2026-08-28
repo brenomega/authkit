@@ -7,7 +7,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.Objects;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -46,15 +48,6 @@ import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
-/**
- * Coordinates TOTP enrollment, verification, and backup-code lifecycle.
- *
- * <p>TOTP secrets are encrypted at rest by {@link MfaSecretCipher}. Verification
- * accepts the configured time window but advances a monotonic last-used time step
- * conditionally, preventing reuse of the same TOTP under concurrency. Backup
- * codes are user-bound HMAC values and are consumed atomically. Raw backup codes
- * are returned only when created.</p>
- */
 @Service
 public class MfaService {
 
@@ -105,15 +98,14 @@ public class MfaService {
         User user = loadActiveUser(userId);
         List<MfaTotpCredential> activeCredentials = totpRepository
                 .findByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId());
-        Instant enrolledAt = activeCredentials.stream()
+        Optional<Instant> enrolledAt = activeCredentials.stream()
                 .map(MfaTotpCredential::getConfirmedAt)
-                .filter(java.util.Objects::nonNull)
-                .min(Instant::compareTo)
-                .orElse(null);
+                .filter(Objects::nonNull)
+                .min(Instant::compareTo);
         return new MfaStatusResponse(
                 !activeCredentials.isEmpty(),
                 backupCodeRepository.countByUserIdAndUsedAtIsNull(user.getId()),
-                enrolledAt);
+                enrolledAt.orElse(null));
     }
 
     @Transactional
@@ -151,12 +143,6 @@ public class MfaService {
                 provisioningUri(user.getEmail(), secret));
     }
 
-    /**
-     * Confirms a pending TOTP credential and creates a fresh backup-code set.
-     *
-     * <p>Enabling TOTP revokes all refresh sessions, forcing subsequent
-     * authentication to include the new factor.</p>
-     */
     @Transactional
     public MfaBackupCodesResponse confirmTotp(String userId, MfaTotpConfirmRequest request) {
         User user = loadActiveUser(userId);
@@ -199,7 +185,6 @@ public class MfaService {
         return new MfaBackupCodesResponse(backupCodes);
     }
 
-    /** Disables active TOTP and revokes all refresh sessions after step-up. */
     @Transactional
     public void disableTotp(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
@@ -223,12 +208,6 @@ public class MfaService {
                 "totp_disabled");
     }
 
-    /**
-     * Replaces all unused backup codes and returns the new raw values once.
-     *
-     * <p>This operation does not revoke existing sessions because the active TOTP
-     * factor itself is unchanged.</p>
-     */
     @Transactional
     public MfaBackupCodesResponse regenerateBackupCodes(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
@@ -256,12 +235,6 @@ public class MfaService {
                         () -> totpRepository.existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId()));
     }
 
-    /**
-     * Verifies TOTP first and then an unused backup code.
-     *
-     * @return a result whose method is {@code otp} or {@code backup_code} on
-     *         success; invalid results have no authentication method
-     */
     @Transactional
     public MfaVerificationResult verifyMfaCode(User user, String code, String reason) {
         if (!authProperties.getMfa().isEnabled() || code == null || code.isBlank()) {

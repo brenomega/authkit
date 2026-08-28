@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
@@ -91,7 +94,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid", "email", "profile"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
 
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         String challenge = pkceChallenge(verifier);
@@ -157,7 +160,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://confidential.example/callback"),
                 Set.of("openid", "email"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
 
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(
@@ -205,7 +208,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
 
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
@@ -237,15 +240,39 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid", "email"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
 
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         String challenge = pkceChallenge(verifier);
 
-        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
-                "code", client.getClientId(), "https://evil.example/callback", "openid", null, challenge, "S256", null, true)));
-        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.authorize(jwt(otherTenantUser), new OAuthAuthorizeRequest(
-                "code", client.getClientId(), "https://client.example/callback", "openid email", null, challenge, "S256", null, false)));
+        assertThrows(
+                InvalidOAuthRequestException.class,
+                () -> oauthProviderService.authorize(
+                        jwt(user),
+                        new OAuthAuthorizeRequest(
+                                "code",
+                                client.getClientId(),
+                                "https://evil.example/callback",
+                                "openid",
+                                null,
+                                challenge,
+                                "S256",
+                                null,
+                                true)));
+        assertThrows(
+                InvalidOAuthRequestException.class,
+                () -> oauthProviderService.authorize(
+                        jwt(otherTenantUser),
+                        new OAuthAuthorizeRequest(
+                                "code",
+                                client.getClientId(),
+                                "https://client.example/callback",
+                                "openid email",
+                                null,
+                                challenge,
+                                "S256",
+                                null,
+                                false)));
     }
 
     @Test
@@ -260,7 +287,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
                 "code", client.getClientId(), "https://client.example/callback", "openid", null,
@@ -291,7 +318,7 @@ class OAuthProviderServiceTest {
                     return false;
                 }
             };
-            var results = executor.invokeAll(java.util.List.of(exchange, exchange));
+            var results = executor.invokeAll(List.of(exchange, exchange));
             long successes = results.stream().filter(result -> {
                 try {
                     return result.get();
@@ -317,9 +344,9 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
-        String rawCode = "expired-" + java.util.UUID.randomUUID();
+        String rawCode = "expired-" + UUID.randomUUID();
         authorizationCodeRepository.save(new OAuthAuthorizationCode(
                 TokenHasher.sha256Hex(rawCode),
                 client.getClientId(),
@@ -331,8 +358,8 @@ class OAuthProviderServiceTest {
                 pkceChallenge(verifier),
                 "S256",
                 null,
-                java.time.Instant.now().minusSeconds(600),
-                java.time.Instant.now().minusSeconds(1)));
+                Instant.now().minusSeconds(600),
+                Instant.now().minusSeconds(1)));
 
         assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.token(
                 "authorization_code",
@@ -355,7 +382,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://client.example/callback"),
                 Set.of("openid", "email", "profile"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
                 "code", client.getClientId(), "https://client.example/callback", "openid email profile", null,
@@ -376,7 +403,7 @@ class OAuthProviderServiceTest {
                 Set.of("https://other.example/callback"),
                 Set.of("openid"),
                 true,
-                java.time.Instant.now()));
+                Instant.now()));
 
         assertEquals(true, oauthProviderService
                 .introspect(tokens.accessToken(), "access_token", client.getClientId(), "userinfo-secret")
@@ -401,7 +428,7 @@ class OAuthProviderServiceTest {
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
                 "client-browser", null, true, "Browser Client",
                 Set.of("https://client.example/callback"), Set.of("openid", "profile"), true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
 
         String loginLocation = oauthProviderService.beginAuthorization(
@@ -426,7 +453,7 @@ class OAuthProviderServiceTest {
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
                 "client-refresh", passwordEncoder.encode("refresh-secret"), false, "Refresh Client",
                 Set.of("https://client.example/callback"), Set.of("openid", "offline_access"), true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
                 "code", client.getClientId(), "https://client.example/callback", "openid offline_access",
@@ -459,7 +486,7 @@ class OAuthProviderServiceTest {
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
                 "client-refresh-concurrent", passwordEncoder.encode("concurrent-secret"), false,
                 "Concurrent Refresh Client", Set.of("https://client.example/callback"),
-                Set.of("offline_access"), true, java.time.Instant.now()));
+                Set.of("offline_access"), true, Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
         var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
                 "code", client.getClientId(), "https://client.example/callback", "offline_access",
@@ -478,7 +505,7 @@ class OAuthProviderServiceTest {
                     return false;
                 }
             };
-            var results = executor.invokeAll(java.util.List.of(rotate, rotate));
+            var results = executor.invokeAll(List.of(rotate, rotate));
             long successes = results.stream().filter(result -> {
                 try {
                     return result.get();
@@ -494,13 +521,14 @@ class OAuthProviderServiceTest {
         }
     }
 
-    @Test
+    @SuppressWarnings("null")
+@Test
     @DisplayName("OAuth HTTP endpoints use conventional redirects and standard unwrapped errors")
     void oauthHttpWireContractIsStandard() throws Exception {
         OAuthClient client = oauthClientRepository.save(new OAuthClient(
                 "client-http-wire", null, true, "HTTP Wire Client",
                 Set.of("https://client.example/callback"), Set.of("openid"), true,
-                java.time.Instant.now()));
+                Instant.now()));
         String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
 
         mockMvc.perform(get("/oauth2/authorize")
@@ -535,10 +563,16 @@ class OAuthProviderServiceTest {
     private Jwt jwt(User user) {
         return new Jwt(
                 "token",
-                java.time.Instant.now(),
-                java.time.Instant.now().plusSeconds(900),
+                Instant.now(),
+                Instant.now().plusSeconds(900),
                 Map.of("alg", "none"),
-                Map.of("sub", user.getId().toString(), "tenant_id", user.getTenantId().toString(), "amr", java.util.List.of("pwd")));
+                Map.of(
+                    "sub",
+                    user.getId().toString(),
+                    "tenant_id",
+                    user.getTenantId().toString(),
+                    "amr",
+                    List.of("pwd")));
     }
 
     private String pkceChallenge(String verifier) throws Exception {

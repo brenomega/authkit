@@ -23,16 +23,21 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository;
+import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
+import io.github.brenomega.authkit.repository.SocialIdentityRepository;
+import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.TransactionStatus;
+import org.mockito.ArgumentMatchers;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class AccountAnonymizationServiceTest {
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings({ "null", "unchecked" })
     @Test
     void expiredPendingAccountIsAnonymizedOnce() {
         UserRepository users = mock(UserRepository.class);
@@ -41,8 +46,10 @@ class AccountAnonymizationServiceTest {
         TokenStorage tokens = mock(TokenStorage.class);
         UserAuthoritiesFilter authorities = mock(UserAuthoritiesFilter.class);
         TransactionTemplate transactions = mock(TransactionTemplate.class);
-        when(transactions.execute(any())).thenAnswer(invocation ->
-                ((TransactionCallback) invocation.getArgument(0)).doInTransaction(mock(TransactionStatus.class)));
+        when(transactions.execute(ArgumentMatchers.<TransactionCallback<Object>>any())).thenAnswer(invocation -> {
+            TransactionCallback<Object> callback = invocation.getArgument(0);
+            return callback.doInTransaction(mock(TransactionStatus.class));
+        });
 
         AuthProperties properties = new AuthProperties();
         properties.getCompliance().setDeletionGracePeriodDays(7);
@@ -50,10 +57,10 @@ class AccountAnonymizationServiceTest {
         var service = new AccountAnonymizationService(
                 users, events, outbox, tokens, authorities, properties,
                 new SimpleMeterRegistry(), transactions,
-                mock(io.github.brenomega.authkit.repository.SocialIdentityRepository.class),
-                mock(io.github.brenomega.authkit.repository.SocialLoginTransactionRepository.class),
-                mock(io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository.class),
-                mock(io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository.class));
+                mock(SocialIdentityRepository.class),
+                mock(SocialLoginTransactionRepository.class),
+                mock(OAuthRefreshTokenFamilyRepository.class),
+                mock(OAuthRefreshTokenRepository.class));
 
         UUID id = UUID.randomUUID();
         User user = new User("pending@example.test", "hash", "Pending", true, true, null);

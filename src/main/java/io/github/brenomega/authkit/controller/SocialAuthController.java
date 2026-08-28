@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.controller;
 
 import java.time.Duration;
+import java.util.Objects;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -48,15 +49,22 @@ public class SocialAuthController {
         return ResponseEntity.ok().headers(headers).body(ApiResponse.success(result.response()));
     }
 
-    private void addSessionCookies(HttpHeaders headers, String refreshToken) {
-        AuthProperties.Cookie cookie = properties.getCookie();
-        headers.add(HttpHeaders.SET_COOKIE, ResponseCookie.from(cookie.getRefreshName(), refreshToken)
+@SuppressWarnings("null")
+private void addSessionCookies(HttpHeaders headers, String refreshToken) {
+        AuthProperties.Cookie cookie = Objects.requireNonNull(
+                properties.getCookie(), "authkit.auth.cookie");
+        AuthProperties.Csrf csrf = Objects.requireNonNull(
+                properties.getCsrf(), "authkit.auth.csrf");
+        String refreshName = Objects.requireNonNull(
+                cookie.getRefreshName(), "authkit.auth.cookie.refresh-name");
+        headers.add(HttpHeaders.SET_COOKIE, ResponseCookie.from(refreshName, refreshToken)
                 .httpOnly(cookie.isHttpOnly()).secure(cookie.isSecure()).sameSite(cookie.getSameSite())
                 .path(cookie.getPath()).maxAge(Duration.ofDays(properties.getToken().getRefreshTokenTtlDays()))
                 .build().toString());
-        if (properties.getCsrf().isEnabled()) {
-            AuthProperties.Csrf csrf = properties.getCsrf();
-            headers.add(HttpHeaders.SET_COOKIE, ResponseCookie.from(csrf.getCookieName(),
+        if (csrf.isEnabled()) {
+            String cookieName = Objects.requireNonNull(
+                    csrf.getCookieName(), "authkit.auth.csrf.cookie-name");
+            headers.add(HttpHeaders.SET_COOKIE, ResponseCookie.from(cookieName,
                             SecureTokenGenerator.randomUrlSafeToken(csrf.getTokenBytes()))
                     .httpOnly(false).secure(cookie.isSecure()).sameSite(cookie.getSameSite())
                     .path(csrf.getPath()).maxAge(Duration.ofDays(properties.getToken().getRefreshTokenTtlDays()))

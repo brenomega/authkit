@@ -25,13 +25,6 @@ import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
-/**
- * Configures RSA signing and first-party JWT validation.
- *
- * <p>Validation pins RS256 and verifies issuer, expiry, API audience, first-party
- * token use, signing-key revocation, and token JTI revocation. Server-side session
- * activity and current authorities are enforced later by {@link UserAuthoritiesFilter}.</p>
- */
 @Configuration
 public class JwtConfig {
 
@@ -51,9 +44,6 @@ public class JwtConfig {
         return jwtKeyService.activePublicKey();
     }
 
-    /**
-     * Creates the decoder for first-party API bearer tokens.
-     */
     @Bean
     public JwtDecoder jwtDecoder() {
         DefaultJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
@@ -67,7 +57,8 @@ public class JwtConfig {
                 JwtValidators.createDefaultWithIssuer(authProperties.getJwt().getIssuer());
 
         OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(authProperties.getJwt().getAudience());
-        OAuth2TokenValidator<Jwt> tokenUseValidator = new FirstPartyTokenUseValidator(authProperties.getJwt().getAudience());
+        OAuth2TokenValidator<Jwt> tokenUseValidator =
+                new FirstPartyTokenUseValidator(authProperties.getJwt().getAudience());
         OAuth2TokenValidator<Jwt> keyRevocationValidator = new KeyRevocationValidator(jwtKeyService);
         OAuth2TokenValidator<Jwt> tokenRevocationValidator = new TokenRevocationValidator(tokenRevocationService);
 
@@ -100,9 +91,6 @@ public class JwtConfig {
         }
     }
 
-    /**
-     * Creates an RS256 encoder that stamps the configured active key ID.
-     */
     @Bean
     public JwtEncoder jwtEncoder() {
         RSAKey rsaKey = jwtKeyService.activePrivateJwk();
@@ -110,9 +98,6 @@ public class JwtConfig {
         return new NimbusJwtEncoder(jwkSource);
     }
 
-    /**
-     * Custom token validator to enforce the 'aud' (audience) claim (DT 3.2.6).
-     */
     private static class AudienceValidator implements OAuth2TokenValidator<Jwt> {
         private final String audience;
 

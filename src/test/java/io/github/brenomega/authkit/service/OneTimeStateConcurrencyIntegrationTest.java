@@ -68,6 +68,7 @@ class OneTimeStateConcurrencyIntegrationTest {
                 .stream().filter(event -> event.getEventType() == SecurityEventType.EMAIL_VERIFIED).count());
     }
 
+    @SuppressWarnings("null")
     @Test
     void exactlyOneConcurrentEmailChangeCompletes() throws Exception {
         String suffix = UUID.randomUUID().toString();

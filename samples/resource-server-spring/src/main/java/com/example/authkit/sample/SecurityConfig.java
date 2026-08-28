@@ -2,6 +2,7 @@ package com.example.authkit.sample;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.LinkedHashSet;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,13 +26,16 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationConverter jwtAuthenticationConverter) throws Exception {
+    SecurityFilterChain securityFilterChain(
+        HttpSecurity http,
+        JwtAuthenticationConverter jwtAuthenticationConverter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health").permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
+                .oauth2ResourceServer(
+                        oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
         return http.build();
     }
 
@@ -65,7 +69,7 @@ public class SecurityConfig {
     }
 
     private static Collection<GrantedAuthority> authorities(Jwt jwt) {
-        java.util.LinkedHashSet<GrantedAuthority> authorities = new java.util.LinkedHashSet<>();
+        LinkedHashSet<GrantedAuthority> authorities = new LinkedHashSet<>();
         String scope = jwt.getClaimAsString("scope");
         if (scope != null) {
             for (String value : scope.split("\\s+")) {
@@ -74,8 +78,7 @@ public class SecurityConfig {
                 }
             }
         }
-        // AuthKit's PLATFORM_ADMIN role authorizes the AuthKit control plane only.
-        // Host-product authorization must use client scopes or its own policy data.
+
         return authorities;
     }
 

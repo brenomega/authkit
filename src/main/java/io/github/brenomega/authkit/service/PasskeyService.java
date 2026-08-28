@@ -6,6 +6,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.Collection;
+import java.util.Map;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -194,7 +196,7 @@ public class PasskeyService {
 
             String transports = result.getKeyId().getTransports()
                     .stream()
-                    .flatMap(java.util.Collection::stream)
+                    .flatMap(Collection::stream)
                     .map(AuthenticatorTransport::getId)
                     .sorted()
                     .collect(Collectors.joining(","));
@@ -248,12 +250,12 @@ public class PasskeyService {
         if (request != null && request.email() != null && !request.email().isBlank()) {
             String normalizedEmail = EmailNormalizer.normalize(request.email());
             abuseThrottleService.checkEmail(AbuseRateLimitPolicy.PASSKEY_ASSERTION_EMAIL, normalizedEmail);
-            User user = userRepository.findByEmail(normalizedEmail)
-                    .filter(User::isActive)
-                    .orElse(null);
-            if (user != null) {
-                userId = user.getId();
-                builder.username(user.getId().toString());
+            Optional<User> user = userRepository.findByEmail(normalizedEmail)
+                    .filter(User::isActive);
+            if (user.isPresent()) {
+                User authenticatedUser = user.get();
+                userId = authenticatedUser.getId();
+                builder.username(authenticatedUser.getId().toString());
             }
         }
 
@@ -275,7 +277,7 @@ public class PasskeyService {
                 null,
                 null,
                 "passkey_assertion_started",
-                java.util.Map.of());
+                Map.of());
 
         return new PasskeyAssertionOptionsResponse(challenge.getId(), toCredentialsGetJson(assertionRequest));
     }
@@ -311,7 +313,6 @@ public class PasskeyService {
             if (challenge.getUserId() != null && !challenge.getUserId().equals(userId)) {
                 throw new InvalidPasskeyCeremonyException();
             }
-            @SuppressWarnings("null")
             User user = userRepository.findById(userId)
                     .filter(User::isActive)
                     .orElseThrow(InvalidPasskeyCeremonyException::new);
@@ -345,7 +346,7 @@ public class PasskeyService {
                     null,
                     null,
                     "passkey_assertion_failed",
-                    java.util.Map.of());
+                    Map.of());
             throw new InvalidPasskeyCeremonyException(ex);
         }
     }
@@ -353,7 +354,6 @@ public class PasskeyService {
     /** Disables a credential owned by the user after password and optional MFA step-up. */
     @Transactional
     public void disable(String userId, UUID credentialId, StepUpRequest request) {
-        @SuppressWarnings("null")
         User user = userRepository.findByIdForUpdate(UUID.fromString(userId))
                 .filter(User::isActive).orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
@@ -364,7 +364,7 @@ public class PasskeyService {
                 SecurityEventType.PASSKEY_DISABLED,
                 "passkey_disable_step_up_failed");
         mfaService.requireMfaIfEnabled(user, request == null ? null : request.mfaCode(), "passkey_disable");
-        PasskeyCredential target = credentialRepository.findById(credentialId)
+        credentialRepository.findById(credentialId)
                 .filter(existing -> existing.getUserId().equals(user.getId()))
                 .filter(existing -> existing.getDisabledAt() == null)
                 .orElseThrow(UserNotFoundException::new);
@@ -405,7 +405,6 @@ public class PasskeyService {
     }
 
     private User loadActiveUser(String userId) {
-        @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);

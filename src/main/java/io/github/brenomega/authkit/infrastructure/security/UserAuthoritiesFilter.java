@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -32,15 +33,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-/**
- * Binds first-party JWT authorization to current server-side account state.
- *
- * <p>The filter accepts only first-party token use and the configured API audience,
- * requires the JWT {@code jti} to identify an active refresh session, and replaces
- * authorities with the current database role. Authorities are cached for a short
- * configured TTL and explicitly evicted on known authorization transitions; the
- * guarantee is therefore bounded by that TTL for out-of-band database changes.</p>
- */
 @Component
 public class UserAuthoritiesFilter extends OncePerRequestFilter {
 
@@ -77,14 +69,15 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
         CaffeineCacheMetrics.monitor(meterRegistry, authorityCache, "authkit.authority_cache");
     }
 
-    @SuppressWarnings("null")
     @Override
-    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
+    protected void doFilterInternal(
+        @NonNull HttpServletRequest request,
+        @NonNull HttpServletResponse response,
+        @NonNull FilterChain filterChain)
             throws ServletException, IOException {
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
-        // Evaluate instances that have passed through BearerTokenAuthenticationFilter
         if (authentication instanceof JwtAuthenticationToken jwtAuth) {
             if (!JwtTokenUse.isFirstPartyAccess(jwtAuth.getToken(), apiAudience)) {
                 SecurityContextHolder.clearContext();
@@ -93,7 +86,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
             }
             UUID userId;
             try {
-                userId = UUID.fromString(jwtAuth.getName()); // Resolves to 'sub' claim
+                userId = UUID.fromString(jwtAuth.getName());
             } catch (IllegalArgumentException ex) {
                 reject(response);
                 return;
@@ -107,7 +100,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                     reject(response);
                     return;
                 }
-                tokenStorage.touchSession(userId.toString(), jti, java.time.Instant.now(),
+                tokenStorage.touchSession(userId.toString(), jti, Instant.now(),
                         sessionMetadataFactory.currentMaskedIp(), lastSeenThrottleSeconds);
                 cachedAuthorities = authorityCache.get(userId, this::loadAuthorities);
             } catch (DataAccessException | TransactionException ex) {
@@ -121,7 +114,6 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // Overwrite the Security Context mapped authorities explicitly with the current DB snapshot.
             JwtAuthenticationToken updatedToken = new JwtAuthenticationToken(
                     jwtAuth.getToken(),
                     cachedAuthorities.get().authorities(),
@@ -142,7 +134,6 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                 });
     }
 
-    /** Invalidates cached account activity and authorities after a known state change. */
     public void evict(UUID userId) {
         authorityCache.invalidate(userId);
     }

@@ -59,7 +59,10 @@ public class OAuthTokenRevocationService {
             try {
                 store.revoke(jti, expiresAt);
             } catch (RuntimeException ex) {
-                meterRegistry.counter("security.infrastructure.failure", "component", "oauth_token_revocation_jdbc").increment();
+                meterRegistry.counter(
+                    "security.infrastructure.failure",
+                    "component",
+                    "oauth_token_revocation_jdbc").increment();
             }
         });
         if (redisRevocationEnabled) {
@@ -67,7 +70,10 @@ public class OAuthTokenRevocationService {
                 try {
                     template.opsForValue().set(KEY_PREFIX + jti, expiresAt.toString(), ttl);
                 } catch (RuntimeException ex) {
-                    meterRegistry.counter("security.infrastructure.failure", "component", "oauth_token_revocation").increment();
+                    meterRegistry.counter(
+                        "security.infrastructure.failure",
+                        "component",
+                        "oauth_token_revocation").increment();
                 }
             });
         }
@@ -89,7 +95,10 @@ public class OAuthTokenRevocationService {
             try {
                 return store.isRevoked(jti);
             } catch (RuntimeException ex) {
-                meterRegistry.counter("security.infrastructure.failure", "component", "oauth_token_revocation_jdbc").increment();
+                meterRegistry.counter(
+                    "security.infrastructure.failure",
+                    "component",
+                    "oauth_token_revocation_jdbc").increment();
                 return false;
             }
         }).orElse(false)) {
@@ -102,7 +111,10 @@ public class OAuthTokenRevocationService {
             try {
                 return template.opsForValue().get(KEY_PREFIX + jti) != null;
             } catch (RuntimeException ex) {
-                meterRegistry.counter("security.infrastructure.failure", "component", "oauth_token_revocation").increment();
+                meterRegistry.counter(
+                    "security.infrastructure.failure",
+                    "component",
+                    "oauth_token_revocation").increment();
                 return false;
             }
         }).orElse(false);

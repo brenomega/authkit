@@ -22,7 +22,8 @@ class HttpEdgeContractIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Test
+@SuppressWarnings("null")
+@Test
     void duplicateQueryAndFormParametersAreRejectedBeforeBinding() throws Exception {
         mockMvc.perform(get("/oauth2/authorize")
                         .queryParam("client_id", "one", "two"))
@@ -46,7 +47,8 @@ class HttpEdgeContractIntegrationTest {
                 .andExpect(jsonPath("$.code").value("unauthorized"));
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     void duplicateAndUnknownJsonFieldsAreRejected() throws Exception {
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)

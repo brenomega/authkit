@@ -10,29 +10,21 @@ import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
-/**
- * Submits email payloads to the durable RabbitMQ topology.
- *
- * <p>This adapter does not wait for consumer completion. Broker-confirm strength
- * is determined by the surrounding Spring AMQP configuration.</p>
- */
 @Component
-@ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
+@ConditionalOnProperty(
+    prefix = "authkit.auth.email-outbox",
+    name = "dispatch-mode",
+    havingValue = "queue",
+    matchIfMissing = true)
 public class RabbitMqEmailPublisher implements QueuePublisher<EmailPayload> {
 
     private static final Logger log = LoggerFactory.getLogger(RabbitMqEmailPublisher.class);
     private final RabbitTemplate rabbitTemplate;
 
-    /**
-     * @param rabbitTemplate the Spring AMQP template abstraction
-     */
     public RabbitMqEmailPublisher(RabbitTemplate rabbitTemplate) {
         this.rabbitTemplate = rabbitTemplate;
     }
 
-    /**
-     * Serializes the payload to JSON and submits it to the email routing key.
-     */
     @Override
     public void publish(EmailPayload payload) {
         rabbitTemplate.convertAndSend(

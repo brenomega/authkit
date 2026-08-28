@@ -12,10 +12,6 @@ import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.stereotype.Component;
 
-/**
- * Isolated audit-retention connection. These credentials must belong only to
- * a login that has been granted the non-login {@code authkit_retention} role.
- */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled",
         havingValue = "true", matchIfMissing = true)
@@ -29,7 +25,8 @@ public class RetentionDeleteGateway {
             @Value("${AUTH_RETENTION_DB_PASSWORD:}") String password) {
         if (url.isBlank() || username.isBlank() || password.isBlank()) {
             throw new IllegalStateException(
-                    "Retention worker requires AUTH_RETENTION_DB_URL, AUTH_RETENTION_DB_USERNAME, and AUTH_RETENTION_DB_PASSWORD");
+                    "Retention worker requires AUTH_RETENTION_DB_URL, " +
+                        "AUTH_RETENTION_DB_USERNAME, and AUTH_RETENTION_DB_PASSWORD");
         }
         DriverManagerDataSource dataSource = new DriverManagerDataSource(url, username, password);
         dataSource.setDriverClassName("org.postgresql.Driver");

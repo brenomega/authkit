@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.Arrays;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -140,7 +141,7 @@ public class PasswordPolicyService {
         if (name == null || name.isBlank()) {
             return false;
         }
-        return java.util.Arrays.stream(name.toLowerCase(Locale.ROOT).split("[^a-z0-9]+"))
+        return Arrays.stream(name.toLowerCase(Locale.ROOT).split("[^a-z0-9]+"))
                 .filter(part -> part.length() >= 3)
                 .anyMatch(lowerPassword::contains);
     }

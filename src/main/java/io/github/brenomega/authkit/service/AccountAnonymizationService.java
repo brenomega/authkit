@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.AccountState;
@@ -20,6 +21,7 @@ import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 import io.micrometer.core.instrument.MeterRegistry;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,7 +31,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Irreversibly anonymizes accounts whose configured deletion grace has expired. */
 @Service
 @ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled",
         havingValue = "true", matchIfMissing = true)
@@ -118,8 +119,9 @@ public class AccountAnonymizationService {
         String anonymizedEmail = "deleted+" + userId.toString().replace("-", "") + "@deleted.authkit.local";
         socialLoginTransactionRepository.deleteByUserId(userId);
         socialIdentityRepository.deleteByUserId(userId);
+        @SuppressWarnings("null")
         List<UUID> oauthRefreshFamilyIds = oauthRefreshTokenFamilyRepository.findByUserIdIn(List.of(userId)).stream()
-                .map(io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily::getId)
+                .map(OAuthRefreshTokenFamily::getId)
                 .toList();
         if (!oauthRefreshFamilyIds.isEmpty()) {
             oauthRefreshTokenRepository.deleteByFamilyIdIn(oauthRefreshFamilyIds);
@@ -136,7 +138,7 @@ public class AccountAnonymizationService {
                 user.getTenantId(),
                 originalEmail,
                 "account_anonymized_after_grace",
-                java.util.Map.of("direct_pii", "email_name"));
+                Map.of("direct_pii", "email_name"));
         emailOutboxService.deleteByRecipients(List.of(originalEmail));
         tokenStorage.revokeAllSessions(userId.toString());
         userAuthoritiesFilter.evict(userId);

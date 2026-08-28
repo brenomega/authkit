@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,8 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 class EmailChangeServiceTest {
 
@@ -55,17 +58,18 @@ class EmailChangeServiceTest {
         authorities = mock(UserAuthoritiesFilter.class);
         AuthProperties properties = new AuthProperties();
         properties.getFrontend().setEmailChangeUrl("https://app.example/change-email");
-        var renderer = mock(io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer.class);
+        var renderer = mock(EmailTemplateRenderer.class);
         when(renderer.render(any(), any(), any())).thenAnswer(invocation -> {
-            java.util.Map<?, ?> variables = invocation.getArgument(2);
-            return new io.github.brenomega.authkit.service.spi.EmailPayload(
+            Map<?, ?> variables = invocation.getArgument(2);
+            return new EmailPayload(
                     invocation.getArgument(1), "subject",
                     variables.containsKey("action_url") ? String.valueOf(variables.get("action_url")) : "notice");
         });
         service = new EmailChangeService(users, stepUp, mfa, outbox, events, tokens, authorities, properties, renderer);
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     void requestPreservesActiveAddressAndCreatesAuditedPendingState() {
         User user = user("old@example.com");
         when(users.findById(user.getId())).thenReturn(Optional.of(user));
@@ -124,7 +128,8 @@ class EmailChangeServiceTest {
                 eq("invalid_email_change_token"), any());
     }
 
-    @Test
+@SuppressWarnings("null")
+@Test
     void cancelClearsPendingStateAfterStepUp() {
         User user = user("old@example.com");
         user.requestEmailChange("new@example.com", TokenHasher.sha256Hex("token"),

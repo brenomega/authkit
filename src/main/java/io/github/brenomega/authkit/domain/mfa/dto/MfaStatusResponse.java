@@ -2,9 +2,6 @@ package io.github.brenomega.authkit.domain.mfa.dto;
 
 import java.time.Instant;
 
-/**
- * Current MFA posture for the authenticated user.
- */
 public record MfaStatusResponse(
         boolean totpEnabled,
         int backupCodesRemaining,

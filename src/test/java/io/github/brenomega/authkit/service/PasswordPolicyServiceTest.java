@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.time.Instant;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,7 +42,7 @@ class PasswordPolicyServiceTest {
     @DisplayName("Rejects common, identity-derived, and recent password reuse")
     void validateForUser_rejectsWeakAndReusedPasswords() {
         User user = new User("person@example.com", "current-hash", "Person Example", true, true, null);
-        ReflectionTestUtils.setField(user, "id", java.util.UUID.randomUUID());
+        ReflectionTestUtils.setField(user, "id", UUID.randomUUID());
 
         assertThrows(WeakPasswordException.class,
                 () -> passwordPolicyService.validateForRegistration("user@example.com", "password123"));
@@ -50,7 +52,7 @@ class PasswordPolicyServiceTest {
         PasswordHistoryEntry historyEntry = new PasswordHistoryEntry(
                 user.getId(),
                 "old-hash",
-                java.time.Instant.now());
+                Instant.now());
         when(passwordHistoryRepository.findByUserIdOrderByCreatedAtDesc(
                 org.mockito.Mockito.eq(user.getId()),
                 org.mockito.Mockito.any(Pageable.class)))

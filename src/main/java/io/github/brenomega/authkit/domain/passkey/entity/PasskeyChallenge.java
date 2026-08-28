@@ -12,13 +12,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/**
- * Represents short-lived WebAuthn ceremony state shared across application instances.
- *
- * <p>An assertion challenge may omit {@code userId} for discoverable credentials;
- * registration challenges are user-bound. Expiration and single consumption are
- * enforced by a conditional repository update rather than this entity alone.</p>
- */
 @Entity
 @Table(name = "passkey_challenges")
 public class PasskeyChallenge {

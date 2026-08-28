@@ -9,6 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import java.util.Set;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
 import io.github.brenomega.authkit.domain.oauth.dto.AdminOAuthClientCreateRequest;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
@@ -36,13 +39,20 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class AdminServiceTest {
 
-    @Autowired private AdminService adminService;
-    @Autowired private UserRepository userRepository;
-    @Autowired private OAuthClientRepository oauthClientRepository;
-    @Autowired private PasskeyCredentialRepository passkeyCredentialRepository;
-    @Autowired private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
-    @Autowired private TokenStorage tokenStorage;
+    @Autowired
+    private AdminService adminService;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private OAuthClientRepository oauthClientRepository;
+    @Autowired
+    private PasskeyCredentialRepository passkeyCredentialRepository;
+    @Autowired
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
+    @Autowired
+    private TokenStorage tokenStorage;
 
+    @SuppressWarnings("null")
     @Test
     @DisplayName("A platform administrator can grant the only administrative role")
     void platformAdminCanUpdateUserRole() {
@@ -110,7 +120,7 @@ class AdminServiceTest {
     void platformAdminCancelsPendingDeletion() {
         User admin = confirmedUser("cancel-admin@example.com", Role.PLATFORM_ADMIN);
         User target = confirmedUser("cancel-target@example.com", Role.USER);
-        target.requestDeletion(java.time.Instant.now());
+        target.requestDeletion(Instant.now());
         userRepository.save(target);
         activePasskey(admin);
 
@@ -145,7 +155,7 @@ class AdminServiceTest {
         assertEquals(0, detail.authenticators().activePasskeys());
         assertEquals(0, detail.authenticators().linkedSocialIdentities());
 
-        String sessionJti = java.util.UUID.randomUUID().toString();
+        String sessionJti = UUID.randomUUID().toString();
         var refresh = RefreshTokenCodec.issue(first.getId().toString(), sessionJti);
         tokenStorage.storeRefreshToken(first.getId().toString(), sessionJti, refresh.rawToken(), 1);
         assertTrue(tokenStorage.isSessionActive(first.getId().toString(), sessionJti));
@@ -166,14 +176,14 @@ class AdminServiceTest {
         passkeyCredentialRepository.save(new PasskeyCredential(
                 user.getId(), user.getTenantId(), "credential-" + user.getId(),
                 "public-key-cose", 0, "internal", "Admin Passkey", true,
-                java.time.Instant.now()));
+                Instant.now()));
     }
 
     private Jwt jwt(User user) {
         return new Jwt(
-                "token", java.time.Instant.now(), java.time.Instant.now().plusSeconds(900),
+                "token", Instant.now(), Instant.now().plusSeconds(900),
                 Map.of("alg", "none"),
                 Map.of("sub", user.getId().toString(), "tenant_id", user.getTenantId().toString(),
-                        "amr", java.util.List.of("webauthn")));
+                        "amr", List.of("webauthn")));
     }
 }

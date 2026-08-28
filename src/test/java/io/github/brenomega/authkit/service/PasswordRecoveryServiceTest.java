@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
 
 import java.util.Optional;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -32,11 +34,9 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
+import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.service.spi.EmailPayload;
 
-/**
- * Unit tests for PasswordRecoveryService (DT 3.4.5).
- * Validates RF 2.1.3 and RF 2.1.4.
- */
 class PasswordRecoveryServiceTest {
 
     private UserRepository userRepository;
@@ -61,10 +61,10 @@ class PasswordRecoveryServiceTest {
         securityEventService = mock(SecurityEventService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
-        var renderer = mock(io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer.class);
+        var renderer = mock(EmailTemplateRenderer.class);
         when(renderer.render(any(), any(), any())).thenAnswer(invocation -> {
-            java.util.Map<?, ?> variables = invocation.getArgument(2);
-            return new io.github.brenomega.authkit.service.spi.EmailPayload(
+            Map<?, ?> variables = invocation.getArgument(2);
+            return new EmailPayload(
                     invocation.getArgument(1), "subject",
                     variables.containsKey("action_url") ? String.valueOf(variables.get("action_url")) : "notice");
         });
@@ -95,9 +95,6 @@ class PasswordRecoveryServiceTest {
         }
     }
 
-    /**
-     * RF 2.1.3 — Recovery Initiation: Confirms token generation and email dispatch for valid users.
-     */
     @Test
     @DisplayName("Request: Existing user triggers token and email")
     void requestRecovery_ExistingUser_PublishesEmail() {
@@ -115,9 +112,6 @@ class PasswordRecoveryServiceTest {
                         && payload.htmlBody().contains("&email=exists%40example.com")));
     }
 
-    /**
-     * DT 3.2.15 — Stealth Initiation: Confirms no email or token for non-existing users (silent ignore).
-     */
     @Test
     @DisplayName("Request: Non-existing user is handled silently (Stealth)")
     void requestRecovery_NonExistingUser_Silent() {
@@ -161,9 +155,6 @@ class PasswordRecoveryServiceTest {
         verify(tokenStorage).revokeRecoveryTokenIfMatches(eq(email), any());
     }
 
-    /**
-     * RF 2.1.4 — Password Reset: Validates successful reset cycle.
-     */
     @Test
     @DisplayName("Reset: Valid token successfully changes password")
     void resetPassword_ValidToken_Success() {
@@ -172,7 +163,7 @@ class PasswordRecoveryServiceTest {
         String newPass = "NewPass123!";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
-        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
+        when(user.getId()).thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000000"));
         when(user.getPassword()).thenReturn("existing-hash");
 
         when(tokenStorage.claimRecoveryToken(eq(email), eq(token), any(), eq(1800L))).thenReturn(true);
@@ -182,28 +173,22 @@ class PasswordRecoveryServiceTest {
         recoveryService.resetPassword(email, token, newPass);
 
         verify(userRepository).save(user);
-        // DT 3.2.23: Lockout must be cleared after successful reset
+
         verify(lockoutService).clearLockout(email);
-        // RF 2.1.12: All sessions must be revoked after password reset
+
         verify(tokenStorage).revokeAllSessions("00000000-0000-0000-0000-000000000000");
-        verify(emailOutboxService).enqueue(any()); // Reset confirmation
+        verify(emailOutboxService).enqueue(any());
     }
 
-    /**
-     * Edge Case: Invalid token should throw InvalidTokenException (HTTP 400).
-     */
     @Test
     @DisplayName("Reset: Invalid token throws exception")
     void resetPassword_InvalidToken_ThrowsException() {
         when(tokenStorage.claimRecoveryToken(any(), any(), any(), eq(1800L))).thenReturn(false);
 
-        assertThrows(InvalidTokenException.class, () -> 
+        assertThrows(InvalidTokenException.class, () ->
             recoveryService.resetPassword("any@example.com", "bad", "new"));
     }
 
-    /**
-     * Edge Case: Valid token but user deleted/missing should throw UserNotFoundException.
-     */
     @Test
     @DisplayName("Reset: Valid token but missing user throws exception")
     void resetPassword_MissingUser_ThrowsException() {
@@ -211,7 +196,7 @@ class PasswordRecoveryServiceTest {
         when(tokenStorage.claimRecoveryToken(eq(email), any(), any(), eq(1800L))).thenReturn(true);
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
 
-        assertThrows(UserNotFoundException.class, () -> 
+        assertThrows(UserNotFoundException.class, () ->
             recoveryService.resetPassword(email, "token", "pass"));
     }
 

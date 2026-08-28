@@ -16,6 +16,7 @@ import java.util.UUID;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
+import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -39,13 +40,10 @@ public class RedisTokenStorageTest {
 
         redisTokenStorage.storeRefreshToken(userId, jti, rawToken, 7);
 
-        // Validation against exact hash match
         assertTrue(redisTokenStorage.validateToken(userId, jti, rawToken));
-        
-        // Rejection of invalid payloads
+
         assertFalse(redisTokenStorage.validateToken(userId, jti, "forged-token"));
-        
-        // Ensure revocation clears it
+
         redisTokenStorage.revokeAllSessions(userId);
         assertFalse(redisTokenStorage.validateToken(userId, jti, rawToken));
     }
@@ -77,7 +75,7 @@ public class RedisTokenStorageTest {
         String replayReplacementJti = UUID.randomUUID().toString();
         String replayReplacementToken =
                 RefreshTokenCodec.issueRotated(userId, replayReplacementJti, currentRefreshToken.familyId()).rawToken();
-        assertThrows(io.github.brenomega.authkit.exception.TokenFamilyCompromisedException.class, () ->
+        assertThrows(TokenFamilyCompromisedException.class, () ->
             redisTokenStorage.rotateRefreshToken(
                 userId,
                 currentJti,
@@ -99,8 +97,10 @@ public class RedisTokenStorageTest {
         redisTokenStorage.storeRecoveryToken(email, rawToken, 15);
 
         assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + normalizedEmail)));
-        assertFalse(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + TokenHasher.sha256Hex(normalizedEmail))));
-        assertTrue(Boolean.TRUE.equals(redisTemplate.hasKey("recovery:token:" + auditDigestService.hmacHex(normalizedEmail))));
+        assertFalse(Boolean.TRUE.equals(
+                redisTemplate.hasKey("recovery:token:" + TokenHasher.sha256Hex(normalizedEmail))));
+        assertTrue(Boolean.TRUE.equals(
+                redisTemplate.hasKey("recovery:token:" + auditDigestService.hmacHex(normalizedEmail))));
 
         assertTrue(redisTokenStorage.consumeRecoveryToken(normalizedEmail, rawToken));
         assertFalse(redisTokenStorage.consumeRecoveryToken(normalizedEmail, rawToken));

@@ -6,15 +6,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/**
- * Centralized concurrency limiter for Argon2id hash computations (DT 3.2.26).
- *
- * <p>Wraps a single {@link Semaphore} shared across all services that perform
- * password hashing, ensuring the system-wide thread exhaustion guard operates
- * as a coordinated unit rather than as independent per-service limiters.</p>
- *
- * <p>Permit count is operator-configurable. Zero selects {@code max(2, cores * 1.5)}.</p>
- */
 @Component
 public class Argon2ConcurrencyLimiter {
 
@@ -35,18 +26,10 @@ public class Argon2ConcurrencyLimiter {
         this.semaphore = new Semaphore(maxConcurrent);
     }
 
-    /**
-     * Attempts to acquire a permit without blocking.
-     *
-     * @return {@code true} if the permit was acquired
-     */
     public boolean tryAcquire() {
         return semaphore.tryAcquire();
     }
 
-    /**
-     * Releases a previously acquired permit.
-     */
     public void release() {
         semaphore.release();
     }

@@ -3,9 +3,6 @@ package io.github.brenomega.authkit.domain.mfa.util;
 import java.io.ByteArrayOutputStream;
 import java.util.Locale;
 
-/**
- * Minimal RFC 4648 Base32 codec without padding.
- */
 public final class Base32 {
 
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".toCharArray();

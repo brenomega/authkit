@@ -1,6 +1,7 @@
 package io.github.brenomega.authkit.domain.user.entity;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.domain.user.enums.Role;
@@ -23,19 +24,6 @@ import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
 
-/**
- * Represents an account's identity, tenant, consent, and deletion lifecycle.
- *
- * <p>The JPA-generated identity and tenant identifier are UUIDs. Authentication
- * requires a confirmed email and an account not marked deleted or anonymized.
- * Deletion is an irreversible domain transition that replaces direct identifiers,
- * clears confirmation and consent flags, and makes the account inactive.</p>
- *
- * <p>The entity remains independent of Spring Security. Its log representation
- * masks email and excludes password and activation material.</p>
- *
- * @see io.github.brenomega.authkit.infrastructure.security.SecurityUser
- */
 @Entity
 @Table(name = "users")
 @FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = String.class)})
@@ -46,25 +34,16 @@ public class User {
     private static final String DEFAULT_PRIVACY_POLICY_VERSION = "privacy-v1";
     private static final String DEFAULT_LAWFUL_BASIS = "consent";
 
-    /**
-     * Universally unique identifier — primary key (DT 3.1.21).
-     */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, updatable = false)
-    private java.util.UUID id;
+    private UUID id;
 
-    /**
-     * User's email address, used as the login credential.
-     */
     @NotBlank
     @Email
     @Column(name = "email", nullable = false, unique = true)
     private String email;
 
-    /**
-     * Hashed password (Argon2id). The plaintext value is never stored (DT 3.2.1).
-     */
     @Column(name = "password")
     private String password;
 
@@ -73,11 +52,9 @@ public class User {
     @Column(name = "role", nullable = false, length = 50)
     private Role role = Role.USER;
 
-    /** Opaque, one-person partition identifier. It never denotes an organization. */
     @Column(name = "tenant_id", nullable = false, unique = true, updatable = false)
-    private java.util.UUID tenantId;
+    private UUID tenantId;
 
-    /** Optional display name. */
     @Column(name = "name", length = 100)
     private String name;
 
@@ -92,32 +69,25 @@ public class User {
     @Column(name = "suspension_reason", length = 500)
     private String suspensionReason;
 
-    /** Proof of acceptance of Terms of Use. */
     @Column(name = "terms_accepted", nullable = false)
     private boolean termsAccepted;
 
-    /** Proof of acceptance of Privacy Policy. */
     @Column(name = "privacy_policy_accepted", nullable = false)
     private boolean privacyPolicyAccepted;
 
-    /** Restricts full write capabilities until verified. */
     @Column(name = "email_confirmed", nullable = false)
     private boolean emailConfirmed;
 
-    /** SHA-256 hash of the current one-time email-confirmation token. */
     @Column(name = "email_confirmation_token", length = 100)
     private String emailConfirmationToken;
 
-    /** Expiration for the current email confirmation token. */
     @Column(name = "email_confirmation_expires_at")
     private Instant emailConfirmationExpiresAt;
 
-    /** New address awaiting completion of the authenticated email-change ceremony. */
     @Email
     @Column(name = "pending_email", length = 255)
     private String pendingEmail;
 
-    /** SHA-256 digest of the current one-time email-change token. */
     @Column(name = "email_change_token_hash", length = 64)
     private String emailChangeTokenHash;
 
@@ -127,41 +97,30 @@ public class User {
     @Column(name = "email_change_requested_at")
     private Instant emailChangeRequestedAt;
 
-    /** Terms of Use version accepted by the user. */
     @Column(name = "terms_version", nullable = false, length = 64)
     private String termsVersion = DEFAULT_TERMS_VERSION;
 
-    /** Privacy Policy version accepted by the user. */
     @Column(name = "privacy_policy_version", nullable = false, length = 64)
     private String privacyPolicyVersion = DEFAULT_PRIVACY_POLICY_VERSION;
 
-    /** Timestamp of consent acceptance for terms/privacy. */
     @Column(name = "consent_accepted_at")
     private Instant consentAcceptedAt;
 
-    /** Lawful basis for processing the account data. */
     @Column(name = "lawful_basis", nullable = false, length = 64)
     private String lawfulBasis = DEFAULT_LAWFUL_BASIS;
 
-    /** Timestamp when account deletion was requested. */
     @Column(name = "deletion_requested_at")
     private Instant deletionRequestedAt;
 
-    /** Timestamp when the account was deleted or made inactive. */
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
-    /** Timestamp when direct PII was anonymized. */
     @Column(name = "anonymized_at")
     private Instant anonymizedAt;
 
     protected User() {
     }
 
-    /**
-     * Creates a new user mapping explicitly from registration coordinates.
-     * Generates a universally unique tenant identifier tied to the user upon creation.
-     */
     public User(String email, String password, String name,
                 boolean termsAccepted, boolean privacyPolicyAccepted,
                 String emailConfirmationToken) {
@@ -174,12 +133,12 @@ public class User {
         recordConsent(DEFAULT_TERMS_VERSION, DEFAULT_PRIVACY_POLICY_VERSION, DEFAULT_LAWFUL_BASIS, Instant.now());
 
         this.role = Role.USER;
-        this.tenantId = java.util.UUID.randomUUID();
+        this.tenantId = UUID.randomUUID();
         this.emailConfirmed = false;
         this.accountState = AccountState.ACTIVE;
     }
 
-    public java.util.UUID getId() {
+    public UUID getId() {
         return id;
     }
 
@@ -207,7 +166,7 @@ public class User {
         this.role = role;
     }
 
-    public java.util.UUID getTenantId() { return tenantId; }
+    public UUID getTenantId() { return tenantId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public AccountState getAccountState() { return accountState; }
@@ -218,9 +177,13 @@ public class User {
     public boolean isEmailConfirmed() { return emailConfirmed; }
     public void setEmailConfirmed(boolean emailConfirmed) { this.emailConfirmed = emailConfirmed; }
     public String getEmailConfirmationToken() { return emailConfirmationToken; }
-    public void setEmailConfirmationToken(String emailConfirmationToken) { this.emailConfirmationToken = emailConfirmationToken; }
+    public void setEmailConfirmationToken(String emailConfirmationToken) {
+        this.emailConfirmationToken = emailConfirmationToken;
+    }
     public Instant getEmailConfirmationExpiresAt() { return emailConfirmationExpiresAt; }
-    public void setEmailConfirmationExpiresAt(Instant emailConfirmationExpiresAt) { this.emailConfirmationExpiresAt = emailConfirmationExpiresAt; }
+    public void setEmailConfirmationExpiresAt(Instant emailConfirmationExpiresAt) {
+        this.emailConfirmationExpiresAt = emailConfirmationExpiresAt;
+    }
     public String getPendingEmail() { return pendingEmail; }
     public String getEmailChangeTokenHash() { return emailChangeTokenHash; }
     public Instant getEmailChangeExpiresAt() { return emailChangeExpiresAt; }
@@ -233,15 +196,17 @@ public class User {
     public Instant getDeletedAt() { return deletedAt; }
     public Instant getAnonymizedAt() { return anonymizedAt; }
 
-    /** Records policy versions and an acceptance timestamp only when both required consents are true. */
-    public void recordConsent(String termsVersion, String privacyPolicyVersion, String lawfulBasis, Instant acceptedAt) {
+    public void recordConsent(
+        String termsVersion,
+        String privacyPolicyVersion,
+        String lawfulBasis,
+        Instant acceptedAt) {
         this.termsVersion = termsVersion;
         this.privacyPolicyVersion = privacyPolicyVersion;
         this.lawfulBasis = lawfulBasis;
         this.consentAcceptedAt = (termsAccepted && privacyPolicyAccepted) ? acceptedAt : null;
     }
 
-    /** Returns whether deletion or anonymization has made the account inactive. */
     public boolean isDeleted() {
         return accountState == AccountState.ANONYMIZED;
     }
@@ -271,7 +236,6 @@ public class User {
         this.suspensionReason = null;
     }
 
-    /** Records the first deletion-request timestamp and preserves it on retries. */
     public void requestDeletion(Instant requestedAt) {
         if (this.deletionRequestedAt == null) {
             this.deletionRequestedAt = requestedAt;
@@ -320,7 +284,6 @@ public class User {
         this.emailChangeExpiresAt = null;
     }
 
-    /** Replaces direct identity data and completes the account's deletion transition. */
     public void anonymizeForDeletion(String anonymizedEmail, Instant anonymizedAt) {
         requestDeletion(anonymizedAt);
         this.email = anonymizedEmail;
@@ -345,11 +308,6 @@ public class User {
         }
     }
 
-    /**
-     * Guards operations that require a confirmed email address.
-     *
-     * @throws EmailNotConfirmedException if the email has not been confirmed
-     */
     public void requireEmailConfirmed() {
         requireActive();
         if (!this.emailConfirmed) {
@@ -357,11 +315,6 @@ public class User {
         }
     }
 
-    /**
-     * Returns a log-safe string that masks the email and excludes the password.
-     *
-     * @return a representation containing no password or unmasked email
-     */
     @Override
     public String toString() {
         return "User{id='" + id + "', email='" + EmailMasker.mask(email) + "', role=" + role + '}';

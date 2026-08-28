@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.repository;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -30,7 +31,7 @@ public interface MfaBackupCodeRepository extends JpaRepository<MfaBackupCode, UU
                and code.codeHash = :codeHash
                and code.usedAt is null
             """)
-    int consumeUnusedCode(UUID userId, String codeHash, java.time.Instant usedAt);
+    int consumeUnusedCode(UUID userId, String codeHash, Instant usedAt);
 
     @Modifying
     void deleteByUserIdAndUsedAtIsNull(UUID userId);

@@ -82,6 +82,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
                 .map(this::registeredCredential);
     }
 
+    @SuppressWarnings("null")
     @Override
     public Set<RegisteredCredential> lookupAll(ByteArray credentialId) {
         return passkeyCredentialRepository.findByCredentialId(credentialId.getBase64Url())
@@ -120,6 +121,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
         }
     }
 
+    @SuppressWarnings("null")
     private Set<AuthenticatorTransport> transports(String transports) {
         if (transports == null || transports.isBlank()) {
             return Set.of();

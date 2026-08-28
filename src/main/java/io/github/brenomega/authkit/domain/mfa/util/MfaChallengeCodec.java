@@ -5,16 +5,10 @@ import java.util.UUID;
 import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Arrays;
 
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 
-/**
- * Encodes MFA login challenges with lookup handles and random entropy.
- *
- * <p>User and JTI components are untrusted routing metadata. Parsing validates
- * only structure; authentication requires atomic comparison with the hashed,
- * expiring value held by {@link io.github.brenomega.authkit.service.spi.TokenStorage}.</p>
- */
 public final class MfaChallengeCodec {
 
     private static final String VERSION = "v1";
@@ -39,7 +33,6 @@ public final class MfaChallengeCodec {
         return new IssuedMfaChallenge(userId, jti, raw, List.copyOf(initialAmr));
     }
 
-    /** Returns structural metadata without authenticating or consuming the challenge. */
     public static Optional<IssuedMfaChallenge> parse(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
             return Optional.empty();
@@ -63,7 +56,7 @@ public final class MfaChallengeCodec {
         if (versionedAmr) {
             try {
                 String decoded = new String(Base64.getUrlDecoder().decode(parts[4]), StandardCharsets.UTF_8);
-                initialAmr = java.util.Arrays.stream(decoded.split(","))
+                initialAmr = Arrays.stream(decoded.split(","))
                         .filter(value -> value.matches("[a-z0-9:_-]{1,80}"))
                         .distinct()
                         .toList();

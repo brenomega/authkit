@@ -54,15 +54,18 @@ class PostgresMigrationTest {
                     values ('%s', 'case@test.example', 'hash', 'USER')
                     """.formatted(UUID.randomUUID())));
 
-            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'shedlock'")) {
+            try (var result = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'shedlock'")) {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }
-            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'auth_refresh_sessions'")) {
+            try (var result = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'auth_refresh_sessions'")) {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }
-            try (var result = statement.executeQuery("select count(*) from information_schema.tables where table_name = 'oauth_revoked_tokens'")) {
+            try (var result = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'oauth_revoked_tokens'")) {
                 result.next();
                 assertEquals(1, result.getInt(1));
             }
@@ -73,9 +76,11 @@ class PostgresMigrationTest {
             assertEquals("1", scalar(statement,
                     "select count(*) from information_schema.tables where table_name = 'social_login_transactions'"));
             assertEquals("1", scalar(statement,
-                    "select count(*) from information_schema.tables where table_name = 'oauth_authorization_transactions'"));
+                    "select count(*) from information_schema.tables where table_name " +
+                        "= 'oauth_authorization_transactions'"));
             assertEquals("1", scalar(statement,
-                    "select count(*) from information_schema.tables where table_name = 'oauth_refresh_token_families'"));
+                    "select count(*) from information_schema.tables where table_name " +
+                        "= 'oauth_refresh_token_families'"));
             assertEquals("1", scalar(statement,
                     "select count(*) from information_schema.tables where table_name = 'oauth_refresh_tokens'"));
             assertEquals("character varying", scalar(statement, """
@@ -127,7 +132,8 @@ class PostgresMigrationTest {
             statement.execute("reset role");
 
             assertEquals("1", scalar(statement,
-                    "select count(*) from retention_purge_log where dataset = 'security_events_by_id' and deleted_count = 1"));
+                    "select count(*) from retention_purge_log where dataset = " +
+                        "'security_events_by_id' and deleted_count = 1"));
         }
     }
 
@@ -164,7 +170,8 @@ class PostgresMigrationTest {
                       ('%s', 'legacy-owner@example.test', 'hash', 'OWNER', '222'),
                       ('%s', 'legacy-pending@example.test', 'hash', 'TENANT_ADMIN', '333')
                     """.formatted(adminId, ownerId, pendingId));
-            statement.executeUpdate("update users set deletion_requested_at = now() where id = '%s'".formatted(pendingId));
+            statement.executeUpdate(
+                    "update users set deletion_requested_at = now() where id = '%s'".formatted(pendingId));
             statement.executeUpdate("""
                     insert into email_outbox
                         (id, recipient, subject, body, status, attempts, next_attempt_at, created_at, updated_at)
@@ -225,11 +232,13 @@ class PostgresMigrationTest {
                     "select status from email_outbox where id = '" + outboxId + "'"));
             assertEquals("1", scalar(statement, """
                     select count(*) from information_schema.columns
-                    where table_schema = current_schema() and table_name = 'email_outbox' and column_name = 'accepted_at'
+                    where table_schema = current_schema() and table_name = 'email_outbox'
+                    and column_name = 'accepted_at'
                     """));
             assertEquals("0", scalar(statement, """
                     select count(*) from information_schema.columns
-                    where table_schema = current_schema() and table_name = 'email_outbox' and column_name = 'delivered_at'
+                    where table_schema = current_schema() and table_name = 'email_outbox'
+                    and column_name = 'delivered_at'
                     """));
 
             UUID socialOnlyId = UUID.randomUUID();
@@ -393,7 +402,10 @@ class PostgresMigrationTest {
                     values ('%s', '%s', '%s', 'terms-v1', 'privacy-v1', 'consent', now(), now(), '%s')
                     """.formatted(UUID.randomUUID(), userId, tenantId, "e".repeat(64)));
 
-            statement.executeUpdate("delete from security_events where actor_user_id = '%s' or target_user_id = '%s'".formatted(userId, userId));
+            statement.executeUpdate("delete from security_events where actor_user_id = '%s' or " +
+                "target_user_id = '%s'".formatted(
+                userId,
+                userId));
             statement.executeUpdate("delete from consent_events where user_id = '%s'".formatted(userId));
             statement.executeUpdate("delete from users where id = '%s'".formatted(userId));
 
@@ -407,7 +419,8 @@ class PostgresMigrationTest {
     }
 
     private int count(java.sql.Statement statement, String table, UUID userId) throws SQLException {
-        try (var result = statement.executeQuery("select count(*) from " + table + " where user_id = '" + userId + "'")) {
+        try (var result = statement.executeQuery(
+                "select count(*) from " + table + " where user_id = '" + userId + "'")) {
             result.next();
             return result.getInt(1);
         }
@@ -420,7 +433,7 @@ class PostgresMigrationTest {
         }
     }
 
-    @SuppressWarnings("null")
+@SuppressWarnings("null")
 private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
         return new JdbcTemplateLockProvider(
                 JdbcTemplateLockProvider.Configuration.builder()

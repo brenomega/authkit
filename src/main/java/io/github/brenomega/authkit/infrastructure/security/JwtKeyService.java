@@ -1,7 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.security;
 
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.interfaces.RSAPrivateKey;
@@ -9,8 +8,10 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Base64;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -83,26 +84,27 @@ public class JwtKeyService {
     }
 
     public Set<String> revokedKeyIds() {
-        String value = authProperties.getJwt().getRevokedKeyIds();
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        return Arrays.stream(value.split("[,;]"))
-                .map(String::trim)
-                .filter(item -> !item.isBlank())
-                .collect(Collectors.toUnmodifiableSet());
+        return Optional.ofNullable(authProperties.getJwt().getRevokedKeyIds())
+                .filter(value -> !value.isBlank())
+                .map(value -> Arrays.stream(value.split("[,;]"))
+                        .map(String::trim)
+                        .filter(item -> !item.isBlank())
+                        .collect(Collectors.toUnmodifiableSet()))
+                .orElseGet(Set::of);
     }
 
     private Set<RSAKey> parseRetiringPublicKeys() {
-        String value = authProperties.getJwt().getRetiringPublicKeys();
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        return Arrays.stream(value.split(";"))
-                .map(String::trim)
-                .filter(entry -> !entry.isBlank())
-                .map(this::parseRetiringPublicKey)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return Optional.ofNullable(authProperties.getJwt().getRetiringPublicKeys())
+                .filter(value -> !value.isBlank())
+                .map(value -> {
+                    Set<RSAKey> keys = Arrays.stream(value.split(";"))
+                            .map(String::trim)
+                            .filter(entry -> !entry.isBlank())
+                            .map(this::parseRetiringPublicKey)
+                            .collect(Collectors.toCollection(LinkedHashSet::new));
+                    return keys;
+                })
+                .orElseGet(Set::of);
     }
 
     private RSAKey parseRetiringPublicKey(String entry) {
@@ -122,7 +124,7 @@ public class JwtKeyService {
                     .replace("-----BEGIN PUBLIC KEY-----", "")
                     .replace("-----END PUBLIC KEY-----", "")
                     .replaceAll("\\s", "");
-            byte[] der = java.util.Base64.getDecoder().decode(normalized);
+            byte[] der = Base64.getDecoder().decode(normalized);
             return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der));
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to parse JWT retiring public key", ex);
@@ -132,13 +134,7 @@ public class JwtKeyService {
     private String loadKeyMaterial(String keyMaterial) throws IOException {
         if (keyMaterial.startsWith("classpath:") || keyMaterial.startsWith("file:")) {
             Resource resource = resourceLoader.getResource(keyMaterial);
-            final Charset utf_82 = StandardCharsets.UTF_8;
-            if (utf_82 != null) {
-                return StreamUtils.copyToString(resource.getInputStream(), utf_82);
-            } else {
-                // TODO handle null value
-                return null;
-            }
+            return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
         }
         return keyMaterial;
     }

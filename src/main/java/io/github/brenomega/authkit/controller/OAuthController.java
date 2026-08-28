@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.net.URLDecoder;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.OAuthProviderService;
+import io.github.brenomega.authkit.exception.OAuthProtocolException;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -55,15 +57,34 @@ public class OAuthController {
                 Map.entry("jwks_uri", issuer + "/.well-known/jwks.json"),
                 Map.entry("response_types_supported", List.of("code")),
                 Map.entry("grant_types_supported", List.of("authorization_code", "refresh_token")),
-                Map.entry("token_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post", "none")),
-                Map.entry("revocation_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post", "none")),
-                Map.entry("introspection_endpoint_auth_methods_supported", List.of("client_secret_basic", "client_secret_post")),
+                Map.entry("token_endpoint_auth_methods_supported", List.of(
+                    "client_secret_basic",
+                    "client_secret_post",
+                    "none")),
+                Map.entry("revocation_endpoint_auth_methods_supported", List.of(
+                    "client_secret_basic",
+                    "client_secret_post",
+                    "none")),
+                Map.entry("introspection_endpoint_auth_methods_supported", List.of(
+                    "client_secret_basic",
+                    "client_secret_post")),
                 Map.entry("subject_types_supported", List.of("public")),
                 Map.entry("id_token_signing_alg_values_supported", List.of("RS256")),
                 Map.entry("code_challenge_methods_supported", List.of("S256")),
                 Map.entry("scopes_supported", List.of("openid", "profile", "email", "offline_access")),
                 Map.entry("response_modes_supported", List.of("query")),
-                Map.entry("claims_supported", List.of("sub", "iss", "aud", "exp", "iat", "nonce", "name", "email", "email_verified", "tenant_id", "amr"))
+                Map.entry("claims_supported", List.of(
+                    "sub",
+                    "iss",
+                    "aud",
+                    "exp",
+                    "iat",
+                    "nonce",
+                    "name",
+                    "email",
+                    "email_verified",
+                    "tenant_id",
+                    "amr"))
         );
     }
 
@@ -153,7 +174,11 @@ public class OAuthController {
             @RequestParam(value = "client_id", required = false) String clientId,
             @RequestParam(value = "client_secret", required = false) String clientSecret) {
         ClientCredentials credentials = readClientCredentials(authorization, clientId, clientSecret);
-        return oauthProviderService.introspect(token, tokenTypeHint, credentials.clientId(), credentials.clientSecret());
+        return oauthProviderService.introspect(
+            token,
+            tokenTypeHint,
+            credentials.clientId(),
+            credentials.clientSecret());
     }
 
     /** Returns only the subject claims authorized by the access token's scopes. */
@@ -161,40 +186,45 @@ public class OAuthController {
     public Map<String, Object> userInfo(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
         if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
-            throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+            throw new OAuthProtocolException(
                     "invalid_token", "Bearer access token is required");
         }
         return oauthProviderService.userInfo(authorization.substring(7));
     }
 
-    private ClientCredentials readClientCredentials(String authorization, String bodyClientId, String bodyClientSecret) {
+    private ClientCredentials readClientCredentials(
+        String authorization,
+        String bodyClientId,
+        String bodyClientSecret) {
         if (!StringUtils.hasText(authorization)) {
             if (!StringUtils.hasText(bodyClientId)) {
-                throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+                throw new OAuthProtocolException(
                         "invalid_client", "Client authentication is required");
             }
             return new ClientCredentials(bodyClientId, bodyClientSecret);
         }
         if (!authorization.startsWith("Basic ")) {
-            throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+            throw new OAuthProtocolException(
                     "invalid_client", "Unsupported client authentication method");
         }
         try {
             String decoded = new String(Base64.getDecoder().decode(authorization.substring(6)), StandardCharsets.UTF_8);
             int separator = decoded.indexOf(':');
             if (separator < 1) {
-                throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+                throw new OAuthProtocolException(
                         "invalid_client", "Malformed client credentials");
             }
-            String basicClientId = java.net.URLDecoder.decode(decoded.substring(0, separator), StandardCharsets.UTF_8);
-            String basicClientSecret = java.net.URLDecoder.decode(decoded.substring(separator + 1), StandardCharsets.UTF_8);
+            String basicClientId = URLDecoder.decode(decoded.substring(0, separator), StandardCharsets.UTF_8);
+            String basicClientSecret = URLDecoder.decode(
+                decoded.substring(separator + 1),
+                StandardCharsets.UTF_8);
             if (StringUtils.hasText(bodyClientId) && !basicClientId.equals(bodyClientId)) {
-                throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+                throw new OAuthProtocolException(
                         "invalid_client", "Conflicting client credentials");
             }
             return new ClientCredentials(basicClientId, basicClientSecret);
         } catch (IllegalArgumentException ex) {
-            throw new io.github.brenomega.authkit.exception.OAuthProtocolException(
+            throw new OAuthProtocolException(
                     "invalid_client", "Malformed client credentials");
         }
     }

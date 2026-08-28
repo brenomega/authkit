@@ -35,6 +35,7 @@ public class WebAuthnConfig {
                 .build();
     }
 
+    @SuppressWarnings("null")
     private Set<String> parseOrigins(String origins) {
         return Arrays.stream(origins.split(","))
                 .map(String::trim)

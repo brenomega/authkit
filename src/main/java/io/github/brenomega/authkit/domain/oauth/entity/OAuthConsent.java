@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.springframework.lang.Nullable;
 
 /**
  * Records the active set of scopes granted by one user to one OAuth client.
@@ -98,6 +99,7 @@ public class OAuthConsent {
         this.revokedAt = null;
     }
 
+    @SuppressWarnings("null")
     private static String join(Set<String> values) {
         return values.stream()
                 .map(String::trim)
@@ -106,7 +108,8 @@ public class OAuthConsent {
                 .collect(Collectors.joining(" "));
     }
 
-    private static Set<String> split(String value) {
+    @SuppressWarnings("null")
+    private static Set<String> split(@Nullable String value) {
         if (value == null || value.isBlank()) {
             return Set.of();
         }

@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.exception.InvalidAdminCursorException;
 
-/** Short-lived signed cursors bound to an admin query without embedding PII. */
 @Component
 public class AdminCursorCodec {
     private static final long TTL_SECONDS = 900;
@@ -40,7 +39,9 @@ public class AdminCursorCodec {
                     token[1].getBytes(StandardCharsets.US_ASCII))) throw new IllegalArgumentException();
             String payload = new String(Base64.getUrlDecoder().decode(token[0]), StandardCharsets.UTF_8);
             String[] fields = payload.split(":", -1);
-            if (fields.length != 6 || !"v1".equals(fields[0]) || !kind.equals(fields[1])) throw new IllegalArgumentException();
+            if (fields.length != 6 || !"v1".equals(fields[0]) || !kind.equals(fields[1])) {
+                throw new IllegalArgumentException();
+            }
             int page = Integer.parseInt(fields[2]);
             int encodedLimit = Integer.parseInt(fields[3]);
             long expiresAt = Long.parseLong(fields[4]);

@@ -12,10 +12,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * Verifies that the {@link OriginFirewallFilter} correctly uses overridden
- * trusted origin CIDR ranges from {@code application.yml} (DT 3.2.19).
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -30,7 +26,7 @@ public class NetworkSecurityConfigTest {
     @Test
     @DisplayName("Dynamic Config: Origin Firewall uses overridden IP ranges and rejects 127.0.0.1 (DT 3.2.19)")
     void firewall_usesOverriddenRanges_andRejectsLocalhost() throws Exception {
-        // With ranges=8.8.8.8/32, localhost (127.0.0.1) should be forbidden
+
         mockMvc.perform(post("/api/v1/auth/register")
                         .with(request -> {
                             request.setRemoteAddr("127.0.0.1");
@@ -51,7 +47,7 @@ public class NetworkSecurityConfigTest {
                         })
                         .contentType("application/json")
                         .content("{}"))
-                // It should bypass the firewall and hit the next filter/controller (which might return 400 due to empty body)
+
                 .andExpect(status().isBadRequest());
     }
 }

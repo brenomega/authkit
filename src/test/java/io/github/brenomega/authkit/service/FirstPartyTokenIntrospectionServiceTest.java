@@ -37,6 +37,7 @@ class FirstPartyTokenIntrospectionServiceTest {
         service = new FirstPartyTokenIntrospectionService(decoder, storage, users, properties);
     }
 
+    @SuppressWarnings("null")
     @Test
     void activeOnlyWhenTokenClassUserAndLiveSessionAreValid() {
         UUID userId = UUID.randomUUID();

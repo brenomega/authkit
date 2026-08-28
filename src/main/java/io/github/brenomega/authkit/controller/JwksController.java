@@ -7,12 +7,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.brenomega.authkit.infrastructure.security.JwtKeyService;
 
-/**
- * Publishes active and retiring JWT verification keys.
- *
- * <p>Configured revoked key IDs are excluded. The set never exposes private key
- * material.</p>
- */
 @RestController
 public class JwksController {
 

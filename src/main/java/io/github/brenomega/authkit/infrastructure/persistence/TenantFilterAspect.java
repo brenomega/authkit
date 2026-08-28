@@ -14,16 +14,6 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import jakarta.persistence.EntityManager;
 
-/**
- * Aspect handling multi-tenancy boundary enforcement at the persistence layer (DT 3.5.1).
- *
- * <p>Intercepts service calls to enable the global Hibernate tenantFilter whenever
- * the current security context contains a valid {@code tenant_id} claim. Direct
- * identifier lookups still need explicit service-level tenant checks because ORM
- * filters are not a complete object-authorization mechanism. The
- * legacy {@code tenantId} claim is still accepted for backwards compatibility
- * with tokens issued before the canonical claim was standardized.</p>
- */
 @Aspect
 @Component
 public class TenantFilterAspect {

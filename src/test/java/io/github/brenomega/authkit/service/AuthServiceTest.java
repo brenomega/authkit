@@ -17,6 +17,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -43,12 +46,8 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
-/**
- * Unit tests for AuthService (DT 3.4.5).
- * Validates the secure identity negotiation lifecycle (RF 2.1.2)
- * and progressive lockout via AccountLockoutService (DT 3.2.23).
- */
 class AuthServiceTest {
 
     private UserRepository userRepository;
@@ -68,8 +67,7 @@ class AuthServiceTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwtEncoder = mock(JwtEncoder.class);
         tokenStorage = mock(TokenStorage.class);
-        // Use a real AccountLockoutService with a mock Redis template.
-        // Redis client is empty, causing fail-open to Caffeine — suitable for unit tests.
+
         lockoutService = spy(new AccountLockoutService(Optional.empty()));
         authProperties = new AuthProperties();
         securityEventService = mock(SecurityEventService.class);
@@ -79,33 +77,41 @@ class AuthServiceTest {
         SessionMetadataFactory sessionMetadataFactory = mock(SessionMetadataFactory.class);
         when(sessionMetadataFactory.create(anyString(), anyList(), anyLong())).thenAnswer(invocation -> {
             String jti = invocation.getArgument(0);
-            java.time.Instant now = java.time.Instant.now();
-            return new io.github.brenomega.authkit.service.spi.SessionMetadata(
-                    java.util.UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(604800),
+            Instant now = Instant.now();
+            return new SessionMetadata(
+                    UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(604800),
                     invocation.getArgument(1), "JUnit", null, "127.0.0.***", "127.0.0.***");
         });
-        authService = new AuthService(userRepository, passwordEncoder, jwtEncoder, tokenStorage, lockoutService, authProperties, new Argon2ConcurrencyLimiter(), securityEventService, mfaService, abuseThrottleService, sessionMetadataFactory);
+        authService = new AuthService(
+            userRepository,
+            passwordEncoder,
+            jwtEncoder,
+            tokenStorage,
+            lockoutService,
+            authProperties,
+            new Argon2ConcurrencyLimiter(),
+            securityEventService,
+            mfaService,
+            abuseThrottleService,
+            sessionMetadataFactory);
     }
 
-    /**
-     * DT 3.2.1 — Argon2id Matching: Confirms successful login when credentials match.
-     */
     @Test
     @DisplayName("Login: Successful authentication returns tokens")
     void login_Success() {
         String email = "test@example.com";
         String pass = "Pass123!";
-        
+
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
+        when(user.getId()).thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000000"));
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
-        when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        when(user.getTenantId()).thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
         when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(pass, user.getPassword())).thenReturn(true);
-        
+
         Jwt jwt = mock(Jwt.class);
         when(jwt.getTokenValue()).thenReturn("mock-access-token");
         when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(jwt);
@@ -120,7 +126,6 @@ class AuthServiceTest {
         verify(lockoutService).clearLockout(email);
     }
 
-    @SuppressWarnings("null")
     @Test
     @DisplayName("Login: Uses externalized issuer and token lifetime settings")
     void login_UsesExternalizedAuthSettings() {
@@ -132,10 +137,10 @@ class AuthServiceTest {
         String pass = "Pass123!";
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000000"));
+        when(user.getId()).thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000000"));
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
-        when(user.getTenantId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        when(user.getTenantId()).thenReturn(UUID.fromString("00000000-0000-0000-0000-000000000001"));
         when(user.isEmailConfirmed()).thenReturn(true);
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
@@ -152,12 +157,15 @@ class AuthServiceTest {
 
         ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
         verify(jwtEncoder).encode(parameters.capture());
-        assertEquals("https://issuer.example.test", parameters.getValue().getClaims().getClaims().get("iss").toString());
-        assertEquals(java.util.List.of("authkit-api"), parameters.getValue().getClaims().getClaims().get("aud"));
+        assertEquals(
+            "https://issuer.example.test",
+            parameters.getValue().getClaims().getClaims().get("iss").toString());
+        assertEquals(List.of("authkit-api"), parameters.getValue().getClaims().getClaims().get("aud"));
         assertEquals(
                 "00000000-0000-0000-0000-000000000001",
                 parameters.getValue().getClaims().getClaims().get("tenant_id"));
-        org.junit.jupiter.api.Assertions.assertFalse(parameters.getValue().getClaims().getClaims().containsKey("tenantId"));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                parameters.getValue().getClaims().getClaims().containsKey("tenantId"));
     }
 
     @Test
@@ -168,7 +176,7 @@ class AuthServiceTest {
         String userId = "00000000-0000-0000-0000-000000000010";
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("hashed-pass");
         when(user.isEmailConfirmed()).thenReturn(true);
@@ -184,7 +192,9 @@ class AuthServiceTest {
         assertNull(result.response().accessToken());
         assertNull(result.refreshToken());
         verify(tokenStorage).storeMfaChallenge(eq(userId), anyString(), eq(result.response().mfaToken()), eq(5L));
-        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(
+            tokenStorage,
+            never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
         verify(lockoutService, never()).clearLockout(email);
     }
@@ -198,13 +208,13 @@ class AuthServiceTest {
         var challenge = MfaChallengeCodec.issue(userId);
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.getEmail()).thenReturn("mfa-login@example.com");
-        when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
+        when(user.getTenantId()).thenReturn(UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
         when(mfaService.verifyMfaCode(user, "123456", "login_mfa"))
                 .thenReturn(MfaService.MfaVerificationResult.totp());
@@ -222,7 +232,7 @@ class AuthServiceTest {
 
         ArgumentCaptor<JwtEncoderParameters> parameters = ArgumentCaptor.forClass(JwtEncoderParameters.class);
         verify(jwtEncoder).encode(parameters.capture());
-        assertEquals(java.util.List.of("pwd", "otp"), parameters.getValue().getClaims().getClaims().get("amr"));
+        assertEquals(List.of("pwd", "otp"), parameters.getValue().getClaims().getClaims().get("amr"));
         assertEquals(Boolean.TRUE, parameters.getValue().getClaims().getClaims().get("mfa"));
         verify(lockoutService).clearLockout("mfa-login@example.com");
     }
@@ -235,12 +245,12 @@ class AuthServiceTest {
         var challenge = MfaChallengeCodec.issue(userId);
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.getEmail()).thenReturn("mfa-fail@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
 
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
         when(mfaService.verifyMfaCode(user, "000000", "login_mfa"))
                 .thenReturn(MfaService.MfaVerificationResult.invalid());
@@ -249,7 +259,9 @@ class AuthServiceTest {
                 authService.verifyMfaLogin(new MfaLoginVerificationRequest(challenge.rawToken(), "000000")));
 
         verify(lockoutService).recordFailedAttempt("mfa-fail@example.com");
-        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(
+            tokenStorage,
+            never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
@@ -262,14 +274,16 @@ class AuthServiceTest {
 
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("mfa-expired@example.com");
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(false);
 
         assertThrows(InvalidMfaCodeException.class, () ->
                 authService.verifyMfaLogin(new MfaLoginVerificationRequest(challenge.rawToken(), "123456")));
 
         verify(mfaService, never()).verifyMfaCode(any(), anyString(), anyString());
-        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+        verify(
+            tokenStorage,
+            never()).storeRefreshToken(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
@@ -290,39 +304,31 @@ class AuthServiceTest {
                 authService.login(new LoginRequest(email, pass)));
     }
 
-    /**
-     * DT 3.2.15 — Stealth Response: Ensures generic exception on invalid credentials to prevent enumeration.
-     */
     @Test
     @DisplayName("Login: Invalid credentials throw generic exception (DT 3.2.15)")
     void login_InvalidCredentials_ThrowsException() {
         String email = "test@example.com";
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
 
-        assertThrows(InvalidCredentialsException.class, () -> 
+        assertThrows(InvalidCredentialsException.class, () ->
             authService.login(new LoginRequest(email, "any-pass")));
     }
 
-    /**
-     * DT 3.2.23 — Progressive Lockout: Verifies generic rejection after 5 failed attempts.
-     */
     @Test
     @DisplayName("Login: Generic rejection after lockout (DT 3.2.23)")
     void login_StealthLockout() {
         String email = "locked@example.com";
         User user = mock(User.class);
         when(user.getPassword()).thenReturn("hashed");
-        
+
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches(any(), any())).thenReturn(false);
 
-        // Fail 5 times
         for (int i = 0; i < 5; i++) {
-            assertThrows(InvalidCredentialsException.class, () -> 
+            assertThrows(InvalidCredentialsException.class, () ->
                 authService.login(new LoginRequest(email, "wrong")));
         }
 
-        // 6th attempt should remain indistinguishable from invalid credentials.
         assertThrows(InvalidCredentialsException.class, () ->
                 authService.login(new LoginRequest(email, "any")));
     }
@@ -337,12 +343,12 @@ class AuthServiceTest {
                 RefreshTokenCodec.issue(userId, "11111111-1111-1111-1111-111111111111");
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.getEmail()).thenReturn("refresh@example.com");
-        when(user.getTenantId()).thenReturn(java.util.UUID.fromString(tenantId));
+        when(user.getTenantId()).thenReturn(UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.rotateRefreshToken(
                 eq(userId),
                 eq(currentToken.jti()),
@@ -372,16 +378,21 @@ class AuthServiceTest {
                 RefreshTokenCodec.issue(userId, "11111111-1111-1111-1111-111111111116");
 
         User user = mock(User.class);
-        when(user.getId()).thenReturn(java.util.UUID.fromString(userId));
+        when(user.getId()).thenReturn(UUID.fromString(userId));
         when(user.getEmail()).thenReturn("deleted-refresh@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isDeleted()).thenReturn(true);
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         assertThrows(InvalidRefreshTokenException.class, () -> authService.refresh(currentToken.rawToken()));
 
         verify(tokenStorage, never()).rotateRefreshToken(
-                anyString(), anyString(), anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }
 
@@ -419,7 +430,7 @@ class AuthServiceTest {
         String userId = "00000000-0000-0000-0000-000000000014";
         User user = mock(User.class);
         when(user.isActive()).thenReturn(true);
-        when(userRepository.findById(java.util.UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
 
         authService.logoutAll(userId, "123456");
 
