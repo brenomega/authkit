@@ -10,6 +10,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents a user-owned WebAuthn public credential and authenticator usage state.
+ * Credential ID is globally unique, private key material never enters the server,
+ * and disablement is retained rather than deleting authentication history.
+ */
 @Entity
 @Table(name = "passkey_credentials")
 public class PasskeyCredential {
@@ -127,6 +132,7 @@ public class PasskeyCredential {
         return disabledAt == null;
     }
 
+    /** Updates the authenticator counter and last-use time after a verified assertion. */
     public void markUsed(long newSignatureCount, Instant usedAt) {
         this.signatureCount = newSignatureCount;
         this.lastUsedAt = usedAt;

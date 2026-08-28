@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.mfa.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries password and MFA evidence for an authenticator-policy change. */
 public record MfaVerificationRequest(
         @NotBlank
         @Size(max = 128)

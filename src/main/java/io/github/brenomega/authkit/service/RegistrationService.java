@@ -34,6 +34,15 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
+/**
+ * Registers local-password accounts and completes email ownership confirmation.
+ *
+ * <p>Registration normalizes the email identity, enforces the configured public
+ * registration mode and password policy, snapshots consent versions, and stores
+ * only a SHA-256 digest of the expiring confirmation secret. Account creation,
+ * consent evidence, and the email outbox participate in the same database
+ * transaction.</p>
+ */
 @Service
 public class RegistrationService {
 
@@ -67,6 +76,12 @@ public class RegistrationService {
         this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
+    /**
+     * Creates an unconfirmed account and enqueues its one-time activation secret.
+     *
+     * @throws RegistrationRestrictedException when public registration is disabled
+     * @throws UserAlreadyExistsException when the normalized email is already claimed
+     */
     @Transactional
     @LogExecutionTime
     public User registerUser(RegisterRequest request) {
@@ -111,6 +126,10 @@ public class RegistrationService {
         return user;
     }
 
+    /**
+     * Confirms email ownership by consuming the matching unexpired token digest under row lock.
+     * Successful consumption clears both the digest and its expiry.
+     */
     @Transactional
     @LogExecutionTime
     public void confirmEmail(String token) {
@@ -141,6 +160,10 @@ public class RegistrationService {
                 "email_verified");
     }
 
+    /**
+     * Replaces the activation secret for an eligible account without revealing account existence.
+     * No message is queued for missing, inactive, or already confirmed accounts.
+     */
     @SuppressWarnings("null")
     @Transactional
     @LogExecutionTime

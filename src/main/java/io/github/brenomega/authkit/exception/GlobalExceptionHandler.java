@@ -20,6 +20,11 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.response.FieldError;
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Translates semantic application and validation failures into the common API error envelope.
+ * Security-sensitive failures are deliberately normalized where exposing their
+ * internal distinction would enable account, token, or credential enumeration.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 

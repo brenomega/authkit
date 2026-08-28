@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+/** Starts AuthKit with external configuration binding and scheduled maintenance enabled. */
 @SpringBootApplication
 @ConfigurationPropertiesScan
 @EnableScheduling

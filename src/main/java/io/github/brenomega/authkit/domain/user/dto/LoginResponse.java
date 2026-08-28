@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.domain.user.dto;
 
+/** Carries public authentication state; refresh secrets remain in the controller cookie boundary. */
 public record LoginResponse(
         String accessToken,
         long expiresIn,

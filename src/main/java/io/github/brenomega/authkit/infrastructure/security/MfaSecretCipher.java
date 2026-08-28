@@ -21,6 +21,15 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.springframework.stereotype.Component;
 
+/**
+ * Encrypts application secrets in a versioned, authenticated AES-GCM envelope.
+ *
+ * <p>New values use a random salt and IV, PBKDF2-HMAC-SHA-256, the configured
+ * current key ID, and the iteration count embedded in the envelope. Decryption
+ * accepts configured previous keys and the two legacy envelope forms to support
+ * key rotation and migration; encryption never emits a legacy form. Authentication
+ * or format failures are reported without returning partial plaintext.</p>
+ */
 @Component
 public class MfaSecretCipher {
 
@@ -46,6 +55,7 @@ public class MfaSecretCipher {
         this.kdfIterations = authProperties.getMfa().getSecretEncryptionKdfIterations();
     }
 
+    /** Encrypts UTF-8 plaintext with the current key and a fresh salt and IV. */
     public String encrypt(String plaintext) {
         try {
             byte[] salt = new byte[SALT_BYTES];
@@ -72,6 +82,11 @@ public class MfaSecretCipher {
         }
     }
 
+    /**
+     * Decrypts a current or supported legacy envelope using current and previous key material.
+     *
+     * @throws IllegalStateException if the envelope, key ID, or authentication tag is invalid
+     */
     public String decrypt(String encryptedValue) {
         if (encryptedValue != null && encryptedValue.startsWith(ENVELOPE_VERSION + ":")) {
             return decryptVersioned(encryptedValue);

@@ -12,6 +12,11 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
+/**
+ * Caches whether an account has active TOTP enrollment for a bounded local interval.
+ * Mutations must call {@link #evict(UUID)} so security decisions do not retain the
+ * pre-change state until expiry; the cache is intentionally per process.
+ */
 @Component
 public class MfaStatusCache {
 
@@ -26,6 +31,7 @@ public class MfaStatusCache {
         CaffeineCacheMetrics.monitor(meterRegistry, cache, "authkit.mfa_status_cache");
     }
 
+    /** Returns cached state or atomically loads it for the local cache key. */
     public boolean isEnabled(UUID userId, Supplier<Boolean> loader) {
         return cache.get(userId, ignored -> loader.get());
     }

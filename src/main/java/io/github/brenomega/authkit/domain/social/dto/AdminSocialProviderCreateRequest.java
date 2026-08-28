@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+/** Carries a provider configuration whose issuer and discovery metadata require administrative verification. */
 public record AdminSocialProviderCreateRequest(
         @NotBlank @Pattern(regexp = "[a-z0-9][a-z0-9_-]{1,63}") String providerKey,
         @NotBlank @Size(max = 120) String displayName,

@@ -27,6 +27,16 @@ import io.github.brenomega.authkit.exception.InvalidSocialLoginException;
 import io.github.brenomega.authkit.infrastructure.security.SocialSecretCipher;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 
+/**
+ * Performs bounded OIDC discovery, code exchange, and ID-token verification for social providers.
+ *
+ * <p>Discovery redirects are disabled, all discovered endpoints must be HTTPS, and
+ * the returned issuer must exactly equal the configured issuer. Code exchange uses
+ * PKCE and the configured client-authentication method. The ID token is accepted
+ * only after RS256 signature, issuer, temporal, audience, nonce, and nonblank
+ * subject validation. All protocol and transport failures collapse to
+ * {@link InvalidSocialLoginException}.</p>
+ */
 @Component
 public class NimbusSocialOidcClient implements SocialOidcClient {
     private final ObjectMapper objectMapper;

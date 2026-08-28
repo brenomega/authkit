@@ -7,6 +7,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 
+/** Describes immutable audit evidence without restoring raw identifiers. */
 public record AdminSecurityEventResponse(
         UUID id, Instant occurredAt, SecurityEventType type, SecurityEventOutcome outcome,
         SecurityEventSeverity severity, UUID actorUserId, UUID targetUserId,

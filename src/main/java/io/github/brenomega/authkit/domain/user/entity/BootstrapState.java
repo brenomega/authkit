@@ -8,10 +8,16 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents the singleton, irreversible platform-administrator bootstrap guard.
+ * The row is pessimistically locked during bootstrap so concurrent processes cannot
+ * both create the initial administrator.
+ */
 @Entity
 @Table(name = "authkit_bootstrap_state")
 public class BootstrapState {
 
+    /** Fixed primary key of the only bootstrap guard row. */
     public static final int SINGLETON_ID = 1;
 
     @Id

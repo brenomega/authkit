@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+/** Configures the single Argon2 password-hashing policy used by authentication and recovery flows. */
 @Configuration
 public class PasswordConfig {
 
@@ -24,6 +25,7 @@ public class PasswordConfig {
     @Value("${security.argon2.iterations}")
     private int iterations;
 
+    /** Creates the encoder from externally validated salt, output, memory, iteration, and parallelism costs. */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new Argon2PasswordEncoder(

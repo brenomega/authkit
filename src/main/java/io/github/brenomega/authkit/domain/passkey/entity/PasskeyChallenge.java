@@ -12,6 +12,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Persists the exact WebAuthn request state for one expiring ceremony.
+ * Registration and assertion challenges are user-bound as required by their type;
+ * repository-level conditional consumption prevents concurrent reuse.
+ */
 @Entity
 @Table(name = "passkey_challenges")
 public class PasskeyChallenge {

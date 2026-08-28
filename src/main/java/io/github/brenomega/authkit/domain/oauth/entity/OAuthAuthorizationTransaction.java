@@ -13,6 +13,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Persists a hashed, expiring browser authorization transaction.
+ * It binds client, exact redirect URI, scopes, state, OIDC nonce, and PKCE challenge;
+ * consumption is performed conditionally by the repository and is single-use.
+ */
 @Entity
 @Table(name = "oauth_authorization_transactions")
 public class OAuthAuthorizationTransaction {

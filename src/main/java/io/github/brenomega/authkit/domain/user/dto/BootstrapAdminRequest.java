@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries one-shot initial administrator credentials and the required consent snapshot. */
 public record BootstrapAdminRequest(
         @NotBlank @Email @Size(max = 255) String email,
         @NotBlank @Size(min = 12, max = 128) String password,

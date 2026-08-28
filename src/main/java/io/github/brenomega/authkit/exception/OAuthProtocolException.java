@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.exception;
 import org.springframework.http.HttpStatus;
+/** Represents an OAuth protocol failure with its standards-facing error identifier. */
 public class OAuthProtocolException extends InvalidOAuthRequestException {
     private final String error;
     private final String description;

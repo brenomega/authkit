@@ -24,6 +24,15 @@ import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
 
+/**
+ * Represents the tenant-owned account and its security lifecycle.
+ *
+ * <p>The account is the aggregate for role, local-password presence, confirmed
+ * email, consent snapshot, suspension, pending deletion, and pending email change.
+ * Email identities are normalized before reaching the entity. Deletion is a state
+ * transition followed by irreversible anonymization; a deleted account cannot be
+ * reactivated. Social-only accounts intentionally have no password hash.</p>
+ */
 @Entity
 @Table(name = "users")
 @FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = String.class)})
@@ -207,14 +216,17 @@ public class User {
         this.consentAcceptedAt = (termsAccepted && privacyPolicyAccepted) ? acceptedAt : null;
     }
 
+    /** Returns whether deletion has been requested or completed. */
     public boolean isDeleted() {
         return accountState == AccountState.ANONYMIZED;
     }
 
+    /** Returns whether the account may participate in authentication and user operations. */
     public boolean isActive() {
         return accountState == AccountState.ACTIVE;
     }
 
+    /** Suspends an active account with a required operator reason. */
     public void suspend(String reason, Instant now) {
         if (accountState == AccountState.ANONYMIZED) {
             throw new IllegalStateException("An anonymized account cannot be suspended");
@@ -227,6 +239,10 @@ public class User {
         this.suspensionReason = reason.trim();
     }
 
+    /**
+     * Restores a suspended account.
+     * @throws AccountNotActiveException if the account is not currently suspended
+     */
     public void reactivate() {
         if (accountState != AccountState.SUSPENDED) {
             throw new IllegalStateException("Only a suspended account can be reactivated");
@@ -236,6 +252,7 @@ public class User {
         this.suspensionReason = null;
     }
 
+    /** Moves an active account into the deletion grace-period state. */
     public void requestDeletion(Instant requestedAt) {
         if (this.deletionRequestedAt == null) {
             this.deletionRequestedAt = requestedAt;
@@ -243,6 +260,7 @@ public class User {
         this.accountState = AccountState.DELETION_PENDING;
     }
 
+    /** Restores an account whose deletion is still pending and not yet anonymized. */
     public void cancelDeletion() {
         if (accountState != AccountState.DELETION_PENDING) {
             throw new IllegalStateException("No deletion request is pending");
@@ -259,6 +277,10 @@ public class User {
         this.emailChangeExpiresAt = expiresAt;
     }
 
+    /**
+     * Promotes the pending address, clears the ceremony, and returns the previous address.
+     * @throws IllegalStateException when no pending address exists
+     */
     public String completeEmailChange() {
         requireEmailConfirmed();
         if (pendingEmail == null || emailChangeTokenHash == null || emailChangeExpiresAt == null) {
@@ -284,6 +306,10 @@ public class User {
         this.emailChangeExpiresAt = null;
     }
 
+    /**
+     * Irreversibly removes authenticators, consent identifiers, profile data, and pending ceremonies.
+     * The supplied unique tombstone email preserves relational integrity without retaining the original identity.
+     */
     public void anonymizeForDeletion(String anonymizedEmail, Instant anonymizedAt) {
         requestDeletion(anonymizedAt);
         this.email = anonymizedEmail;

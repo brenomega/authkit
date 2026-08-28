@@ -13,6 +13,15 @@ import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Determines whether a first-party access token is still usable by AuthKit.
+ *
+ * <p>Cryptographic JWT validation alone is insufficient: the token must carry
+ * the first-party token-use marker and configured audience, its account must
+ * remain active and confirmed, and its {@code jti}-bound server-side session must
+ * still exist. Every malformed, foreign, revoked or inactive token collapses to
+ * the same inactive response.</p>
+ */
 @Service
 public class FirstPartyTokenIntrospectionService {
 
@@ -31,6 +40,12 @@ public class FirstPartyTokenIntrospectionService {
         this.audience = authProperties.getJwt().getAudience();
     }
 
+    /**
+     * Introspects without exposing why an invalid token is inactive.
+     *
+     * @return active claims for a live first-party session, otherwise the common
+     *         inactive representation
+     */
     @SuppressWarnings("null")
     public FirstPartyIntrospectionResponse introspect(String rawToken) {
         try {

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries a candidate email and strong step-up evidence for starting its verification. */
 public record EmailChangeRequest(
         @NotBlank @Email @Size(max = 255) String newEmail,
         @NotBlank @Size(max = 128) String currentPassword,

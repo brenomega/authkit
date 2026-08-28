@@ -14,7 +14,9 @@ import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshToken;
 
+/** Persists hashed OAuth refresh tokens and their rotation lineage. */
 public interface OAuthRefreshTokenRepository extends JpaRepository<OAuthRefreshToken, UUID> {
+    /** Locks the presented token before its family is evaluated and rotated. */
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from OAuthRefreshToken t where t.tokenHash = :hash")
     Optional<OAuthRefreshToken> findByTokenHashForUpdate(@Param("hash") String hash);

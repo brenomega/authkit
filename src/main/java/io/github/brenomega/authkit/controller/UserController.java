@@ -35,6 +35,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Exposes authenticated self-service account and authenticator operations.
+ * The subject is always taken from the verified first-party JWT; services enforce
+ * current tenant, account, session, and step-up invariants rather than accepting an
+ * arbitrary target user from the request.
+ */
 @RestController
 @RequestMapping("/api/v1/users/me")
 @PreAuthorize("hasAnyRole('USER', 'PLATFORM_ADMIN')")
@@ -70,6 +76,7 @@ public class UserController {
         return new ApiResponse<>(consent, null, Instant.now());
     }
 
+    /** Produces a credential-secret-free account export after strong step-up. */
     @PostMapping("/export")
     public ApiResponse<UserDataExportResponse> exportMyData(
             @AuthenticationPrincipal Jwt jwt,
@@ -86,6 +93,7 @@ public class UserController {
         return new ApiResponse<>(updated, null, Instant.now());
     }
 
+    /** Starts a verified, expiring email-change ceremony after strong step-up. */
     @PostMapping("/email-change")
     public ApiResponse<EmailChangeStatusResponse> requestEmailChange(
             @AuthenticationPrincipal Jwt jwt,
@@ -93,6 +101,7 @@ public class UserController {
         return ApiResponse.success(emailChangeService.request(jwt.getSubject(), request));
     }
 
+    /** Cancels pending email change with the same strong step-up policy. */
     @DeleteMapping("/email-change")
     public ApiResponse<EmailChangeStatusResponse> cancelEmailChange(
             @AuthenticationPrincipal Jwt jwt,
@@ -100,6 +109,7 @@ public class UserController {
         return ApiResponse.success(emailChangeService.cancel(jwt.getSubject(), request));
     }
 
+    /** Replaces the local password and preserves only the caller's current session. */
     @PostMapping("/password")
     public ApiResponse<String> changePassword(
             @AuthenticationPrincipal Jwt jwt,
@@ -108,6 +118,7 @@ public class UserController {
         return new ApiResponse<>("Password changed successfully. All other sessions revoked.", null, Instant.now());
     }
 
+    /** Enumerates active sessions with opaque, owner-bound continuation cursors. */
     @GetMapping("/sessions")
     public ApiResponse<SessionPageResponse> getMySessions(
             @AuthenticationPrincipal Jwt jwt,
@@ -123,6 +134,7 @@ public class UserController {
         return new ApiResponse<>(status, null, Instant.now());
     }
 
+    /** Returns new TOTP enrollment material after password step-up. */
     @PostMapping("/mfa/totp/enroll")
     public ApiResponse<MfaTotpEnrollmentResponse> enrollTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -131,6 +143,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Consumes the first TOTP step and returns the only plaintext copy of new backup codes. */
     @PostMapping("/mfa/totp/confirm")
     public ApiResponse<MfaBackupCodesResponse> confirmTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -139,6 +152,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Disables TOTP after password and MFA verification and revokes existing sessions. */
     @DeleteMapping("/mfa/totp")
     public ApiResponse<String> disableTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -147,6 +161,7 @@ public class UserController {
         return new ApiResponse<>("MFA disabled successfully.", null, Instant.now());
     }
 
+    /** Replaces all unused backup codes after strong step-up. */
     @PostMapping("/mfa/backup-codes")
     public ApiResponse<MfaBackupCodesResponse> regenerateBackupCodes(
             @AuthenticationPrincipal Jwt jwt,
@@ -160,6 +175,7 @@ public class UserController {
         return new ApiResponse<>(passkeyService.list(jwt.getSubject()), null, Instant.now());
     }
 
+    /** Starts user-bound passkey registration after the required step-up. */
     @PostMapping("/passkeys/options")
     public ApiResponse<PasskeyRegistrationOptionsResponse> startPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -168,6 +184,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Consumes a registration challenge and persists the verified public credential. */
     @PostMapping("/passkeys")
     public ApiResponse<PasskeyCredentialResponse> finishPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -176,6 +193,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Disables an owned passkey without allowing removal of the final authenticator. */
     @DeleteMapping("/passkeys/{credentialId}")
     public ApiResponse<String> disablePasskey(
             @AuthenticationPrincipal Jwt jwt,
@@ -185,6 +203,7 @@ public class UserController {
         return new ApiResponse<>("Passkey disabled successfully.", null, Instant.now());
     }
 
+    /** Revokes an opaque user-owned session after active MFA policy is satisfied. */
     @DeleteMapping("/sessions/{sessionId}")
     public ApiResponse<String> revokeSession(
             @AuthenticationPrincipal Jwt jwt,
@@ -194,6 +213,7 @@ public class UserController {
         return new ApiResponse<>("Session revoked successfully.", null, Instant.now());
     }
 
+    /** Requests deletion after strong step-up while preserving the final platform administrator. */
     @DeleteMapping
     public ApiResponse<AccountDeletionResponse> deleteMyAccount(
             @AuthenticationPrincipal Jwt jwt,

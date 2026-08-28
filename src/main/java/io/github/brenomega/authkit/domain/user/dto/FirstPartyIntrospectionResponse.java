@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.user.dto;
 import java.time.Instant;
 import java.util.List;
 
+/** Describes first-party activity only after JWT, account, and live-session validation. */
 public record FirstPartyIntrospectionResponse(
         boolean active,
         String subject,

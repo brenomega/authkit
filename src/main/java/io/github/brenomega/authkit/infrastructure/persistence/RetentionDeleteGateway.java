@@ -12,6 +12,12 @@ import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.stereotype.Component;
 
+/**
+ * Executes privileged retention-only database functions through isolated credentials.
+ * The dedicated connection prevents ordinary application repositories from gaining
+ * hard-delete authority. Inputs are passed as UUID arrays and empty collections are
+ * no-ops; authorization and deletion ordering remain enforced by database functions.
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled",
         havingValue = "true", matchIfMissing = true)
@@ -33,14 +39,17 @@ public class RetentionDeleteGateway {
         this.jdbcTemplate = new JdbcTemplate((DataSource) dataSource);
     }
 
+    /** Returns the number of explicitly identified security events removed. */
     public long purgeSecurityEvents(Collection<UUID> eventIds) {
         return call("select retention_purge_security_events(?)", eventIds);
     }
 
+    /** Returns the number of security events removed for the identified deleted users. */
     public long purgeSecurityEventsForUsers(Collection<UUID> userIds) {
         return call("select retention_purge_security_events_for_users(?)", userIds);
     }
 
+    /** Returns the number of consent events removed for the identified deleted users. */
     public long purgeConsentEventsForUsers(Collection<UUID> userIds) {
         return call("select retention_purge_consent_events_for_users(?)", userIds);
     }

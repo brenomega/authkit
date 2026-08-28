@@ -10,6 +10,11 @@ import java.security.MessageDigest;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+/**
+ * Generates and verifies RFC 6238-style HMAC-SHA-1 codes on 30-second steps.
+ * Verification accepts the adjacent time steps and excludes any step at or below
+ * the supplied last-used value; callers must still persist the accepted step atomically.
+ */
 public class TotpGenerator {
 
     public static final int DEFAULT_DIGITS = 6;
@@ -26,6 +31,7 @@ public class TotpGenerator {
         this.clock = clock;
     }
 
+    /** Returns the matching time step after constant-time code comparison, or an invalid result. */
     public VerificationResult verify(String base32Secret, String code, Long lastUsedTimeStep) {
         if (code == null || !code.matches("\\d{6,8}")) {
             return VerificationResult.invalid();
@@ -78,6 +84,7 @@ public class TotpGenerator {
                 actual.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Identifies the accepted step so callers can persist replay-prevention state. */
     public record VerificationResult(boolean valid, long timeStep) {
         public static VerificationResult invalid() {
             return new VerificationResult(false, -1);

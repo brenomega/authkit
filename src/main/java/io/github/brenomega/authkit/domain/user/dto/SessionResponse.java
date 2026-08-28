@@ -5,6 +5,7 @@ import java.util.List;
 
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
+/** Describes privacy-reduced session metadata addressed by an opaque public identifier. */
 public record SessionResponse(
         String sessionId,
         Instant createdAt,

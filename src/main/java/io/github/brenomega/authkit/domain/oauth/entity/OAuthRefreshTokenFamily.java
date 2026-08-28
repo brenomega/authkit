@@ -11,6 +11,11 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Owns the active-token pointer and compromise state for an OAuth refresh lineage.
+ * Scope and AMR are fixed at family creation. Rotation replaces the active digest;
+ * replay revocation sets both revocation and compromise timestamps.
+ */
 @Entity
 @Table(name = "oauth_refresh_token_families")
 public class OAuthRefreshTokenFamily {
@@ -92,6 +97,7 @@ public class OAuthRefreshTokenFamily {
         return compromisedAt;
     }
 
+    /** Returns whether the family has neither expired nor been revoked. */
     public boolean isActive(Instant now) {
         return revokedAt == null && expiresAt.isAfter(now);
     }

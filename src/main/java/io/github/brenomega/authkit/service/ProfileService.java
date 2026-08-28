@@ -32,6 +32,15 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+/**
+ * Coordinates self-service profile, password, and session management within a tenant.
+ *
+ * <p>Target accounts are checked against the tenant claim rather than trusting a
+ * caller-supplied identifier. Password changes require current-password and active
+ * MFA verification, enforce password history, and revoke every session except the
+ * caller's current JTI. Session APIs expose only opaque public session identifiers;
+ * internal JTIs remain confined to trusted token-processing code.</p>
+ */
 @Service
 public class ProfileService {
 
@@ -66,6 +75,7 @@ public class ProfileService {
         this.passwordPolicyService = passwordPolicyService;
     }
 
+    /** Returns the active caller-owned profile after enforcing token tenant isolation. */
     @LogExecutionTime
     public ProfileResponse getProfile(String userId) {
         @SuppressWarnings("null")
@@ -76,6 +86,7 @@ public class ProfileService {
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
+    /** Updates only the authenticated account after tenant, state, and abuse-policy checks. */
     @Transactional
     @LogExecutionTime
     public ProfileResponse updateProfile(
@@ -103,6 +114,12 @@ public class ProfileService {
         return new ProfileResponse(user.getId().toString(), user.getEmail(), user.getName());
     }
 
+    /**
+     * Changes the password after strong step-up and preserves the current session only.
+     *
+     * <p>The previous hash is recorded for reuse detection before the replacement is
+     * persisted. Argon2 work is admitted through the bounded concurrency limiter.</p>
+     */
     @Transactional
     @LogExecutionTime
     public void changePassword(String userId, PasswordChangeRequest request, String currentJti) {
@@ -157,6 +174,13 @@ public class ProfileService {
                 "password_changed");
     }
 
+    /**
+     * Lists active sessions through the storage backend's opaque cursor protocol.
+     *
+     * @param currentJti trusted JTI used only to identify the current session in the result
+     * @param limit page size from 1 through 100
+     * @param cursor optional owner-bound, single-use continuation cursor
+     */
     public SessionPageResponse listSessions(String userId, String currentJti, int limit, String cursor) {
         if (limit < 1 || limit > 100) {
             throw new InvalidSessionCursorException();
@@ -179,6 +203,10 @@ public class ProfileService {
         return listSessions(userId, null, limit, cursor);
     }
 
+    /**
+     * Revokes a user-owned session addressed by its public identifier after configured MFA step-up.
+     * Unknown or already revoked identifiers retain the storage backend's idempotent semantics.
+     */
     public void revokeSession(String userId, String publicSessionId, String mfaCode) {
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId))

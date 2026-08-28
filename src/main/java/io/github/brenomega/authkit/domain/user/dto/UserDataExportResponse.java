@@ -3,6 +3,10 @@ package io.github.brenomega.authkit.domain.user.dto;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Represents the versioned, credential-secret-free portable account export.
+ * Nested data includes security and authenticator metadata but never reusable secret material.
+ */
 public record UserDataExportResponse(
         String schemaVersion,
         Instant generatedAt,

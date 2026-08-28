@@ -9,6 +9,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents one hashed member of a rotating OAuth refresh-token family.
+ * Consumption records the replacement digest for lineage evidence; a token is
+ * active only before expiry and while neither consumed nor revoked.
+ */
 @Entity
 @Table(name = "oauth_refresh_tokens")
 public class OAuthRefreshToken {
@@ -64,6 +69,7 @@ public class OAuthRefreshToken {
         return revokedAt;
     }
 
+    /** Returns whether this token can still be considered for family rotation. */
     public boolean isActive(Instant now) {
         return consumedAt == null && revokedAt == null && expiresAt.isAfter(now);
     }

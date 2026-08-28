@@ -20,23 +20,32 @@ import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.enums.AccountState;
 
+/**
+ * Persists tenant-owned accounts and exposes explicit locks for identity and lifecycle transitions.
+ * Tenant filtering is supplied by the service-layer persistence aspect for tenant
+ * JWTs; platform administration and unauthenticated ceremonies must enforce their
+ * own scope and identity rules.
+ */
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmail(String email);
 
+    /** Locks a normalized email identity while a recovery request replaces its external token. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.email = :email")
     Optional<User> findByEmailForUpdate(@Param("email") String email);
 
     Optional<User> findByEmailConfirmationToken(String emailConfirmationToken);
 
+    /** Locks the account addressed by a confirmation-token digest for single transition processing. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.emailConfirmationToken = :tokenHash")
     Optional<User> findByEmailConfirmationTokenForUpdate(@Param("tokenHash") String tokenHash);
 
     boolean existsByPendingEmail(String pendingEmail);
 
+    /** Locks the account addressed by an email-change digest during confirmation. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.emailChangeTokenHash = :tokenHash")
     Optional<User> findByEmailChangeTokenHashForUpdate(@Param("tokenHash") String tokenHash);
@@ -51,6 +60,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
                                             @Param("cutoff") Instant cutoff,
                                             Pageable pageable);
 
+    /** Locks an account so scheduled anonymization can recheck eligibility before mutation. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") UUID id);

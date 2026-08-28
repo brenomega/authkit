@@ -5,6 +5,12 @@ import java.util.UUID;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
+/**
+ * Carries a rendered email and its stable outbox identity to a delivery adapter.
+ *
+ * <p>{@code messageId} is propagated as a provider idempotency or correlation
+ * key where supported. It does not by itself make delivery exactly once.</p>
+ */
 public record EmailPayload(
         UUID messageId,
         @NotBlank @Email String to,

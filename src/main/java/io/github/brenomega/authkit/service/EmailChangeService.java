@@ -33,6 +33,16 @@ import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Coordinates authenticated email replacement as a confirmation ceremony.
+ *
+ * <p>Starting or cancelling the ceremony requires password step-up and MFA when
+ * enabled. Only a SHA-256 token digest is persisted. Confirmation locks the
+ * matching account row, rechecks expiration and uniqueness, replaces the
+ * address, revokes all sessions and recovery tokens for both addresses, and
+ * evicts cached authorities. Outbox records and the account mutation participate
+ * in the database transaction; external token-store revocation does not.</p>
+ */
 @Service
 public class EmailChangeService {
 
@@ -66,6 +76,12 @@ public class EmailChangeService {
         this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
+    /**
+     * Replaces any pending request with a new expiring confirmation ceremony.
+     *
+     * <p>Both the prospective and current addresses are notified through the
+     * transactional email outbox.</p>
+     */
     @Transactional
     public EmailChangeStatusResponse request(String userId, EmailChangeRequest request) {
         User user = loadActiveUser(userId);
@@ -107,6 +123,13 @@ public class EmailChangeService {
         return status(user, "pending_confirmation");
     }
 
+    /**
+     * Consumes a pending email-change token and commits the new address.
+     *
+     * <p>The row lock gives the token single-success semantics. Expired state and
+     * its audit evidence are intentionally committed even though
+     * {@link InvalidTokenException} is returned.</p>
+     */
     @Transactional(noRollbackFor = InvalidTokenException.class)
     public void confirm(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
@@ -154,6 +177,7 @@ public class EmailChangeService {
                 newEmail, "email_change_completed", Map.of());
     }
 
+    /** Cancels a pending ceremony after the same strong step-up used to create it. */
     @Transactional
     public EmailChangeStatusResponse cancel(String userId, StepUpRequest request) {
         User user = loadActiveUser(userId);

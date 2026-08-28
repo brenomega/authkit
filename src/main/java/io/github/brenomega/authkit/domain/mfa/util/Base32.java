@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.mfa.util;
 import java.io.ByteArrayOutputStream;
 import java.util.Locale;
 
+/** Encodes and decodes the unpadded RFC 4648 alphabet used for TOTP secrets. */
 public final class Base32 {
 
     private static final char[] ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".toCharArray();

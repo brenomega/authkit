@@ -19,6 +19,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
     name = "dispatch-mode",
     havingValue = "queue",
     matchIfMissing = true)
+/**
+ * Declares durable email work and dead-letter topology for queued outbox dispatch.
+ * Queue arguments route rejected or expired email work to the dedicated dead-letter
+ * exchange instead of silently discarding it.
+ */
 public class RabbitMqConfig {
 
     public static final String EXCHANGE_API = "authkit.api.exchange";

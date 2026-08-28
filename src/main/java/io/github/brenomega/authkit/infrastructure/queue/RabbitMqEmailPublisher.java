@@ -10,6 +10,7 @@ import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
+/** Publishes outbox-backed email work to the durable RabbitMQ routing topology. */
 @Component
 @ConditionalOnProperty(
     prefix = "authkit.auth.email-outbox",

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/** Provides the servlet peer address as the final client-IP resolution fallback. */
 @Component
 public class DirectIpStrategy implements IpResolutionStrategy {
 

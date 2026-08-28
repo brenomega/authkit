@@ -37,6 +37,15 @@ import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 
+/**
+ * Administers the allowlisted OpenID Connect providers used for social identity.
+ *
+ * <p>Mutations require a platform administrator, current-password verification,
+ * and either a fresh passkey assertion or TOTP. Client secrets are encrypted
+ * before persistence. Creation and update validate issuer policy, scopes and
+ * live discovery metadata before the transaction commits; provider secrets are
+ * never returned by this service.</p>
+ */
 @Service
 public class SocialProviderAdminService {
     private final SocialIdentityProviderRepository providers;
@@ -57,12 +66,14 @@ public class SocialProviderAdminService {
         this.mfa = mfa; this.properties = properties; this.cipher = cipher; this.oidc = oidc; this.audit = audit;
     }
 
+    /** Lists provider configuration without encrypted client-secret material. */
     @Transactional(readOnly = true)
     public List<AdminSocialProviderResponse> list(Jwt jwt) {
         requireAdmin(jwt);
         return providers.findByOrderByCreatedAtDesc().stream().map(this::response).toList();
     }
 
+    /** Creates a provider only after allowlist and live discovery verification. */
     @Transactional
     public AdminSocialProviderResponse create(Jwt jwt, AdminSocialProviderCreateRequest request) {
         User admin = requireAdminStepUp(jwt, request.currentPassword(), request.mfaCode(), "social_provider_create");
@@ -87,6 +98,7 @@ public class SocialProviderAdminService {
         return response(provider);
     }
 
+    /** Updates mutable provider metadata and optionally rotates its encrypted secret. */
     @Transactional
     public AdminSocialProviderResponse update(Jwt jwt, UUID id, AdminSocialProviderUpdateRequest request) {
         User admin = requireAdminStepUp(jwt, request.currentPassword(), request.mfaCode(), "social_provider_update");
@@ -109,6 +121,7 @@ public class SocialProviderAdminService {
         return response(provider);
     }
 
+    /** Disables future ceremonies without deleting already linked identities. */
     @Transactional
     public void disable(Jwt jwt, UUID id, String currentPassword, String mfaCode) {
         User admin = requireAdminStepUp(jwt, currentPassword, mfaCode, "social_provider_disable");

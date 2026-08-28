@@ -35,6 +35,19 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Defines the stateless HTTP security boundary and the order of security filters.
+ *
+ * <p>The origin firewall and correlation checks run before request processing;
+ * duplicate-parameter, layered rate-limit, endpoint-abuse, and body-size controls
+ * precede application authentication. Worker authentication and live first-party
+ * session/authority reconciliation run after bearer decoding. Routes not explicitly
+ * classified are denied.</p>
+ *
+ * <p>Spring's session and CSRF mechanisms are disabled because access tokens are
+ * stateless and refresh credentials use the controller's cookie-scoped double-submit
+ * CSRF protocol. CORS and defensive response headers remain centrally configured.</p>
+ */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
@@ -74,6 +87,7 @@ public class SecurityConfig {
         this.authProperties = authProperties;
     }
 
+    /** Builds the ordered filter chain and fail-closed authorization map. */
     @SuppressWarnings("null")
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -150,6 +164,7 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /** Builds credential-aware CORS policy from explicitly configured origins and headers. */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();

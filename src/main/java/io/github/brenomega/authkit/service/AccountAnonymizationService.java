@@ -31,6 +31,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/**
+ * Finalizes deletion requests whose configured grace period has elapsed.
+ *
+ * <p>The scheduled scan is cluster-serialized by ShedLock, while each candidate
+ * is rechecked under a pessimistic user-row lock in its own
+ * {@code REQUIRES_NEW} transaction. This bounds rollback and retry to one
+ * account. Finalization removes directly linked social and OAuth refresh state,
+ * anonymizes the account, purges pending email, revokes first-party sessions and
+ * evicts cached authorities. External token/cache effects are not part of the
+ * database transaction.</p>
+ */
 @Service
 @ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled",
         havingValue = "true", matchIfMissing = true)
@@ -76,6 +87,12 @@ public class AccountAnonymizationService {
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
+    /**
+     * Anonymizes eligible accounts in bounded batches until no full batch remains.
+     *
+     * <p>Eligibility is revalidated inside each per-account transaction, making
+     * stale scan results and concurrent cancellation harmless no-ops.</p>
+     */
     @Scheduled(cron = "${authkit.auth.compliance.retention-job-cron:0 30 3 * * *}")
     @SchedulerLock(name = "accountAnonymization",
             lockAtMostFor = "${authkit.auth.scheduler.retention-lock-at-most:PT2H}",

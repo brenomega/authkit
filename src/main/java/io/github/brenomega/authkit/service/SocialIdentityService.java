@@ -50,6 +50,16 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Coordinates social login and explicit linking through OpenID Connect.
+ *
+ * <p>Every ceremony persists a short-lived transaction containing a digest of
+ * {@code state}, a nonce and an encrypted PKCE verifier. Callback consumption is
+ * a conditional database update, so replay and concurrent callbacks cannot both
+ * succeed. Verified provider identities are keyed by issuer and subject; a
+ * matching email never silently links to an existing account. Linking and
+ * unlinking require strong step-up and revoke all existing sessions.</p>
+ */
 @Service
 public class SocialIdentityService {
     private final SocialIdentityProviderRepository providers;
@@ -77,6 +87,7 @@ public class SocialIdentityService {
         this.mfaService = mfaService; this.tokenStorage = tokenStorage; this.audit = audit;
     }
 
+    /** Starts a login ceremony and binds supplied consent to its transaction. */
     @Transactional
     public SocialAuthorizationResponse startLogin(String providerKey, SocialLoginStartRequest request) {
         boolean terms = request != null && request.termsAccepted();
@@ -84,6 +95,7 @@ public class SocialIdentityService {
         return start(providerKey, SocialLoginPurpose.LOGIN, null, terms, privacy);
     }
 
+    /** Starts an identity-link ceremony after strong authenticated step-up. */
     @Transactional
     public SocialAuthorizationResponse startLink(String providerKey, Jwt jwt, StepUpRequest request) {
         User user = activeUserForUpdate(UUID.fromString(jwt.getSubject()));
@@ -123,6 +135,12 @@ public class SocialIdentityService {
         return new SocialAuthorizationResponse(url, ttlSeconds);
     }
 
+    /**
+     * Consumes a social transaction exactly once and completes login or linking.
+     *
+     * <p>Provider code exchange and database mutations occur in the same logical
+     * call, but the remote exchange cannot participate in the database transaction.</p>
+     */
     @Transactional
     public CallbackResult callback(String providerKey, String state, String code) {
         ensureEnabled();
@@ -202,6 +220,7 @@ public class SocialIdentityService {
                 claimed.emailVerified(), now));
     }
 
+    /** Lists identities owned by the user without exposing provider secrets. */
     @Transactional(readOnly = true)
     public List<SocialIdentityResponse> list(UUID userId) {
         return identities.findByUserIdOrderByCreatedAtDesc(userId).stream().map(identity -> {
@@ -214,6 +233,11 @@ public class SocialIdentityService {
         }).toList();
     }
 
+    /**
+     * Removes a linked identity after step-up, preserving at least one authenticator.
+     *
+     * <p>All first-party sessions are revoked after unlinking.</p>
+     */
     @SuppressWarnings("null")
     @Transactional
     public void unlink(UUID userId, UUID identityId, Jwt jwt, StepUpRequest request) {
@@ -282,5 +306,6 @@ public class SocialIdentityService {
         return email == null || email.isBlank() ? null : EmailNormalizer.normalize(email);
     }
 
+    /** Carries a public callback result and an optional refresh secret for cookie handling. */
     public record CallbackResult(SocialCallbackResponse response, String refreshToken) {}
 }

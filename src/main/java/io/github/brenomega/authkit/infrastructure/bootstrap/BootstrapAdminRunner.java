@@ -19,6 +19,12 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.domain.user.dto.BootstrapAdminRequest;
 import io.github.brenomega.authkit.service.BootstrapAdminService;
 
+/**
+ * Runs the explicitly enabled one-shot platform-administrator bootstrap process.
+ * Secrets are accepted only through bounded standard input or a mounted file, never
+ * command-line arguments. After validation and atomic bootstrap, the application
+ * context closes so this mode cannot continue serving ordinary traffic.
+ */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE)
 @ConditionalOnProperty(name = "authkit.bootstrap.enabled", havingValue = "true")
@@ -44,6 +50,11 @@ public class BootstrapAdminRunner implements ApplicationRunner {
         this.inputFile = inputFile;
     }
 
+    /**
+     * Reads and validates bootstrap input, delegates the singleton transition, and terminates the process context.
+     *
+     * @throws Exception if input, validation, or bootstrap persistence fails
+     */
     @SuppressWarnings("null")
     @Override
     public void run(ApplicationArguments args) throws Exception {

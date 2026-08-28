@@ -16,6 +16,12 @@ import org.springframework.stereotype.Component;
 
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 
+/**
+ * Records service completion and opt-in execution timing without exposing common secrets.
+ * Parameter names and request-object types associated with credentials, tokens,
+ * passkeys, or MFA are redacted; emails are masked and arbitrary character
+ * sequences are not logged verbatim. This diagnostic logging is not durable audit evidence.
+ */
 @Aspect
 @Component
 public class LoggingAspect {

@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
 
+/** Base type for semantic application failures carrying a stable machine-readable code. */
 public abstract class ApiBaseException extends RuntimeException {
 
     private final HttpStatus status;

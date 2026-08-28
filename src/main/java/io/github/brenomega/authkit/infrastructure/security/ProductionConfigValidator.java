@@ -18,6 +18,15 @@ import java.net.URI;
 
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 
+/**
+ * Fails production startup when security-critical configuration is missing or unsafe.
+ *
+ * <p>Validation runs at highest precedence outside test and development profiles.
+ * It rejects placeholder credentials, unsafe cryptographic costs and token
+ * lifetimes, non-HTTPS public URLs, invalid key-rotation metadata, insecure browser
+ * controls, unsupported token-storage topology, and scheduled jobs lacking
+ * distributed locking. This is a deployment guard, not a source of runtime defaults.</p>
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ProductionConfigValidator implements ApplicationRunner {
@@ -30,6 +39,11 @@ public class ProductionConfigValidator implements ApplicationRunner {
         this.environment = environment;
     }
 
+    /**
+     * Validates the effective environment before the application begins serving traffic.
+     *
+     * @throws IllegalStateException when any production security invariant is violated
+     */
     @Override
     public void run(ApplicationArguments args) {
         List<String> activeProfiles = Arrays.asList(environment.getActiveProfiles());

@@ -12,6 +12,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Persists hashed state and encrypted PKCE material for one social OIDC ceremony.
+ * Purpose, provider, optional local user, consent choices, nonce, and expiry are
+ * bound at creation; repository-level consumption makes callback handling single-use.
+ */
 @Entity
 @Table(name = "social_login_transactions")
 public class SocialLoginTransaction {

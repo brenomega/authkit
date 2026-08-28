@@ -13,6 +13,12 @@ import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
+/**
+ * Delivers queued outbox payloads and reconciles provider acceptance with outbox state.
+ * Provider failure for an outbox-backed message is converted into its durable retry
+ * transition and is not rethrown to RabbitMQ; messages without an outbox identity
+ * retain broker retry/dead-letter behavior by propagating the failure.
+ */
 @Component
 @ConditionalOnProperty(
     prefix = "authkit.auth.email-outbox",
@@ -35,6 +41,7 @@ public class RabbitMqEmailListener {
         this.meterRegistry = meterRegistry;
     }
 
+    /** Submits one queued payload and records provider acceptance or retry state. */
     @RabbitListener(queues = RabbitMqConfig.QUEUE_EMAIL)
     public void processEmail(EmailPayload payload) {
         log.debug("Received EmailPayload from queue for: {}", EmailMasker.mask(payload.to()));

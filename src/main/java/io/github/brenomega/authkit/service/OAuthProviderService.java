@@ -78,6 +78,21 @@ import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
+/**
+ * Implements the authorization-code provider boundary for OAuth 2.0 and OpenID Connect.
+ *
+ * <p>The service binds authorization transactions and codes to the registered
+ * client, exact redirect URI, approved scopes, resource owner, and PKCE S256
+ * challenge. Only hashes of authorization transactions, codes, and refresh tokens
+ * are persisted. Authorization transactions and codes are consumed through
+ * conditional database updates so concurrent exchanges cannot both succeed.</p>
+ *
+ * <p>Refresh tokens form a database-locked rotation family. Every successful use
+ * replaces the active token; presentation of a stale, expired, revoked, or
+ * non-current family token revokes the entire family as suspected replay. The
+ * replay exception is excluded from transaction rollback so that compromise state
+ * and its critical audit evidence remain durable.</p>
+ */
 @Service
 public class OAuthProviderService {
 
@@ -136,6 +151,10 @@ public class OAuthProviderService {
         this.oauthJwtDecoder = oauthJwtDecoder(jwtKeyService, tokenRevocationService);
     }
 
+    /**
+     * Validates an authorization request and creates an expiring login transaction.
+     * The returned value is a UI redirect containing the only raw transaction secret.
+     */
     @Transactional
     public String beginAuthorization(String responseType, String clientId, String redirectUri, String scope,
                                      String state, String codeChallenge, String codeChallengeMethod, String nonce) {
@@ -180,6 +199,10 @@ public class OAuthProviderService {
                 + "transaction=" + urlEncode(issued.raw());
     }
 
+    /**
+     * Resolves a live authorization transaction for the authenticated resource owner.
+     * Consent is required when no active grant covers every requested scope.
+     */
     @Transactional(readOnly = true)
     public OAuthAuthorizationTransactionResponse authorizationTransaction(String rawTransaction, Jwt principal) {
         OAuthAuthorizationTransaction transaction = loadAuthorizationTransaction(rawTransaction);
@@ -193,6 +216,10 @@ public class OAuthProviderService {
                 Math.max(0, transaction.getExpiresAt().getEpochSecond() - Instant.now().getEpochSecond()));
     }
 
+    /**
+     * Consumes an authorization transaction and returns its exact client redirect.
+     * Consumption precedes either denial or code issuance, making the transaction single-use.
+     */
     @Transactional
     public String resumeAuthorization(String rawTransaction, Jwt principal, boolean approved) {
         OAuthAuthorizationTransaction transaction = loadAuthorizationTransaction(rawTransaction);
@@ -234,6 +261,10 @@ public class OAuthProviderService {
                     "Authorization transaction is expired or already used"));
     }
 
+    /**
+     * Issues a hashed, expiring authorization code after client, consent, and PKCE validation.
+     * The raw code appears only in the returned client redirect.
+     */
     @Transactional
     public OAuthAuthorizeResponse authorize(Jwt principal, OAuthAuthorizeRequest request) {
         ensureEnabled();
@@ -306,6 +337,15 @@ public class OAuthProviderService {
         return token(grantType, code, redirectUri, clientId, clientSecret, codeVerifier, null);
     }
 
+    /**
+     * Exchanges an authorization code or rotates a refresh token for an authenticated client.
+     *
+     * <p>Authorization codes are consumed atomically and remain bound to the exact
+     * redirect URI and PKCE verifier. Refresh rotation locks both token and family;
+     * detected reuse commits family-wide revocation before reporting failure.</p>
+     *
+     * @throws OAuthRefreshReplayException when a refresh family is treated as compromised
+     */
     @Transactional(noRollbackFor = OAuthRefreshReplayException.class)
     public OAuthTokenResponse token(String grantType,
                                     String code,
@@ -460,6 +500,10 @@ public class OAuthProviderService {
         return new IssuedRefreshToken(raw, familyId);
     }
 
+    /**
+     * Revokes a client-owned refresh family or OAuth access-token JTI.
+     * Unknown, malformed, mismatched, and previously revoked token values do not disclose validity.
+     */
     @Transactional
     public void revoke(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
@@ -484,6 +528,10 @@ public class OAuthProviderService {
                 .ifPresent(jwt -> tokenRevocationService.revoke(jwt.getId(), jwt.getExpiresAt()));
     }
 
+    /**
+     * Returns active metadata only when the authenticated client owns the token audience or family.
+     * All invalid, expired, revoked, replayed, and client-mismatched values collapse to inactive.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> introspect(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
@@ -534,6 +582,10 @@ public class OAuthProviderService {
                 .orElse(Map.of("active", false));
     }
 
+    /**
+     * Resolves current account claims authorized by a live OAuth access token.
+     * Email and profile claims are included only when their corresponding scopes are present.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> userInfo(String bearerToken) {
         ensureEnabled();

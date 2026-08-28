@@ -9,6 +9,11 @@ import org.springframework.stereotype.Component;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Selects the first available client-IP signal from the configured strategy chain.
+ * Header-based strategies rely on deployment perimeter and proxy-depth configuration
+ * for authenticity; the servlet peer address is the final fallback.
+ */
 @Component
 public class NetworkIpResolver {
 
@@ -28,6 +33,7 @@ public class NetworkIpResolver {
                          .toList());
     }
 
+    /** Returns the highest-precedence candidate, or the direct peer address. */
     public String resolveClientIp(HttpServletRequest request) {
         for (IpResolutionStrategy strategy : strategies) {
             var result = strategy.resolveIp(request);

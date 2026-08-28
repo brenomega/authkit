@@ -45,6 +45,19 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.JwtTokenUse;
 
+/**
+ * Coordinates first-party authentication and revocable session issuance.
+ *
+ * <p>Password login normalizes identifiers, applies abuse and progressive
+ * lockout controls, and performs a dummy Argon2 verification for unknown or
+ * deleted accounts. No refresh session is created until every required factor
+ * succeeds. Authentication failures deliberately collapse account existence,
+ * lockout and credential state into common public errors.</p>
+ *
+ * <p>Each access token shares its {@code jti} with a server-side refresh session.
+ * Consequently, revoking that session also invalidates access-token use through
+ * {@link io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter}.</p>
+ */
 @Service
 public class AuthService {
 
@@ -86,8 +99,16 @@ public class AuthService {
         this.dummyPasswordHash = passwordEncoder.encode("AuthKit dummy password for timing equalization");
     }
 
+    /** Separates the public response from the refresh secret handled by the controller cookie boundary. */
     public record LoginResult(LoginResponse response, String refreshToken) {}
 
+    /**
+     * Performs password authentication and either creates a session or issues an
+     * intermediate MFA challenge.
+     *
+     * <p>The challenge is not a session and carries no access authority. Argon2
+     * capacity exhaustion is surfaced rather than queued without bound.</p>
+     */
 @SuppressWarnings("null")
 @LogExecutionTime
     public LoginResult login(LoginRequest request) {
@@ -206,6 +227,13 @@ public class AuthService {
         return issueTokenPair(user, refreshToken, List.of("pwd"));
     }
 
+    /**
+     * Completes a password or federated login after local MFA.
+     *
+     * <p>The login challenge is consumed before the MFA code is evaluated, so a
+     * failed code cannot be retried with the same challenge. Lockout is cleared
+     * and session state is created only after successful verification.</p>
+     */
     @LogExecutionTime
     public LoginResult verifyMfaLogin(MfaLoginVerificationRequest request) {
         IssuedMfaChallenge challenge = MfaChallengeCodec.parse(request.mfaToken())
@@ -325,6 +353,13 @@ public class AuthService {
         return issueTokenPair(user, refreshToken, completedAmr);
     }
 
+    /**
+     * Rotates a refresh secret and returns a new access/refresh pair.
+     *
+     * <p>Atomic rotation and replay detection are delegated to
+     * {@link TokenStorage}. Reuse of an advanced family revokes its active member
+     * and is audited as a critical compromise event.</p>
+     */
     @LogExecutionTime
     public LoginResult refresh(String rawRefreshToken) {
         IssuedRefreshToken currentRefreshToken = RefreshTokenCodec.parse(rawRefreshToken)
@@ -435,11 +470,13 @@ public class AuthService {
         return issueTokenPair(user, nextRefreshToken, amr);
     }
 
+    /** Revokes all sessions, requiring MFA when configured for the account. */
     @LogExecutionTime
     public void logoutAll(String userId) {
         logoutAll(userId, null);
     }
 
+    /** Revokes all sessions after applying the account's current MFA policy. */
     @LogExecutionTime
     public void logoutAll(String userId, String mfaCode) {
         @SuppressWarnings("null")
@@ -459,6 +496,12 @@ public class AuthService {
                 "logout_all");
     }
 
+    /**
+     * Revokes the session identified by a refresh secret.
+     *
+     * <p>Malformed, expired and already revoked values are cleanup no-ops, making
+     * logout idempotent from the caller's perspective.</p>
+     */
     @LogExecutionTime
     public void logout(String rawRefreshToken) {
         RefreshTokenCodec.parse(rawRefreshToken)
@@ -479,6 +522,12 @@ public class AuthService {
                 });
     }
 
+    /**
+     * Creates a first-party session for an identity already verified by a trusted ceremony.
+     *
+     * @param amr authentication methods completed by that ceremony
+     * @param reason stable audit reason for successful login
+     */
     public LoginResult issueLoginForVerifiedUser(User user, List<String> amr, String reason) {
         if (!user.isActive()) {
             throw new InvalidCredentialsException();
@@ -507,6 +556,12 @@ public class AuthService {
         return issueTokenPair(user, refreshToken, amr);
     }
 
+    /**
+     * Continues a verified social login through local MFA when the account requires it.
+     *
+     * <p>The provider key is recorded in {@code amr}; it is not treated as a local
+     * MFA factor.</p>
+     */
     public LoginResult beginFederatedLogin(User user, String providerKey) {
         List<String> amr = List.of("federated", "oidc:" + providerKey);
         if (!mfaService.isMfaEnabled(user)) {

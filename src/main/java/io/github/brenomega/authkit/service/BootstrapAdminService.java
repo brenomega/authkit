@@ -22,6 +22,15 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.repository.BootstrapStateRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
+/**
+ * Creates the first platform administrator through the one-time bootstrap path.
+ *
+ * <p>A singleton database guard is locked pessimistically, so concurrent nodes
+ * cannot both complete bootstrap. Account creation, consent evidence, the
+ * critical security event and guard completion share one transaction. The
+ * resulting account is email-confirmed but still requires the operational MFA
+ * enrollment expected by the bootstrap flow.</p>
+ */
 @Service
 public class BootstrapAdminService {
 
@@ -49,6 +58,12 @@ public class BootstrapAdminService {
         this.authProperties = authProperties;
     }
 
+    /**
+     * Completes bootstrap exactly once for a fresh installation.
+     *
+     * @throws IllegalStateException if bootstrap was completed, an administrator
+     *         already exists, or the singleton database guard is missing
+     */
     @Transactional
     public User bootstrap(BootstrapAdminRequest request) {
         BootstrapState state = bootstrapStateRepository

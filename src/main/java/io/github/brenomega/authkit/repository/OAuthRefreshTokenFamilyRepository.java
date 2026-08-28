@@ -12,8 +12,10 @@ import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 
+/** Persists OAuth refresh lineages and provides the lock required for serialized rotation. */
 public interface OAuthRefreshTokenFamilyRepository
         extends JpaRepository<OAuthRefreshTokenFamily, UUID> {
+    /** Locks the family active-token pointer and compromise state for update. */
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("select f from OAuthRefreshTokenFamily f where f.id = :id")
     Optional<OAuthRefreshTokenFamily> findByIdForUpdate(@Param("id") UUID id);

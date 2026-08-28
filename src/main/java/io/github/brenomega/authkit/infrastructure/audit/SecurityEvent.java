@@ -14,6 +14,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Immutable, privacy-reduced evidence of a security-relevant operation.
+ * Direct identifiers are represented by keyed digests or masked display values;
+ * request metadata is bounded and the event hash authenticates the canonical event
+ * fields against later undetected modification.
+ */
 @Entity
 @Immutable
 @Table(name = "security_events")

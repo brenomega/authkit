@@ -51,6 +51,14 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
+/**
+ * Adapts public authentication ceremonies to browser session-cookie handling.
+ *
+ * <p>Refresh secrets are never placed in response bodies: successful authentication
+ * writes an HTTP-only refresh cookie and, when enabled, a readable companion CSRF
+ * cookie. Cookie-backed refresh and logout require constant-time double-submit CSRF
+ * validation. Rotation replaces both values, while logout expires both cookies.</p>
+ */
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -77,6 +85,7 @@ public class AuthController {
         this.emailChangeService = emailChangeService;
     }
 
+    /** Begins password authentication and sets session cookies only after all required factors succeed. */
     @SuppressWarnings("null")
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
@@ -91,6 +100,7 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
+    /** Consumes a login MFA challenge and establishes the completed browser session. */
     @SuppressWarnings("null")
     @PostMapping("/mfa/verify-login")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyMfaLogin(
@@ -104,12 +114,14 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
+    /** Starts either username-bound or discoverable passkey authentication. */
     @PostMapping("/passkeys/options")
     public ResponseEntity<ApiResponse<PasskeyAssertionOptionsResponse>> passkeyOptions(
             @Valid @RequestBody(required = false) PasskeyAssertionOptionsRequest request) {
         return ResponseEntity.ok(ApiResponse.success(passkeyService.startAssertion(request)));
     }
 
+    /** Completes a passkey assertion and establishes its browser session. */
     @SuppressWarnings("null")
     @PostMapping("/passkeys/verify")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyPasskey(
@@ -123,6 +135,7 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
+    /** Rotates the cookie-backed refresh family after double-submit CSRF validation. */
     @SuppressWarnings("null")
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<LoginResponse>> refresh(HttpServletRequest request) {
@@ -137,6 +150,7 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
+    /** Revokes the presented session and clears browser session state. */
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<String>> logout(HttpServletRequest request) {
         validateCsrfToken(request);
@@ -150,6 +164,7 @@ public class AuthController {
                 .body(ApiResponse.success("Logged out successfully."));
     }
 
+    /** Revokes all first-party sessions after applying the account's active MFA policy. */
     @PostMapping("/logout-all")
     public ResponseEntity<ApiResponse<String>> logoutAll(
             @AuthenticationPrincipal Jwt jwt,
@@ -162,6 +177,7 @@ public class AuthController {
                 .body(ApiResponse.success("All sessions successfully revoked."));
     }
 
+    /** Applies configured stealth-conflict semantics to public account registration. */
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<?>> register(
             @Valid @RequestBody RegisterRequest request) {
@@ -198,6 +214,7 @@ public class AuthController {
                         "If this registration can be processed, an activation email will be sent.")));
     }
 
+    /** Consumes an expiring email-ownership secret. */
     @PostMapping("/email-confirmation/confirm")
     public ResponseEntity<ApiResponse<String>> confirmEmail(
             @Valid @RequestBody EmailConfirmationConfirmRequest request) {
@@ -205,6 +222,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
     }
 
+    /** Requests replacement confirmation without revealing account eligibility. */
     @PostMapping("/email-confirmation/resend")
     public ResponseEntity<ApiResponse<String>> resendEmailConfirmation(
             @Valid @RequestBody EmailConfirmationResendRequest request) {
@@ -213,6 +231,7 @@ public class AuthController {
                 "If this account is awaiting confirmation, a new activation email will be sent."));
     }
 
+    /** Consumes an approved email-change secret and requires subsequent sign-in. */
     @PostMapping("/email-change/confirm")
     public ResponseEntity<ApiResponse<String>> confirmEmailChange(
             @Valid @RequestBody EmailChangeConfirmRequest request) {
@@ -220,6 +239,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Email address changed. Sign in again."));
     }
 
+    /** Requests recovery with an account-enumeration-safe result. */
     @PostMapping("/password-recovery/request")
     public ResponseEntity<ApiResponse<String>> requestRecovery(
             @Valid @RequestBody PasswordRecoveryRequest request) {
@@ -230,6 +250,7 @@ public class AuthController {
                 "If an account exists with this email, a recovery link has been sent."));
     }
 
+    /** Consumes an exclusively claimed recovery secret to replace an existing local password. */
     @PostMapping("/password-recovery/reset")
     public ResponseEntity<ApiResponse<String>> resetPassword(
             @RequestParam String email,

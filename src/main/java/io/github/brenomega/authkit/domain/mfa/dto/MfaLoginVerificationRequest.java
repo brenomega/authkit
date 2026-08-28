@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.mfa.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries an MFA code bound to an expiring, single-use login challenge. */
 public record MfaLoginVerificationRequest(
         @NotBlank
         @Size(max = 512)

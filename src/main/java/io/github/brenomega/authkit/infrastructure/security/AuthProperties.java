@@ -10,6 +10,13 @@ import jakarta.validation.constraints.Pattern;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+/**
+ * Binds the external {@code authkit.auth} security and lifecycle configuration tree.
+ * Bean-validation constraints reject structurally invalid values during binding;
+ * {@link ProductionConfigValidator} adds environment-specific invariants that cannot
+ * be expressed locally, including secret quality, deployment topology, HTTPS URLs,
+ * browser controls, and safe cryptographic or scheduling bounds.
+ */
 @Validated
 @ConfigurationProperties(prefix = "authkit.auth")
 public class AuthProperties {
@@ -801,12 +808,12 @@ public class AuthProperties {
         @Min(1000)
         private long pollDelayMs = 5000;
 
-        @Min(1)
         /** Stale-claim threshold in seconds for queued dispatch mode. */
+        @Min(1)
         private long lockTtlSeconds = 300;
 
-        @Min(1)
         /** Time in seconds before an unacknowledged queued delivery may be reclaimed. */
+        @Min(1)
         private long deliveryAckTimeoutSeconds = 600;
 
         @Min(1)
@@ -1231,10 +1238,10 @@ public class AuthProperties {
     /** Configures pseudonymization secret and bounded non-critical audit execution. */
     public static class Audit {
 
+        /** HMAC key shared by audit pseudonyms, backup codes, and abuse dimensions. */
         @NotBlank
         @jakarta.validation.constraints.Size(min = 32)
         @Pattern(regexp = "^(?!\\$\\{).+")
-        /** HMAC key shared by audit pseudonyms, backup codes, and abuse dimensions. */
         private String hashPepper = "test-only-authkit-audit-hash-pepper-32-bytes";
 
         private boolean asyncEnabled = true;

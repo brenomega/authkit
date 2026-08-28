@@ -15,6 +15,14 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import jakarta.annotation.PostConstruct;
 
+/**
+ * Loads, validates, and renders the complete operator-owned email template set.
+ *
+ * <p>Startup fails for missing, oversized, path-escaping, malformed, or unsafe
+ * templates. Only declared placeholders are accepted; substituted HTML values are
+ * escaped, subjects cannot contain line breaks, and action templates must contain
+ * a nonblank action URL. Templates are loaded once and are not re-read per message.</p>
+ */
 @Component
 public class EmailTemplateRenderer {
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([a-z_]+)}}");
@@ -54,6 +62,12 @@ public class EmailTemplateRenderer {
         }
     }
 
+    /**
+     * Renders a validated template into an outbox payload.
+     *
+     * @throws IllegalArgumentException when a required variable is absent
+     * @throws IllegalStateException if template initialization did not complete
+     */
     public EmailPayload render(EmailTemplateId id, String recipient, Map<String, String> variables) {
         Template template = templates.get(id);
         if (template == null) {

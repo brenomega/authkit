@@ -14,6 +14,16 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Owns durable email outbox creation, claiming, retry, and terminal transitions.
+ *
+ * <p>Enqueue joins the caller's database transaction, preventing notification work
+ * for rolled-back business changes. Claiming locks a bounded due set and marks it
+ * processing in one transaction. Stale processing or queued records become
+ * claimable again after their lease, so dispatch is at-least-once; provider-level
+ * idempotency must absorb duplicates. Failed attempts use bounded exponential
+ * backoff and become terminal after the configured maximum.</p>
+ */
 @Service
 public class EmailOutboxService {
 
@@ -29,11 +39,13 @@ public class EmailOutboxService {
         this.meterRegistry = meterRegistry;
     }
 
+    /** Persists a pending message in the caller's transaction. */
     @Transactional
     public void enqueue(EmailPayload payload) {
         repository.save(EmailOutboxMessage.pending(payload, Instant.now()));
     }
 
+    /** Claims up to {@code batchSize} due or stale records under database locking. */
     @Transactional
     public List<EmailOutboxMessage> claimDueMessages(int batchSize, Duration lockTtl) {
         Instant now = Instant.now();
@@ -50,6 +62,7 @@ public class EmailOutboxService {
         return List.copyOf(messages);
     }
 
+    /** Marks broker submission and establishes the acknowledgement deadline. */
     @Transactional
     public void markQueued(UUID messageId, Duration deliveryTimeout) {
         repository.markQueued(messageId,
@@ -57,6 +70,7 @@ public class EmailOutboxService {
                 Instant.now().plus(deliveryTimeout));
     }
 
+    /** Records provider acceptance only from processing or queued state. */
     @Transactional
     public void markAccepted(UUID messageId, String providerMessageId) {
         repository.markAccepted(messageId,
@@ -66,6 +80,7 @@ public class EmailOutboxService {
                 Instant.now());
     }
 
+    /** Schedules retry or terminal failure unless the message is already terminal. */
     @Transactional
     public void markFailed(UUID messageId, String error) {
         EmailOutboxMessage message = repository.findById(messageId).orElse(null);

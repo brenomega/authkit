@@ -35,6 +35,15 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Applies layered per-client-IP request budgets before endpoint-specific abuse controls.
+ *
+ * <p>Every process enforces a local one-minute bucket. When Redis is available, a
+ * second one-minute bucket coordinates the configured global budget. Redis absence
+ * or runtime failure deliberately degrades to local enforcement and emits failure
+ * metrics; it does not fail requests closed. The resolved address is attached to
+ * the request for downstream audit and privacy-reduced session metadata.</p>
+ */
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
 

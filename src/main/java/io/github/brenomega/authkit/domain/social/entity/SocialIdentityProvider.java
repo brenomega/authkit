@@ -16,6 +16,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Stores an administratively verified OIDC provider configuration.
+ * Issuer is exact and immutable after creation, client secrets remain encrypted,
+ * and disablement prevents new ceremonies without deleting linked identities.
+ */
 @Entity
 @Table(name = "social_identity_providers")
 public class SocialIdentityProvider {

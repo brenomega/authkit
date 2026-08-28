@@ -11,6 +11,11 @@ import org.springframework.lang.NonNull;
 
 import io.lettuce.core.RedisClient;
 
+/**
+ * Exposes the Redis clients shared by token storage and distributed abuse controls.
+ * A Lettuce-native client is mandatory because Bucket4j coordination depends on it;
+ * incompatible connection factories fail application startup.
+ */
 @Configuration
 @Profile("!test")
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",

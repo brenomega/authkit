@@ -10,6 +10,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Binds the CIDR allowlist used by the origin firewall and worker authentication.
+ * Production effective ranges silently exclude explicit IPv4 and IPv6 loopback
+ * entries so external protection cannot be bypassed through a loopback allowlist.
+ */
 @Component
 @Validated
 @ConfigurationProperties(prefix = "network.security.trusted-origins")
@@ -30,6 +35,7 @@ public class NetworkSecurityProperties {
         this.ranges = ranges;
     }
 
+    /** Returns an immutable effective allowlist with production loopback exclusions applied. */
     public List<String> getEffectiveRanges() {
         List<String> source = (ranges == null) ? Collections.emptyList() : ranges;
 

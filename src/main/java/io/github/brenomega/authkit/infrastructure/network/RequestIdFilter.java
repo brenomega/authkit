@@ -17,6 +17,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Establishes a bounded, log-safe correlation identifier for each request.
+ * A syntactically safe caller value is preserved; all other values are replaced.
+ * The identifier is returned to the caller and scoped in MDC for the duration of
+ * the filter chain, including cleanup on failure.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestIdFilter extends OncePerRequestFilter {

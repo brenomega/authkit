@@ -10,6 +10,12 @@ import org.springframework.stereotype.Component;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Selects a client address from {@code X-Forwarded-For} using configured proxy depth.
+ * The index is counted from the trusted proxy end of the chain. A chain shorter
+ * than the configured depth yields no candidate, preventing fallback to an
+ * attacker-controlled leftmost value.
+ */
 @Component
 @ConditionalOnProperty(name = "network.strategy.x-forwarded-for.enabled", havingValue = "true", matchIfMissing = true)
 public class XForwardedForIpStrategy implements IpResolutionStrategy {
@@ -24,6 +30,7 @@ public class XForwardedForIpStrategy implements IpResolutionStrategy {
         log.info("XForwardedForIpStrategy initialized with trustedProxyDepth={} (DT 3.2.20)", proxyDepth);
     }
 
+    /** Resolves the entry immediately before the configured number of trusted proxies. */
     @Override
     public Optional<String> resolveIp(HttpServletRequest request) {
         String xForwardedFor = request.getHeader(X_FORWARDED_FOR);

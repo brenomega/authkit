@@ -10,6 +10,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents an encrypted TOTP enrollment and its replay-prevention state.
+ * An enrollment is usable only after confirmation and before disablement. The last
+ * accepted time step advances monotonically through a repository conditional update.
+ */
 @Entity
 @Table(name = "mfa_totp_credentials")
 public class MfaTotpCredential {
@@ -89,6 +94,7 @@ public class MfaTotpCredential {
         return lastUsedTimeStep;
     }
 
+    /** Returns whether enrollment has been confirmed and has not been disabled. */
     public boolean isActive() {
         return confirmed && disabledAt == null;
     }

@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.brenomega.authkit.infrastructure.security.JwtKeyService;
 
+/** Publishes active and retiring JWT verification keys after revoked key IDs are removed. */
 @RestController
 public class JwksController {
 
@@ -16,6 +17,7 @@ public class JwksController {
         this.jwtKeyService = jwtKeyService;
     }
 
+    /** Returns public verification material only; the active private key never enters this boundary. */
     @GetMapping("/.well-known/jwks.json")
     public Map<String, Object> getJwks() {
         return jwtKeyService.publishedPublicJwkSet().toJSONObject();

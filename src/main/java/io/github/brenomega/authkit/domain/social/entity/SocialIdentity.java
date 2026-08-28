@@ -10,6 +10,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Links a local account to the stable OIDC identity tuple of issuer and subject.
+ * Provider email is historical link metadata and is never used as the durable
+ * federated identity key or for silent account linking.
+ */
 @Entity
 @Table(name = "social_identities")
 public class SocialIdentity {

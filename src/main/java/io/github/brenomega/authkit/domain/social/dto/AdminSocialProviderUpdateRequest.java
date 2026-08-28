@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 
+/** Carries mutable provider metadata and an optional client-secret rotation. */
 public record AdminSocialProviderUpdateRequest(
         @NotBlank @Size(max = 120) String displayName,
         @NotBlank @Size(max = 255) String clientId,

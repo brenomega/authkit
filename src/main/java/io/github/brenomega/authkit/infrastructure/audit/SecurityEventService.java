@@ -29,6 +29,16 @@ import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.exception.AuditUnavailableException;
 
+/**
+ * Builds privacy-reduced security events and routes them by durability requirement.
+ *
+ * <p>Email, client IP, and user-agent values are digested before persistence;
+ * display values are masked, metadata keys and values are bounded, and names that
+ * imply credentials or tokens are redacted. A keyed hash covers the stored event
+ * representation. Critical events join the caller's transaction and fail the
+ * operation closed when they cannot be persisted. Non-critical events are
+ * best-effort and may use the bounded audit executor according to configuration.</p>
+ */
 @Service
 public class SecurityEventService {
 
@@ -136,6 +146,11 @@ public class SecurityEventService {
         record(type, outcome, severity, null, null, null, email, reason, metadata);
     }
 
+    /**
+     * Records a fully attributed event using the current request context when present.
+     *
+     * @throws AuditUnavailableException if persistence of a critical event fails
+     */
     public void record(SecurityEventType type,
                        SecurityEventOutcome outcome,
                        SecurityEventSeverity severity,

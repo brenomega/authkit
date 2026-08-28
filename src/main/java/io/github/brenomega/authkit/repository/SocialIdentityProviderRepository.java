@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import io.github.brenomega.authkit.domain.social.entity.SocialIdentityProvider;
 
+/** Provides global social-provider configuration lookup by stable operator key and issuer. */
 public interface SocialIdentityProviderRepository extends JpaRepository<SocialIdentityProvider, UUID> {
     Optional<SocialIdentityProvider> findByProviderKey(String providerKey);
     List<SocialIdentityProvider> findByOrderByCreatedAtDesc();

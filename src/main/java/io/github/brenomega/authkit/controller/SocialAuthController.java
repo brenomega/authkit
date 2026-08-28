@@ -23,6 +23,11 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.SocialIdentityService;
 
+/**
+ * Adapts public social-login redirects and callbacks to browser session handling.
+ * OIDC state, nonce, and PKCE guarantees remain in the service and provider-client
+ * boundaries; only a completed login callback receives refresh and CSRF cookies.
+ */
 @RestController
 @RequestMapping("/api/v1/auth/social")
 public class SocialAuthController {
@@ -34,12 +39,14 @@ public class SocialAuthController {
         this.properties = properties;
     }
 
+    /** Starts an OIDC login transaction with consent bound to its state. */
     @PostMapping("/{providerKey}/start")
     public ApiResponse<SocialAuthorizationResponse> start(@PathVariable String providerKey,
             @RequestBody(required = false) SocialLoginStartRequest request) {
         return ApiResponse.success(service.startLogin(providerKey, request));
     }
 
+    /** Consumes the callback transaction and establishes a session only for a login result. */
     @GetMapping("/{providerKey}/callback")
     public ResponseEntity<ApiResponse<SocialCallbackResponse>> callback(@PathVariable String providerKey,
             @RequestParam String state, @RequestParam String code) {

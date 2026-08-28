@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.email;
 
+/** Identifies the operator-supplied templates and whether they require a security action URL. */
 public enum EmailTemplateId {
     EMAIL_CONFIRMATION("email-confirmation", true),
     PASSWORD_RECOVERY("password-recovery", true),

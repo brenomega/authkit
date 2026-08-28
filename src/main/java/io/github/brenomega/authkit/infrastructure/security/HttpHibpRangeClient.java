@@ -9,6 +9,11 @@ import java.time.Duration;
 
 import org.springframework.stereotype.Component;
 
+/**
+ * Calls the HIBP k-anonymity range API with bounded connect and read timeouts.
+ * Redirects are disabled and padded responses are requested to reduce disclosure
+ * beyond the SHA-1 prefix required by the range protocol.
+ */
 @Component
 public class HttpHibpRangeClient implements HibpRangeClient {
 

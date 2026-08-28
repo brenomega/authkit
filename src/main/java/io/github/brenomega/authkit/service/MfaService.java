@@ -48,6 +48,19 @@ import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Manages TOTP enrollment, backup codes, and MFA verification for account step-up.
+ *
+ * <p>TOTP secrets are encrypted at rest. Confirmation records the accepted time
+ * step, and subsequent verification advances that value with a conditional update,
+ * preventing concurrent reuse of the same TOTP step. Backup codes are stored as
+ * user-bound keyed digests and consumed by a single conditional database update.
+ * Raw secrets and backup codes are returned only when first created.</p>
+ *
+ * <p>Enabling or disabling TOTP revokes all existing sessions so later tokens
+ * reflect the changed authentication posture. Verification failures participate
+ * in the shared step-up lockout and abuse-control policy.</p>
+ */
 @Service
 public class MfaService {
 
@@ -93,6 +106,7 @@ public class MfaService {
         this.abuseThrottleService = abuseThrottleService;
     }
 
+    /** Returns enrollment state without exposing authenticator material. */
     @Transactional(readOnly = true)
     public MfaStatusResponse getStatus(String userId) {
         User user = loadActiveUser(userId);
@@ -108,6 +122,12 @@ public class MfaService {
                 enrolledAt.orElse(null));
     }
 
+    /**
+     * Creates an unconfirmed TOTP enrollment after password step-up.
+     *
+     * <p>Any previous unconfirmed enrollment is replaced. The returned secret is
+     * plaintext enrollment material and must be shown only to the authenticated user.</p>
+     */
     @Transactional
     public MfaTotpEnrollmentResponse startTotpEnrollment(String userId, StepUpRequest request) {
         User user = loadActiveUser(userId);
@@ -143,6 +163,12 @@ public class MfaService {
                 provisioningUri(user.getEmail(), secret));
     }
 
+    /**
+     * Confirms an enrollment with its first valid TOTP and issues replacement backup codes.
+     *
+     * <p>The accepted TOTP step is immediately marked used. On success, existing
+     * sessions are revoked and the returned backup codes cannot be recovered later.</p>
+     */
     @Transactional
     public MfaBackupCodesResponse confirmTotp(String userId, MfaTotpConfirmRequest request) {
         User user = loadActiveUser(userId);
@@ -185,6 +211,7 @@ public class MfaService {
         return new MfaBackupCodesResponse(backupCodes);
     }
 
+    /** Disables active TOTP credentials after password and MFA step-up, then revokes all sessions. */
     @Transactional
     public void disableTotp(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
@@ -208,6 +235,11 @@ public class MfaService {
                 "totp_disabled");
     }
 
+    /**
+     * Replaces every unused backup code after password and MFA step-up.
+     *
+     * <p>The returned codes are the only recoverable plaintext copies.</p>
+     */
     @Transactional
     public MfaBackupCodesResponse regenerateBackupCodes(String userId, MfaVerificationRequest request) {
         User user = loadActiveUser(userId);
@@ -227,6 +259,10 @@ public class MfaService {
         return new MfaBackupCodesResponse(backupCodes);
     }
 
+    /**
+     * Tests whether the deployment and the account both have active TOTP MFA.
+     * Cached status is evicted whenever enrollment state changes through this service.
+     */
     @Transactional(readOnly = true)
     public boolean isMfaEnabled(User user) {
         return authProperties.getMfa().isEnabled()
@@ -235,6 +271,15 @@ public class MfaService {
                         () -> totpRepository.existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId()));
     }
 
+    /**
+     * Verifies and atomically consumes a TOTP time step or backup code.
+     *
+     * <p>An invalid result does not itself update lockout counters; callers that
+     * enforce a step-up requirement must use {@link #requireMfaIfEnabled(User, String, String)}.</p>
+     *
+     * @param reason stable audit reason prefix used when a backup code succeeds
+     * @return the accepted authentication method, or an invalid result
+     */
     @Transactional
     public MfaVerificationResult verifyMfaCode(User user, String code, String reason) {
         if (!authProperties.getMfa().isEnabled() || code == null || code.isBlank()) {
@@ -272,6 +317,12 @@ public class MfaService {
         return MfaVerificationResult.invalid();
     }
 
+    /**
+     * Enforces MFA only when active for the account and records failures in shared lockout state.
+     *
+     * @throws MfaRequiredException if MFA is active but no code is supplied
+     * @throws InvalidMfaCodeException if the supplied factor cannot be consumed
+     */
     @Transactional
     public void requireMfaIfEnabled(User user, String code, String reason) {
         if (!isMfaEnabled(user)) {
@@ -384,6 +435,7 @@ public class MfaService {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
+    /** Describes whether a factor was consumed and the resulting token AMR value. */
     public record MfaVerificationResult(boolean valid, String method) {
         public static MfaVerificationResult invalid() {
             return new MfaVerificationResult(false, null);

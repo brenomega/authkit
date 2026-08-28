@@ -5,6 +5,11 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+/**
+ * Provides the common application response envelope and request correlation value.
+ * Success carries data, while semantic and validation failures carry stable codes
+ * and messages assembled by the exception boundary.
+ */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ApiResponse<T>(
         T data,

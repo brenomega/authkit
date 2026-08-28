@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.user.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries current and replacement passwords plus MFA evidence when policy requires it. */
 public record PasswordChangeRequest(
     @Size(max = 128)
     String currentPassword,

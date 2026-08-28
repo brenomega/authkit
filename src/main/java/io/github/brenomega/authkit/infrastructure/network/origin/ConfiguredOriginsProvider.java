@@ -15,6 +15,11 @@ import org.springframework.stereotype.Component;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+/**
+ * Evaluates peer addresses against the configured CIDR origin allowlist.
+ * Results are cached locally for one hour. Construction rejects any effective
+ * production matcher that permits loopback, complementing property-level filtering.
+ */
 @Component
 public class ConfiguredOriginsProvider implements TrustedOriginProvider {
 
@@ -47,6 +52,7 @@ public class ConfiguredOriginsProvider implements TrustedOriginProvider {
                  trustedMatchers.size());
     }
 
+    /** Returns whether the exact peer address matches at least one configured range. */
     @Override
     public boolean isTrusted(String ip) {
         return resolutionCache.get(ip, key ->

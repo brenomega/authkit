@@ -10,6 +10,11 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.exception.InvalidAdminCursorException;
 
+/**
+ * Issues and validates tamper-evident cursors for administrative page traversal.
+ * Cursors expire after 15 minutes and are bound to their query kind, page size,
+ * and a caller-specific binding digest; they provide integrity, not confidentiality.
+ */
 @Component
 public class AdminCursorCodec {
     private static final long TTL_SECONDS = 900;
@@ -19,6 +24,7 @@ public class AdminCursorCodec {
         this.digestService = digestService;
     }
 
+    /** Encodes the next page position with expiry and a keyed integrity tag. */
     public String issue(String kind, int page, int limit, String binding) {
         String payload = String.join(":", "v1", kind, Integer.toString(page), Integer.toString(limit),
                 Long.toString(Instant.now().plusSeconds(TTL_SECONDS).getEpochSecond()),
@@ -28,6 +34,11 @@ public class AdminCursorCodec {
         return encoded + "." + digestService.hmacHex("admin-cursor|" + encoded);
     }
 
+    /**
+     * Validates a cursor against the current query and caller binding.
+     * A missing cursor denotes the first page; all malformed or mismatched cursors
+     * collapse to {@link InvalidAdminCursorException}.
+     */
     public PagePosition decode(String cursor, String kind, int limit, String binding) {
         try {
             if (cursor == null || cursor.isBlank()) return new PagePosition(0, limit);
@@ -56,5 +67,6 @@ public class AdminCursorCodec {
         }
     }
 
+    /** Contains the validated zero-based page and its bound page size. */
     public record PagePosition(int page, int limit) {}
 }

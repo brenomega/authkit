@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.response;
 import java.util.UUID;
 import org.slf4j.MDC;
 
+/** Provides request-correlation constants and access to the identifier scoped in MDC. */
 public final class RequestContext {
     public static final String MDC_KEY = "requestId";
     public static final String HEADER = "X-Request-ID";
@@ -10,6 +11,7 @@ public final class RequestContext {
     private RequestContext() {
     }
 
+    /** Returns the active request identifier, or a fresh identifier outside an HTTP request. */
     public static String currentRequestId() {
         String current = MDC.get(MDC_KEY);
         return current == null || current.isBlank() ? UUID.randomUUID().toString() : current;

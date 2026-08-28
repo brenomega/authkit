@@ -18,6 +18,12 @@ import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
+/**
+ * Submits email to Resend with bounded retries and stable provider idempotency.
+ * The outbox message ID becomes the idempotency key across retries; payloads lacking
+ * one receive a per-call key and therefore cannot preserve that guarantee across
+ * independent calls. A successful return denotes provider acceptance, not delivery.
+ */
 @Component
 @ConditionalOnProperty(
     prefix = "authkit.auth.email-provider",

@@ -9,6 +9,11 @@ import java.util.Arrays;
 
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 
+/**
+ * Issues and parses self-describing MFA login-challenge secrets.
+ * Parsing validates only version and structure; authenticity, expiry, and one-time
+ * consumption require comparison with the corresponding {@code TokenStorage} entry.
+ */
 public final class MfaChallengeCodec {
 
     private static final String VERSION = "v1";
@@ -33,6 +38,7 @@ public final class MfaChallengeCodec {
         return new IssuedMfaChallenge(userId, jti, raw, List.copyOf(initialAmr));
     }
 
+    /** Returns structured claims for a well-formed current or supported legacy value. */
     public static Optional<IssuedMfaChallenge> parse(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
             return Optional.empty();
@@ -68,6 +74,7 @@ public final class MfaChallengeCodec {
         return Optional.of(new IssuedMfaChallenge(parts[2], parts[3], rawToken, initialAmr));
     }
 
+    /** Couples public routing claims with the raw secret that must be stored and consumed securely. */
     public record IssuedMfaChallenge(String userId, String jti, String rawToken, List<String> initialAmr) {
     }
 }

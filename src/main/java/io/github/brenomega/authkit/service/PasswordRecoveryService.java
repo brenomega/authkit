@@ -36,6 +36,19 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Coordinates enumeration-resistant password recovery and one-time reset consumption.
+ *
+ * <p>Recovery requests expose the same outward result for absent accounts and do
+ * not create a password authenticator for social-only accounts. Raw recovery
+ * secrets are held by {@link TokenStorage}; email is enqueued transactionally, and
+ * a transaction rollback removes only the token created by that request.</p>
+ *
+ * <p>A reset first claims the token so concurrent attempts cannot both change the
+ * password. Commit permanently consumes the claim, while rollback releases it for
+ * a later retry. A successful reset checks password policy and history, clears
+ * lockout state, and revokes every existing session.</p>
+ */
 @Service
 public class PasswordRecoveryService {
 
@@ -78,6 +91,12 @@ public class PasswordRecoveryService {
         this.emailTemplateRenderer = emailTemplateRenderer;
     }
 
+    /**
+     * Requests recovery without disclosing whether the normalized email can recover a password.
+     *
+     * <p>For an eligible account, token storage and the notification outbox are
+    * coordinated with the database transaction by rollback compensation.</p>
+     */
     @LogExecutionTime
     @Transactional
     public void requestRecovery(String email) {
@@ -127,6 +146,16 @@ public class PasswordRecoveryService {
         );
     }
 
+    /**
+     * Replaces the existing password after exclusively claiming a valid recovery token.
+     *
+     * <p>The token is consumed only after the database transaction commits and is
+     * released when it rolls back. Concurrent reset attempts therefore cannot both
+     * pass the claim boundary.</p>
+     *
+     * @throws InvalidTokenException if the token is invalid, expired, already claimed,
+     *         or cannot be used by the account
+     */
     @Transactional
     @LogExecutionTime
     public void resetPassword(String email, String token, String newPassword) {

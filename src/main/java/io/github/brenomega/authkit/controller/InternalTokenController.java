@@ -12,6 +12,11 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.FirstPartyTokenIntrospectionService;
 import jakarta.validation.Valid;
 
+/**
+ * Exposes first-party token activity to trusted internal workers.
+ * Worker origin and shared-secret authentication are enforced before this adapter;
+ * invalid tokens collapse to inactive rather than exposing validation detail.
+ */
 @RestController
 @RequestMapping("/api/v1/internal/tokens")
 public class InternalTokenController {
@@ -22,6 +27,7 @@ public class InternalTokenController {
         this.introspectionService = introspectionService;
     }
 
+    /** Combines JWT validation with live account and JTI-backed session state. */
     @PostMapping("/introspect")
     public ResponseEntity<ApiResponse<FirstPartyIntrospectionResponse>> introspect(
             @Valid @RequestBody FirstPartyIntrospectionRequest request) {

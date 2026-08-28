@@ -12,6 +12,11 @@ import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
+/**
+ * Simulates provider acceptance without logging message bodies or full recipients.
+ * This provider is intended for explicitly configured non-delivery environments;
+ * its generated provider ID does not represent external delivery.
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "logging")
 public class LoggingEmailProvider implements EmailProvider {

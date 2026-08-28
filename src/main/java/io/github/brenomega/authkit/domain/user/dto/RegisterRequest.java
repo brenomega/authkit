@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/** Carries local registration credentials and explicit consent assertions. */
 public record RegisterRequest(
         @NotBlank @Email @Size(max = 255) String email,
         @NotBlank @Size(min = 12, max = 128) String password,

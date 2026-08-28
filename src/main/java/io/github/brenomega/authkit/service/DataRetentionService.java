@@ -37,6 +37,15 @@ import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
+/**
+ * Applies configured retention limits to audit, credential, protocol, and deleted-account data.
+ *
+ * <p>A distributed scheduler lock prevents overlapping workers. Purges use bounded
+ * batches and independent {@code REQUIRES_NEW} transactions so one committed batch
+ * is not rolled back when a later batch fails. Deleted-account removal follows the
+ * repository dependency order required by foreign keys; the job exposes counts and
+ * failures through metrics without weakening persistence errors.</p>
+ */
 @Service
 @ConditionalOnProperty(
     prefix = "authkit.auth.compliance",
@@ -108,6 +117,11 @@ public class DataRetentionService {
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
+    /**
+     * Removes records older than their configured cutoffs under the cluster-wide retention lock.
+     *
+     * @throws RuntimeException if any purge fails; already committed batches remain committed
+     */
     @Scheduled(cron = "${authkit.auth.compliance.retention-job-cron:0 30 3 * * *}")
     @SchedulerLock(name = "dataRetention",
             lockAtMostFor = "${authkit.auth.scheduler.retention-lock-at-most:PT2H}",

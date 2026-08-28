@@ -19,6 +19,12 @@ import jakarta.servlet.http.HttpServletResponse;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.MDC;
 
+/**
+ * Enforces the network-origin allowlist before protected application processing.
+ * Decisions use the direct servlet peer address rather than forwarded headers. The
+ * sole bypass is the local health probe for the exact health endpoint; rejected
+ * addresses are precision-masked in logs.
+ */
 @Component
 public class OriginFirewallFilter extends OncePerRequestFilter {
 

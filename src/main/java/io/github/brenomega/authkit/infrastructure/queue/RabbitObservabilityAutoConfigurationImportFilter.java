@@ -8,6 +8,11 @@ import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.Environment;
 import org.springframework.lang.NonNull;
 
+/**
+ * Suppresses RabbitMQ health and metrics auto-configuration when direct dispatch is selected.
+ * Operators may preserve those indicators explicitly when RabbitMQ remains an
+ * intentional dependency for unrelated workloads.
+ */
 public class RabbitObservabilityAutoConfigurationImportFilter
         implements AutoConfigurationImportFilter, EnvironmentAware {
 
@@ -27,6 +32,7 @@ public class RabbitObservabilityAutoConfigurationImportFilter
         this.environment = environment;
     }
 
+    /** Filters only Rabbit observability auto-configurations and leaves all others unchanged. */
     @Override
     public boolean[] match(String[] autoConfigurationClasses, AutoConfigurationMetadata autoConfigurationMetadata) {
         boolean suppressRabbitObservability = shouldSuppressRabbitObservability();

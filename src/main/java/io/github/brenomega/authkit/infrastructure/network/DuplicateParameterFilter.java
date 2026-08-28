@@ -16,6 +16,11 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Rejects request-parameter ambiguity before authentication and protocol handling.
+ * Any parameter with more than one value is rejected so downstream components
+ * cannot disagree about which security-sensitive value was intended.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class DuplicateParameterFilter extends OncePerRequestFilter {
@@ -25,6 +30,7 @@ public class DuplicateParameterFilter extends OncePerRequestFilter {
         this.objectMapper = objectMapper;
     }
 
+    /** Applies duplicate detection to the servlet parameter map before continuing the chain. */
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,

@@ -33,6 +33,16 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Reconciles every first-party JWT request with live session and account state.
+ *
+ * <p>After cryptographic JWT validation, this filter rejects token-use confusion,
+ * requires a live JTI-backed session, refreshes throttled privacy-reduced activity
+ * metadata, and replaces token roles with current database authorities. Account
+ * state and roles may be cached only for the configured short interval and explicit
+ * mutations must evict that entry. Session or database dependency failures fail
+ * unavailable rather than accepting stale authorization.</p>
+ */
 @Component
 public class UserAuthoritiesFilter extends OncePerRequestFilter {
 
@@ -134,6 +144,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                 });
     }
 
+    /** Invalidates cached account state and authorities after an authorization mutation. */
     public void evict(UUID userId) {
         authorityCache.invalidate(userId);
     }

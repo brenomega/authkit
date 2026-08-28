@@ -23,6 +23,14 @@ import io.lettuce.core.RedisClient;
 import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFactory;
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 
+/**
+ * Enforces progressive account lockout with per-node and optional Redis-backed budgets.
+ *
+ * <p>The three shared budgets cover 15-minute, hourly, and daily windows. When
+ * Redis is absent or fails, enforcement degrades to the local Caffeine bucket and
+ * emits degradation metrics; loss of distributed coordination does not disable the
+ * per-node control.</p>
+ */
 @Service
 public class AccountLockoutService {
 
@@ -68,6 +76,7 @@ public class AccountLockoutService {
         }
     }
 
+    /** Debits every applicable local and distributed budget for the normalized email. */
     public void recordFailedAttempt(String email) {
         try {
             Bucket localBucket = localBuckets.get(email, key -> createNewLayer1Bucket());
@@ -86,6 +95,10 @@ public class AccountLockoutService {
         }
     }
 
+    /**
+     * Returns whether the distributed budget is exhausted, falling back to the
+     * per-node budget when distributed coordination is unavailable.
+     */
     public boolean isLocked(String email) {
         try {
             if (proxyManager != null) {
@@ -111,6 +124,10 @@ public class AccountLockoutService {
         return false;
     }
 
+    /**
+     * Clears local and, when available, distributed state after a trusted successful ceremony.
+     * A Redis failure may leave distributed state active and is surfaced through metrics.
+     */
     public void clearLockout(String email) {
         localBuckets.invalidate(email);
 

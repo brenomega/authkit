@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/** Configures the bounded HTTP client used exclusively for Resend email submission. */
 @Configuration
 @ConditionalOnProperty(
     prefix = "authkit.auth.email-provider",
@@ -26,6 +27,7 @@ public class ResendConfig {
         this.authProperties = authProperties;
     }
 
+    /** Creates a client with configured connect/read timeouts and bearer authentication. */
     @Bean
     public RestClient resendRestClient() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();

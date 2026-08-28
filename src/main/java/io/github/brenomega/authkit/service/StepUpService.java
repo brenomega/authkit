@@ -23,6 +23,15 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/**
+ * Enforces recent proof of control before high-risk authenticated operations.
+ *
+ * <p>Password verification shares the global Argon2 concurrency limiter and the
+ * progressive account lockout state used by login. Passwordless accounts may
+ * satisfy the password portion only with a WebAuthn-authenticated JWT whose age
+ * is within the configured freshness window. MFA verification itself remains a
+ * collaborator responsibility.</p>
+ */
 @Service
 public class StepUpService {
 
@@ -57,6 +66,10 @@ public class StepUpService {
                 new AuthProperties());
     }
 
+    /**
+     * Verifies password or a fresh local passkey and records failure against
+     * lockout state using high audit severity.
+     */
     public void verifyCurrentPassword(User user,
                                       String currentPassword,
                                       SecurityEventType eventType,
@@ -64,6 +77,13 @@ public class StepUpService {
         verifyCurrentPassword(user, currentPassword, eventType, SecurityEventSeverity.HIGH, failureReason);
     }
 
+    /**
+     * Verifies password or a fresh local passkey with caller-selected audit severity.
+     *
+     * @throws AccountLockedException if progressive lockout is already active
+     * @throws AuthenticationCapacityExceededException if Argon2 capacity is exhausted
+     * @throws InvalidCredentialsException if no accepted proof is present
+     */
     public void verifyCurrentPassword(User user,
                                       String currentPassword,
                                       SecurityEventType eventType,
@@ -111,6 +131,7 @@ public class StepUpService {
                 .orElse(false);
     }
 
+    /** Records one failed step-up and emits the threshold lockout event when reached. */
     public void recordFailedStepUp(User user,
                                    SecurityEventType eventType,
                                    SecurityEventSeverity failureSeverity,
@@ -132,6 +153,7 @@ public class StepUpService {
         }
     }
 
+    /** Rejects locked accounts before performing an expensive credential check. */
     public void requireNotLocked(User user, SecurityEventType eventType, String failureReason) {
         if (lockoutService.isLocked(user.getEmail())) {
             securityEventService.recordForAuthenticatedUser(
@@ -144,6 +166,7 @@ public class StepUpService {
         }
     }
 
+    /** Applies the dedicated abuse-control policy before an MFA step-up attempt. */
     public void checkMfaStepUp(User user) {
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.STEP_UP_MFA_USER, user);
     }

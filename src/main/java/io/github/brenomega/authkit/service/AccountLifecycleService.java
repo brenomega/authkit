@@ -48,6 +48,21 @@ import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
+/**
+ * Coordinates consent inspection, portable account export, and account deletion.
+ *
+ * <p>Sensitive lifecycle operations require the same password and configured MFA
+ * step-up used for other account-security changes. Exports deliberately contain
+ * credential metadata rather than credential secrets and traverse session storage
+ * through its bounded cursor protocol. A deletion request is committed with its
+ * audit and notification outbox records; revocation of external session state and
+ * authority-cache eviction occur at the surrounding service boundary.</p>
+ *
+ * <p>The service preserves the final active platform administrator and applies
+ * immediate anonymization when the configured grace period is zero. Otherwise,
+ * {@link AccountAnonymizationService} completes anonymization after the grace
+ * period.</p>
+ */
 @Service
 public class AccountLifecycleService {
 
@@ -108,6 +123,7 @@ public class AccountLifecycleService {
         this.passwordHistoryRepository = passwordHistoryRepository;
     }
 
+    /** Returns the consent state persisted on the active account. */
     @Transactional(readOnly = true)
     public ConsentSnapshotResponse getConsentSnapshot(String userId) {
         User user = loadActiveUser(userId);
@@ -120,6 +136,14 @@ public class AccountLifecycleService {
                 user.getLawfulBasis());
     }
 
+    /**
+     * Produces a security-sensitive account export after fresh step-up.
+     *
+     * <p>The export includes audit, consent, authenticator, social-identity, and
+     * session metadata, but never password hashes, TOTP secrets, backup-code
+     * digests, OAuth secrets, or refresh tokens. Session enumeration is capped at
+     * 10,000 entries as an operational safety bound.</p>
+     */
     @Transactional(readOnly = true)
     public UserDataExportResponse exportUserData(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
@@ -223,6 +247,14 @@ public class AccountLifecycleService {
         return List.copyOf(result);
     }
 
+    /**
+     * Marks an account for deletion and invalidates its ability to authenticate.
+     *
+     * <p>The last active platform administrator cannot be deleted. With a zero-day
+     * grace period, directly identifying data and linked social state are removed
+     * in this transaction; otherwise anonymization is deferred until the configured
+     * cutoff. Existing sessions are revoked after the durable account transition.</p>
+     */
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);

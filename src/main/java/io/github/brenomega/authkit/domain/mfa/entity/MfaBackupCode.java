@@ -10,6 +10,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents a user-bound backup-code digest and its irreversible consumption state.
+ * The raw recovery factor is never persisted; repository-level conditional updates
+ * provide the single-use transition used during concurrent verification.
+ */
 @Entity
 @Table(name = "mfa_backup_codes")
 public class MfaBackupCode {

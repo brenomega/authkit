@@ -14,6 +14,14 @@ import org.springframework.stereotype.Component;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import jakarta.persistence.EntityManager;
 
+/**
+ * Applies the Hibernate tenant filter around service-layer execution for tenant JWTs.
+ * Nested service calls share one filter scope through a thread-local depth counter,
+ * and cleanup always disables the filter at the outer boundary. Platform
+ * administrators and contexts without a valid tenant claim intentionally receive no
+ * automatic filter, so explicit service authorization remains required and this
+ * aspect must not be treated as the sole tenant-isolation control.
+ */
 @Aspect
 @Component
 public class TenantFilterAspect {
@@ -27,6 +35,7 @@ public class TenantFilterAspect {
         this.entityManager = entityManager;
     }
 
+    /** Enables the tenant parameter for the outermost applicable service invocation. */
     @Around("execution(* io.github.brenomega.authkit.service..*(..))")
     public Object enforceTenantFilter(ProceedingJoinPoint joinPoint) throws Throwable {
         String tenantId = currentTenantId();

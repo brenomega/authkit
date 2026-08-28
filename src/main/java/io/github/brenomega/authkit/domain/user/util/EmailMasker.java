@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.domain.user.util;
 
+/** Reduces an email address to a non-secret display form for logs and audit evidence. */
 public final class EmailMasker {
 
     private EmailMasker() {

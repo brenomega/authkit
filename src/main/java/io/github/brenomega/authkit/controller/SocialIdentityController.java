@@ -21,6 +21,7 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.SocialIdentityService;
 import jakarta.validation.Valid;
 
+/** Manages social identities owned by the authenticated account. */
 @RestController
 @RequestMapping("/api/v1/users/me/social-identities")
 public class SocialIdentityController {
@@ -32,12 +33,14 @@ public class SocialIdentityController {
         return new ApiResponse<>(service.list(UUID.fromString(jwt.getSubject())), null, Instant.now());
     }
 
+    /** Starts an OIDC link ceremony after strong authenticated step-up. */
     @PostMapping("/{providerKey}/link/start")
     public ApiResponse<SocialAuthorizationResponse> startLink(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String providerKey, @Valid @RequestBody(required = false) StepUpRequest request) {
         return ApiResponse.success(service.startLink(providerKey, jwt, request));
     }
 
+    /** Unlinks an owned identity while preserving at least one usable authenticator. */
     @DeleteMapping("/{identityId}")
     public ApiResponse<String> unlink(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID identityId,
             @Valid @RequestBody(required = false) StepUpRequest request) {

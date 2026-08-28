@@ -6,6 +6,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+/**
+ * Bounds concurrent Argon2 operations to protect process memory and availability.
+ * A configured value of zero derives the limit from available processors; admission
+ * is non-blocking so callers can reject excess authentication work promptly.
+ */
 @Component
 public class Argon2ConcurrencyLimiter {
 
@@ -26,10 +31,12 @@ public class Argon2ConcurrencyLimiter {
         this.semaphore = new Semaphore(maxConcurrent);
     }
 
+    /** Attempts immediate admission without waiting for capacity. */
     public boolean tryAcquire() {
         return semaphore.tryAcquire();
     }
 
+    /** Releases one permit previously obtained by the caller. */
     public void release() {
         semaphore.release();
     }

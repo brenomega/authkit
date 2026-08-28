@@ -21,6 +21,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Authenticates internal worker requests with origin restriction and a shared secret.
+ * The request must originate from {@link TrustedOriginProvider} and present either
+ * the current or an explicitly configured previous token. Comparison is constant
+ * time; use of a previous token is accepted for rotation but recorded by metrics.
+ */
 @Component
 public class WorkerAuthFilter extends OncePerRequestFilter {
 
@@ -44,6 +50,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
         this.meterRegistry = meterRegistry;
     }
 
+    /** Limits worker authentication to internal endpoints and Prometheus metrics. */
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
         String path = request.getRequestURI();

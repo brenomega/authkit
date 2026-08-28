@@ -23,6 +23,12 @@ import io.github.brenomega.authkit.infrastructure.network.ip.IpMasker;
 import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Emits a structured operational audit log after successful state-changing controller calls.
+ * The log contains subject, tenant, route, method, and masked client address but no
+ * arguments or response data. It complements, and does not replace, durable
+ * {@link io.github.brenomega.authkit.infrastructure.audit.SecurityEvent} evidence.
+ */
 @Aspect
 @Component
 public class AuditLoggingAspect {
@@ -56,6 +62,7 @@ public class AuditLoggingAspect {
     @Pointcut("postMappings() || putMappings() || patchMappings() || deleteMappings()")
     public void stateChangingOperations() {}
 
+    /** Emits an event only after the controller operation returns successfully. */
     @AfterReturning("stateChangingOperations()")
     public void auditStateChange(JoinPoint joinPoint) {
         String userId = "anonymous";

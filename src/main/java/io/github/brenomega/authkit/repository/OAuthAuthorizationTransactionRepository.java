@@ -11,10 +11,15 @@ import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationTransaction;
 
+/** Persists hashed browser authorization transactions and their conditional consumption. */
 public interface OAuthAuthorizationTransactionRepository
         extends JpaRepository<OAuthAuthorizationTransaction, UUID> {
     Optional<OAuthAuthorizationTransaction> findByTokenHash(String tokenHash);
 
+    /**
+     * Consumes a live transaction exactly once.
+     * @return {@code 1} on successful consumption or {@code 0} if expired or already consumed
+     */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update OAuthAuthorizationTransaction t "
             + "set t.consumedAt = :now "

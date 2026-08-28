@@ -7,6 +7,7 @@ import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.github.bucket4j.redis.lettuce.cas.LettuceBasedProxyManager;
 import io.lettuce.core.RedisClient;
 
+/** Creates Redis-backed Bucket4j coordination while preserving documented local fallback. */
 public final class Bucket4jProxyManagerFactory {
 
     private static final Logger log = LoggerFactory.getLogger(Bucket4jProxyManagerFactory.class);
@@ -14,6 +15,10 @@ public final class Bucket4jProxyManagerFactory {
     private Bucket4jProxyManagerFactory() {
     }
 
+    /**
+     * Returns a distributed proxy manager, or {@code null} when construction fails.
+     * Callers must retain their local enforcement layer when the result is absent.
+     */
     public static ProxyManager<byte[]> create(RedisClient client, String callerName) {
         try {
             return LettuceBasedProxyManager.builderFor(client).build();

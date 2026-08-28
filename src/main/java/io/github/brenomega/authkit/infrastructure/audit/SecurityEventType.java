@@ -1,5 +1,6 @@
 package io.github.brenomega.authkit.infrastructure.audit;
 
+/** Enumerates stable categories used for audit persistence, metrics, and alert routing. */
 public enum SecurityEventType {
     BOOTSTRAP,
     LOGIN_SUCCESS,

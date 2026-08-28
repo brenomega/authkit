@@ -35,6 +35,20 @@ import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 
+/**
+ * Implements revocable token state and one-time ceremonies with Redis atomic scripts.
+ *
+ * <p>Refresh and recovery secrets are persisted only as digests. Lua scripts make
+ * first-party refresh rotation, family compromise revocation, session-index updates,
+ * one-time MFA consumption, and recovery claim transitions atomic within their key
+ * set. Refresh replay removes the live family before
+ * {@link TokenFamilyCompromisedException} is raised.</p>
+ *
+ * <p>Session enumeration uses Redis scan state wrapped in opaque, owner-bound,
+ * single-use cursors with a five-minute TTL; it is intentionally not a point-in-time
+ * snapshot. This implementation is the distributed backend for the full
+ * {@link TokenStorage} contract.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",
         havingValue = "redis", matchIfMissing = true)

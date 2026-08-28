@@ -25,6 +25,15 @@ import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
+/**
+ * Configures distinct JWT signing and first-party resource-server verification boundaries.
+ *
+ * <p>The decoder accepts RS256 signatures from active or retiring published keys,
+ * then requires issuer, API audience, first-party token-use shape, a key ID that is
+ * not revoked, and a token JTI not known to be revoked. OAuth access tokens and ID
+ * tokens therefore cannot be substituted for first-party API access even when
+ * signed by the same key.</p>
+ */
 @Configuration
 public class JwtConfig {
 
@@ -44,6 +53,7 @@ public class JwtConfig {
         return jwtKeyService.activePublicKey();
     }
 
+    /** Returns the decoder whose validators define acceptance for first-party API tokens. */
     @Bean
     public JwtDecoder jwtDecoder() {
         DefaultJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
@@ -91,6 +101,7 @@ public class JwtConfig {
         }
     }
 
+    /** Returns an encoder backed only by the currently active private signing key. */
     @Bean
     public JwtEncoder jwtEncoder() {
         RSAKey rsaKey = jwtKeyService.activePrivateJwk();

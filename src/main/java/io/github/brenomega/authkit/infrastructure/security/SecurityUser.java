@@ -9,6 +9,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 
+/**
+ * Adapts the persisted account to Spring Security's local credential model.
+ * Enabled state requires both an active account and confirmed email; account
+ * lockout is enforced by {@link AccountLockoutService}, not by this adapter.
+ */
 public class SecurityUser implements UserDetails {
 
     private final User user;
