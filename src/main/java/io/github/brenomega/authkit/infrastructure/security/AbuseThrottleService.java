@@ -26,6 +26,13 @@ import io.github.bucket4j.distributed.proxy.ProxyManager;
 import io.lettuce.core.RedisClient;
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Applies use-case abuse budgets to privacy-preserving subject dimensions.
+ *
+ * <p>Dimensions are HMACed before they become Redis or local-cache keys. Redis is
+ * the global authority when available; degradation falls back to a stricter local
+ * budget unless the configured high-risk policy is eligible to fail closed.</p>
+ */
 @Service
 public class AbuseThrottleService {
 
@@ -64,6 +71,15 @@ public class AbuseThrottleService {
         }
     }
 
+    /**
+     * Consumes one unit from the policy budget for a normalized dimension.
+     *
+     * @throws io.github.brenomega.authkit.exception.RateLimitExceededException
+     *         when the applicable budget is exhausted
+     * @throws io.github.brenomega.authkit.exception.AbuseProtectionUnavailableException
+     *         when an eligible high-risk policy is configured to fail closed and
+     *         its distributed authority is unavailable
+     */
     public void check(AbuseRateLimitPolicy policy, String dimension) {
         String normalized = normalizeDimension(dimension);
         String hashedDimension = auditDigestService.hmacHex(policy.key() + '|' + normalized);

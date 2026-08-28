@@ -33,20 +33,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 /**
- * Service for user profile and session management (RF 2.1.6, RF 2.1.7, RF 2.1.8).
+ * Coordinates self-service profile, password, and session management.
  *
- * <p>Provides operations for viewing and updating user profiles, changing
- * passwords, and managing active authentication sessions.</p>
- *
- * <h3>Security Hardening</h3>
- * <ul>
- *   <li><strong>IDOR Protection (DT 3.2.24):</strong> Profile updates enforce
- *       strict horizontal ID boundary checks, returning 404 for mismatched IDs.</li>
- *   <li><strong>Lockout Enforcement (DT 3.2.23):</strong> Password changes and
- *       session revocations are blocked when the account is locked.</li>
- *   <li><strong>Session Revocation (RF 2.1.12):</strong> Password changes trigger
- *       automatic revocation of all other active refresh tokens.</li>
- * </ul>
+ * <p>User identifiers are checked against the authenticated principal and tenant
+ * before data is returned or changed. Cross-user access is reported as not found
+ * to avoid identifier enumeration. Password changes preserve the current session
+ * while revoking every other refresh session.</p>
  *
  * @see AccountLockoutService
  * @see TokenStorage
@@ -141,12 +133,11 @@ public class ProfileService {
     }
 
     /**
-     * Changes the password for an authenticated user after verifying current credentials (RF 2.1.7).
+     * Changes the password and revokes every session except the current {@code jti}.
      *
-     * <p><strong>Lockout Guard (DT 3.2.23):</strong> If the account is locked due to
-     * progressive lockout, this operation is <strong>blocked</strong> even with a valid JWT.</p>
-     *
-     * <p>Upon success, all other active sessions are revoked for security hardening (RF 2.1.12).</p>
+     * <p>Password history and the new hash are written in one database transaction;
+     * token-store revocation is an external side effect and is not transactionally
+     * coupled to that write. Locked accounts cannot use this operation.</p>
      *
      * @param userId     the authenticated user's ID
      * @param request    the password change payload with current and new passwords
@@ -211,10 +202,10 @@ public class ProfileService {
     }
 
     /**
-     * Lists active refresh token sessions for the user (RF 2.1.8, RF 2.1.10).
+     * Lists a non-snapshot page of active refresh sessions for the user.
      *
      * @param userId the authenticated user's ID
-     * @return a list of active session identifiers (JTIs)
+     * @return session JTIs and an opaque continuation cursor
      */
     public SessionPageResponse listSessions(String userId, String currentJti, int limit, String cursor) {
         if (limit < 1 || limit > 100) {
@@ -239,12 +230,12 @@ public class ProfileService {
     }
 
     /**
-     * Revokes a specific session by its JTI (RF 2.1.8).
+     * Revokes a user-owned session after optional MFA step-up.
      *
-     * <p><strong>Lockout Guard (DT 3.2.23):</strong> Blocked while the account is locked.</p>
+     * <p>The operation is blocked while the account is locked.</p>
      *
      * @param userId the authenticated user's ID
-     * @param jti    the JTI of the session to revoke
+     * @param publicSessionId the opaque public identifier of the session to revoke
      * @throws AccountLockedException if the account is locked
      */
     public void revokeSession(String userId, String publicSessionId, String mfaCode) {

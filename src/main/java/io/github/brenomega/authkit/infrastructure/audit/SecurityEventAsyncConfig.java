@@ -6,6 +6,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/** Configures the bounded executor used only for non-critical audit persistence. */
 @Configuration
 public class SecurityEventAsyncConfig {
 

@@ -29,6 +29,7 @@ import io.github.brenomega.authkit.service.OAuthProviderService;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletResponse;
 
+/** Adapts OAuth 2.0 and OpenID Connect protocol operations to provider services. */
 @RestController
 public class OAuthController {
 
@@ -40,6 +41,7 @@ public class OAuthController {
         this.authProperties = authProperties;
     }
 
+    /** Publishes provider capabilities derived from the configured issuer. */
     @GetMapping("/.well-known/openid-configuration")
     public Map<String, Object> discovery() {
         String issuer = authProperties.getJwt().getIssuer();
@@ -65,6 +67,7 @@ public class OAuthController {
         );
     }
 
+    /** Authorizes an authenticated resource owner and returns a client-bound code redirect. */
     @PostMapping("/api/v1/oauth2/authorize")
     public ApiResponse<OAuthAuthorizeResponse> authorize(
             @AuthenticationPrincipal Jwt jwt,
@@ -72,6 +75,7 @@ public class OAuthController {
         return new ApiResponse<>(oauthProviderService.authorize(jwt, request), null, Instant.now());
     }
 
+    /** Starts an authorization transaction and redirects to the configured login UI. */
     @GetMapping("/oauth2/authorize")
     public ResponseEntity<Void> beginAuthorization(
             @RequestParam(value = "response_type", required = false) String responseType,
@@ -103,6 +107,7 @@ public class OAuthController {
         return ResponseEntity.status(302).header(HttpHeaders.LOCATION, location).build();
     }
 
+    /** Exchanges a client-bound authorization code using PKCE S256. */
     @PostMapping(path = "/oauth2/token", consumes = "application/x-www-form-urlencoded")
     public OAuthTokenResponse token(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
@@ -127,6 +132,7 @@ public class OAuthController {
                 refreshToken);
     }
 
+    /** Revokes an OAuth access token without disclosing whether it was active. */
     @PostMapping(path = "/oauth2/revoke", consumes = "application/x-www-form-urlencoded")
     public void revoke(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
@@ -138,6 +144,7 @@ public class OAuthController {
         oauthProviderService.revoke(token, tokenTypeHint, credentials.clientId(), credentials.clientSecret());
     }
 
+    /** Returns token activity only to the client to which the token is addressed. */
     @PostMapping(path = "/oauth2/introspect", consumes = "application/x-www-form-urlencoded")
     public Map<String, Object> introspect(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
@@ -149,6 +156,7 @@ public class OAuthController {
         return oauthProviderService.introspect(token, tokenTypeHint, credentials.clientId(), credentials.clientSecret());
     }
 
+    /** Returns only the subject claims authorized by the access token's scopes. */
     @GetMapping("/oauth2/userinfo")
     public Map<String, Object> userInfo(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {

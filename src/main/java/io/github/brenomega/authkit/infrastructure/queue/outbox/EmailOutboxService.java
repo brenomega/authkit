@@ -14,6 +14,14 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Owns transactional email-outbox creation, claiming, and state transitions.
+ *
+ * <p>Enqueue participates in the caller's database transaction. Claiming uses a
+ * separate pessimistically locked transaction; transport dispatch happens only
+ * after that transaction returns. Failed attempts use bounded exponential backoff
+ * and eventually become terminal {@link EmailOutboxStatus#DEAD} records.</p>
+ */
 @Service
 public class EmailOutboxService {
 
@@ -29,12 +37,18 @@ public class EmailOutboxService {
         this.meterRegistry = meterRegistry;
     }
 
+    /** Adds email intent to the caller's current database transaction. */
     @SuppressWarnings("null")
     @Transactional
     public void enqueue(EmailPayload payload) {
         repository.save(EmailOutboxMessage.pending(payload, Instant.now()));
     }
 
+    /**
+     * Claims the oldest due records and reclaims processing records whose lock is stale.
+     *
+     * <p>The returned records are committed as processing before dispatch begins.</p>
+     */
     @Transactional
     public List<EmailOutboxMessage> claimDueMessages(int batchSize, Duration lockTtl) {
         Instant now = Instant.now();
@@ -51,6 +65,7 @@ public class EmailOutboxService {
         return List.copyOf(messages);
     }
 
+    /** Marks an eligible message accepted by the asynchronous transport. */
     @SuppressWarnings("null")
     @Transactional
     public void markQueued(UUID messageId, Duration deliveryTimeout) {
@@ -59,6 +74,7 @@ public class EmailOutboxService {
                 Instant.now().plus(deliveryTimeout));
     }
 
+    /** Idempotently marks an eligible message sent while preserving its first delivery metadata. */
     @SuppressWarnings("null")
     @Transactional
     public void markAccepted(UUID messageId, String providerMessageId) {
@@ -69,6 +85,7 @@ public class EmailOutboxService {
                 Instant.now());
     }
 
+    /** Schedules a retry or transitions an exhausted message to the dead state. */
     @SuppressWarnings("null")
     @Transactional
     public void markFailed(UUID messageId, String error) {

@@ -8,6 +8,11 @@ import org.springframework.context.EnvironmentAware;
 import org.springframework.core.env.Environment;
 import org.springframework.lang.NonNull;
 
+/**
+ * Suppresses Rabbit health and metric auto-configuration when direct email mode
+ * deliberately does not require a broker. Operators may preserve those signals
+ * explicitly for deployments that use RabbitMQ for another purpose.
+ */
 public class RabbitObservabilityAutoConfigurationImportFilter implements AutoConfigurationImportFilter, EnvironmentAware {
 
     private static final String DISPATCH_MODE_PROPERTY = "authkit.auth.email-outbox.dispatch-mode";

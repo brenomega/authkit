@@ -6,6 +6,7 @@ import java.util.UUID;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.enums.AccountState;
 
+/** Describes an account within the caller's administrative tenant boundary. */
 public record AdminUserResponse(
         UUID id,
         UUID tenantId,

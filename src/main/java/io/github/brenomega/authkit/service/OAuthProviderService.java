@@ -75,6 +75,16 @@ import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
+/**
+ * Implements AuthKit's OAuth 2.0 authorization-code provider use cases.
+ *
+ * <p>The provider accepts only authorization code grants with PKCE S256. It binds
+ * codes to the client, exact redirect URI, user, tenant, scopes, and original
+ * authentication methods; codes are stored hashed, expire, and are atomically
+ * consumed. OAuth access tokens use a client audience and are distinct from
+ * first-party access tokens. ID tokens are issued only for the {@code openid}
+ * scope and are not bearer credentials for protected APIs.</p>
+ */
 @Service
 public class OAuthProviderService {
 
@@ -133,6 +143,13 @@ public class OAuthProviderService {
         this.oauthJwtDecoder = oauthJwtDecoder(jwtKeyService, tokenRevocationService);
     }
 
+    /**
+     * Validates authorization context, persists consent when necessary, and issues a code.
+     *
+     * <p>The client scopes must contain every requested scope. A tenant-bound
+     * client may authorize users only from that tenant; a client without a tenant
+     * is global.</p>
+     */
     @Transactional
     public String beginAuthorization(String responseType, String clientId, String redirectUri, String scope,
                                      String state, String codeChallenge, String codeChallengeMethod, String nonce) {
@@ -284,6 +301,13 @@ public class OAuthProviderService {
                 authProperties.getOauth().getAuthorizationCodeTtlMinutes() * 60);
     }
 
+    /**
+     * Exchanges a valid authorization code exactly once.
+     *
+     * <p>Client authentication, exact redirect matching, code expiry, and PKCE
+     * verification precede issuance. Code consumption uses a conditional database
+     * update so concurrent exchanges cannot both succeed.</p>
+     */
     @Transactional
     public OAuthTokenResponse token(String grantType,
                                     String code,
@@ -436,6 +460,12 @@ public class OAuthProviderService {
         return new IssuedRefreshToken(raw, familyId);
     }
 
+    /**
+     * Records revocation of a token owned by the authenticated client.
+     *
+     * <p>Unknown, malformed, mismatched, or already revoked tokens are ignored so
+     * the operation does not disclose token validity.</p>
+     */
     @Transactional
     public void revoke(String token, String tokenTypeHint, String clientId, String clientSecret) {
         ensureEnabled();
@@ -460,6 +490,12 @@ public class OAuthProviderService {
                 .ifPresent(jwt -> tokenRevocationService.revoke(jwt.getId(), jwt.getExpiresAt()));
     }
 
+    /**
+     * Describes a token only when it is active and addressed to the authenticated client.
+     *
+     * @return an inactive response for every invalid, expired, revoked, or
+     *         client-mismatched token
+     */
     @SuppressWarnings("null")
     @Transactional(readOnly = true)
     public Map<String, Object> introspect(String token, String tokenTypeHint, String clientId, String clientSecret) {
@@ -506,6 +542,12 @@ public class OAuthProviderService {
                 .orElse(Map.of("active", false));
     }
 
+    /**
+     * Resolves OpenID user claims permitted by the token's scopes.
+     *
+     * <p>Email and profile data are omitted unless the corresponding scope is
+     * present; an OAuth access token without {@code openid} is rejected.</p>
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> userInfo(String bearerToken) {
         ensureEnabled();

@@ -4,6 +4,11 @@ import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Describes an OAuth client to administrators.
+ *
+ * <p>The raw client secret is present only immediately after creation or rotation.</p>
+ */
 public record AdminOAuthClientResponse(
         UUID id,
         String clientId,

@@ -3,24 +3,12 @@ package io.github.brenomega.authkit.infrastructure.network.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Externalized configuration for the hybrid rate limiting filter (DT 3.2.21).
+ * Configures the local micro-burst and global per-address request budgets.
  *
- * <p>Binds properties from the {@code network.security.rate-limit} prefix to
- * type-safe fields, eliminating hardcoded defaults from the filter code.
- * Production values are defined in {@code application.yml}; test overrides
- * in {@code application-test.yml}.</p>
+ * <p>Both capacities are requests per minute. The local cache size bounds memory,
+ * while Redis supplies the cross-instance global budget when available.</p>
  *
- * <h3>Property Reference</h3>
- * <ul>
- *   <li>{@code network.security.rate-limit.local-capacity} — Layer 1 (Caffeine)
- *       per-IP bucket capacity per minute.</li>
- *   <li>{@code network.security.rate-limit.global-capacity} — Layer 2 (Redis)
- *       distributed per-IP bucket capacity per minute.</li>
- *   <li>{@code network.security.rate-limit.local-max-size} — Maximum number of
- *       IP buckets tracked in the local Caffeine cache.</li>
- * </ul>
- *
- * @see RateLimitingFilter
+ * @see io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter
  */
 @ConfigurationProperties(prefix = "network.security.rate-limit")
 public class RateLimitingProperties {

@@ -7,6 +7,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.MimeMessage;
 
+/** Executes the blocking Jakarta Mail transport call for the SMTP provider. */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "smtp")
 class JakartaMailSmtpTransport implements SmtpTransport {

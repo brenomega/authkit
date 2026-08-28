@@ -29,7 +29,13 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.exception.AuditUnavailableException;
 
 /**
- * Builds privacy-safe security events and persists them through a bounded writer.
+ * Builds privacy-safe security events and selects their durability policy.
+ *
+ * <p>Email, IP address, and user agent are hashed with the configured audit pepper;
+ * display values are masked, metadata keys associated with credentials are
+ * redacted, and stored text is bounded. Critical events are persisted synchronously
+ * in the caller's transaction and fail closed. Other events use a bounded executor
+ * or a configured synchronous fallback and are best-effort.</p>
  */
 @Service
 public class SecurityEventService {
@@ -120,6 +126,12 @@ public class SecurityEventService {
         record(type, outcome, severity, null, null, null, email, reason, metadata);
     }
 
+    /**
+     * Captures request context, sanitizes supplied data, signs the row, and records the event.
+     *
+     * @throws io.github.brenomega.authkit.exception.AuditUnavailableException
+     *         if a critical event cannot be durably joined to the business operation
+     */
     public void record(SecurityEventType type,
                        SecurityEventOutcome outcome,
                        SecurityEventSeverity severity,

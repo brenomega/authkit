@@ -22,11 +22,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Filter that authenticates internal backend workers via a shared secret (DT 3.2.11).
+ * Authenticates internal workers with edge trust and a rotating shared secret.
  *
- * <p>It sits in the filter chain after the Bearer token validation and checks for
- * a specific worker header (e.g. X-Worker-Token). If valid, it assigns the
- * ROLE_WORKER authority.</p>
+ * <p>Both the TCP peer address and the worker header must be accepted before
+ * {@code ROLE_WORKER} is installed. Previous configured secrets remain valid
+ * during rotation, and every comparison is constant-time. A forwarded client
+ * address cannot establish edge trust.</p>
  */
 @Component
 public class WorkerAuthFilter extends OncePerRequestFilter {

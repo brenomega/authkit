@@ -18,11 +18,12 @@ import java.util.Locale;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxTiming;
 
 /**
- * Validates production environment configurations to prevent deployment with 
- * default credentials or configuration vulnerabilities (DT 3.6.3).
+ * Fails startup when non-development configuration violates security prerequisites.
  *
- * <p>Throws IllegalStateException immediately if insecure credentials, empty tokens,
- * or default placeholder settings are detected outside of test/dev profiles.</p>
+ * <p>Validation covers secrets and placeholders, TLS and cookie requirements,
+ * cryptographic minimums, scheduler locks, provider selection, CORS, and supported
+ * token-store topology. It is skipped only for explicit test/development contexts;
+ * every other profile is treated as production-like.</p>
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)

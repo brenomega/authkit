@@ -36,16 +36,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Central Spring Security configuration (DT 3.2.5-3.2.8, DT 3.2.14).
+ * Defines the stateless request-security boundary and filter ordering.
  *
- * <p>Configures the application as a stateless OAuth2 Resource Server
- * that validates Bearer Tokens via JWT. Key characteristics:</p>
- * <ul>
- *   <li>Session management: {@code STATELESS} (DT 3.2.5)</li>
- *   <li>CSRF: disabled for Bearer Token API (DT 3.2.6)</li>
- *   <li>Method-level security: enabled via {@code @PreAuthorize} (DT 3.2.8)</li>
- *   <li>Security headers: {@code nosniff}, {@code DENY}, HSTS, CSP (DT 3.2.14)</li>
- * </ul>
+ * <p>Spring Security sessions and framework CSRF are disabled for bearer-token
+ * traffic. Refresh and logout remain cookie-backed operations and enforce the
+ * project's configurable double-submit CSRF contract in the controller when a
+ * refresh cookie is present. The chain places origin, size, rate-limit, worker,
+ * and current-authority controls around JWT authentication in security-sensitive
+ * order.</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -102,7 +100,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // DT 3.2.6 — CSRF disabled for stateless Bearer Token API
+            // Cookie-backed refresh/logout use the controller's double-submit check.
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> {})
 

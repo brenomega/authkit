@@ -34,10 +34,13 @@ import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
- * Implementation of TokenStorage utilizing Spring Data Redis.
+ * Implements revocable token state and one-time challenges in Redis.
  *
- * <p>Implements Token Family Tracking and Reuse Detection (DT 3.2.5) via atomic
- * Lua scripts to prevent session replay attacks.</p>
+ * <p>Raw secrets are reduced to SHA-256 hashes before storage. Lua scripts make
+ * refresh-family rotation, replay-triggered family revocation, recovery-token
+ * consumption, MFA challenge consumption, and session revocation atomic within
+ * Redis. Session cursors are hashed, owner-bound, single-use, and expire after
+ * five minutes.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend",

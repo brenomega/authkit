@@ -35,7 +35,11 @@ import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 /**
- * Service handling the user registration and activation flow.
+ * Coordinates registration, consent capture, and email activation.
+ *
+ * <p>Registration normalizes email addresses, applies password and abuse policy,
+ * stores only the activation-token hash, and writes the user, immutable consent
+ * event, and activation outbox message in one database transaction.</p>
  */
 @Service
 public class RegistrationService {
@@ -71,10 +75,10 @@ public class RegistrationService {
     }
 
     /**
-     * Registers a new user with multi-tenancy and async email activation.
+     * Registers an inactive user and queues the one-time activation secret.
      *
      * @param request defined by the DTO whitelist
-     * @return the saved entity
+     * @return the persisted user, which is not login-eligible until confirmed
      */
     @Transactional
     @LogExecutionTime
@@ -121,7 +125,10 @@ public class RegistrationService {
     }
 
     /**
-     * Confirms a user's email address using the one-time activation token.
+     * Confirms an email with a matching, unexpired activation token.
+     *
+     * <p>The stored token hash and expiry are cleared on success. An expired token
+     * is also cleared before the operation reports failure.</p>
      */
     @SuppressWarnings("null")
     @Transactional
@@ -153,6 +160,12 @@ public class RegistrationService {
                 "email_verified");
     }
 
+    /**
+     * Replaces and re-sends an activation token without revealing account state.
+     *
+     * <p>Unknown, deleted, and already confirmed accounts are indistinguishable
+     * no-ops after abuse controls are applied.</p>
+     */
     @Transactional
     @LogExecutionTime
     public void resendEmailConfirmation(String emailInput) {

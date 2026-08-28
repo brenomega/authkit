@@ -11,21 +11,14 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Configuration properties for trusted origin CIDR ranges (DT 3.2.19).
+ * Configures CIDR ranges whose TCP peers may reach the application origin.
  *
- * <p>Provides a dynamic way to manage trusted reverse proxy origin CIDRs.
- * Ranges are externalized and managed via Kubernetes ConfigMaps/NetworkPolicies
- * to prevent security bypass without hardcoded assumptions.</p>
+ * <p>Ranges describe reverse proxies or edge networks, not end-user addresses.
+ * In the {@code prod} profile the known IPv4 and IPv6 loopback CIDRs are always
+ * removed from the effective list, even if present in external configuration.</p>
  *
- * <p>This class is reverse-proxy agnostic — the CIDR ranges can represent
- * any edge provider (Cloudflare, AWS API Gateway, Nginx, etc.).</p>
- *
- * <p>In the {@code prod} profile, loopback addresses are automatically stripped
- * from the effective ranges unless explicitly configured, preventing local
- * spoofing attacks.</p>
- *
- * @see ConfiguredOriginsProvider
- * @see OriginFirewallFilter
+ * @see io.github.brenomega.authkit.infrastructure.network.origin.ConfiguredOriginsProvider
+ * @see io.github.brenomega.authkit.infrastructure.network.origin.OriginFirewallFilter
  */
 @Component
 @Validated
@@ -48,10 +41,7 @@ public class NetworkSecurityProperties {
     }
 
     /**
-     * Returns the configured ranges (DT 3.2.19 safety).
-     *
-     * <p>Strictly excludes loopback addresses in the 'prod' profile to prevent local spoofing
-     * unless explicitly configured in application.yml.</p>
+     * Returns the configured ranges after production loopback exclusion.
      *
      * @return the effective list of trusted CIDR ranges
      */

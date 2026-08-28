@@ -20,6 +20,13 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.brenomega.authkit.service.spi.CompromisedPasswordChecker;
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Screens passwords with the HIBP range protocol and a bounded prefix cache.
+ *
+ * <p>Only the first five characters of the uppercase SHA-1 digest leave the
+ * process. Provider, parsing, and transport failures are metered and fail open so
+ * availability degradation does not block password operations.</p>
+ */
 @Service
 public class HibpCompromisedPasswordChecker implements CompromisedPasswordChecker {
 

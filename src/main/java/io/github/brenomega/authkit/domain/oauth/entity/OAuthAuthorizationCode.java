@@ -14,6 +14,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Persists a hashed, expiring authorization code and every value bound to its exchange.
+ *
+ * <p>Identity is internal; the externally issued raw code is never stored. The
+ * {@code consumedAt} transition is conditional so only one exchange may succeed.</p>
+ */
 @Entity
 @Table(name = "oauth_authorization_codes")
 public class OAuthAuthorizationCode {

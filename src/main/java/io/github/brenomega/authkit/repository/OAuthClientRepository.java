@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 
+/** Provides globally ordered and tenant-scoped OAuth client lookup. */
 public interface OAuthClientRepository extends JpaRepository<OAuthClient, UUID> {
 
     Optional<OAuthClient> findByClientId(String clientId);

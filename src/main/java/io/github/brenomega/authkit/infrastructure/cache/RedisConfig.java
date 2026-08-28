@@ -15,7 +15,8 @@ import io.lettuce.core.RedisClient;
  * Infrastructure configuration for Redis caching, session management, and rate limiting.
  *
  * <p>Provides the primary {@link StringRedisTemplate} used by {@link RedisTokenStorage}
- * and {@link AccountLockoutService}, as well as the native {@link RedisClient} required
+ * and {@link io.github.brenomega.authkit.infrastructure.security.AccountLockoutService},
+ * as well as the native {@link RedisClient} required
  * by the distributed rate limiting layer (DT 3.2.21).</p>
  *
  * <p>This configuration is active only in non-test profiles. The test profile
@@ -24,7 +25,7 @@ import io.lettuce.core.RedisClient;
  * bean is available (DT 3.1.18).</p>
  *
  * @see RedisTokenStorage
- * @see AccountLockoutService
+ * @see io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
  */
 @Configuration
 @Profile("!test")

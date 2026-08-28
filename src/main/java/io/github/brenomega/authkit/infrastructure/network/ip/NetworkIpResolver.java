@@ -10,28 +10,20 @@ import org.springframework.stereotype.Component;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Orchestrator for client IP resolution using the Chain of Responsibility pattern (DT 3.2.17, DT 3.2.20).
+ * Resolves the client address from the first applicable configured strategy.
  *
  * <p>Injects all available {@link IpResolutionStrategy} beans, sorts them by
  * {@link IpResolutionStrategy#getOrder()} ascending, and iterates through them
  * for each request. The first strategy that returns a non-empty result wins.</p>
  *
- * <h3>Default Resolution Order</h3>
- * <ol>
- *   <li>{@link CloudflareIpStrategy} (order 100) — {@code CF-Connecting-IP}</li>
- *   <li>{@link XForwardedForIpStrategy} (order 200) — {@code X-Forwarded-For} with trustedProxyDepth</li>
- *   <li>{@link DirectIpStrategy} (order 300) — {@code request.getRemoteAddr()}</li>
- * </ol>
- *
  * <p>Strategies are conditionally enabled via {@code application.yml}, allowing
  * the resolution chain to be adapted for any reverse proxy topology without
- * code changes.</p>
- *
- * <p>If all strategies return empty (shouldn't happen with {@code DirectIpStrategy}),
- * falls back to {@code request.getRemoteAddr()} as a safety net.</p>
+ * code changes. An invalid forwarded-header strategy yields no candidate and the
+ * chain continues; it does not by itself reject the request. If every strategy is
+ * empty, the socket peer address is the final fallback.</p>
  *
  * @see IpResolutionStrategy
- * @see RateLimitingFilter
+ * @see io.github.brenomega.authkit.infrastructure.network.rateLimit.RateLimitingFilter
  */
 @Component
 public class NetworkIpResolver {
@@ -40,9 +32,7 @@ public class NetworkIpResolver {
     private final List<IpResolutionStrategy> strategies;
 
     /**
-     * Constructs the resolver with all available IP resolution strategies.
-     *
-     * @param strategies the injected strategies, sorted by order at construction time
+     * Creates a resolver whose strategies are fixed in ascending priority order.
      */
     public NetworkIpResolver(List<IpResolutionStrategy> strategies) {
         this.strategies = strategies.stream()
@@ -57,10 +47,7 @@ public class NetworkIpResolver {
     }
 
     /**
-     * Resolves the real client IP by iterating through the strategy chain (DT 3.2.17, DT 3.2.20).
-     *
-     * <p>Returns the first non-empty result from the ordered strategy chain.
-     * If no strategy produces a result, falls back to the direct remote address.</p>
+     * Returns the first strategy candidate or the direct peer address.
      *
      * @param request the active servlet request
      * @return the resolved client IP

@@ -12,6 +12,14 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
+/**
+ * Polls and dispatches claimed outbox messages under a distributed scheduler lock.
+ *
+ * <p>Each message is isolated from failures in the same batch. A process crash
+ * after provider acceptance but before the sent transition may cause a later
+ * duplicate attempt; this processor therefore provides at-least-once attempts,
+ * not exactly-once delivery.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class EmailOutboxProcessor {
@@ -34,6 +42,7 @@ public class EmailOutboxProcessor {
         this.meterRegistry = meterRegistry;
     }
 
+    /** Claims one configured batch and dispatches each message outside the claim transaction. */
     @Scheduled(
             fixedDelayString = "${authkit.auth.email-outbox.poll-delay-ms:5000}",
             scheduler = "emailOutboxTaskScheduler")

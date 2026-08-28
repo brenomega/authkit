@@ -9,6 +9,13 @@ import org.springframework.stereotype.Service;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/**
+ * Produces deterministic HMAC-SHA-256 digests for audit pseudonymization and integrity.
+ *
+ * <p>The configured audit pepper is also consumed by backup-code and abuse-control
+ * dimensions. Rotating it changes deterministic lookups, including outstanding
+ * backup-code verification.</p>
+ */
 @Service
 public class AuditDigestService {
 
@@ -27,6 +34,7 @@ public class AuditDigestService {
         return hmacHex(value);
     }
 
+    /** Returns a lowercase hexadecimal keyed digest of the exact UTF-8 value. */
     public String hmacHex(String value) {
         try {
             Mac mac = Mac.getInstance(HMAC_SHA_256);

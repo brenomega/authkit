@@ -10,6 +10,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Retains a previous password hash for reuse detection.
+ *
+ * <p>The entry belongs to a user UUID and contains no recoverable password. The
+ * policy service keeps only the configured recent history depth.</p>
+ */
 @Entity
 @Table(name = "password_history")
 public class PasswordHistoryEntry {

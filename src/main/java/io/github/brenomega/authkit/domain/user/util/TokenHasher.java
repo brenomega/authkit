@@ -5,13 +5,17 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * One-way token hashing helper for server-side bearer-token storage.
+ * Computes deterministic SHA-256 token digests for exact server-side lookup.
+ *
+ * <p>Callers remain responsible for constant-time digest comparison. This helper
+ * is not a password encoder and provides no work factor.</p>
  */
 public final class TokenHasher {
 
     private TokenHasher() {
     }
 
+    /** Returns the lowercase hexadecimal SHA-256 digest of the exact UTF-8 token. */
     public static String sha256Hex(String rawToken) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");

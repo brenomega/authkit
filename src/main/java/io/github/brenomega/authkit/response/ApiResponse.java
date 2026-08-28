@@ -6,21 +6,10 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
- * Standardized API response envelope (DT 3.1.8).
+ * Wraps application responses that use AuthKit's generic success/error envelope.
  *
- * <p>Every endpoint in the system returns this structure, ensuring that
- * clients always receive a consistent JSON shape regardless of success
- * or failure.</p>
- *
- * <p>Example success payload:</p>
- * <pre>{@code
- * { "data": { ... }, "errors": null, "timestamp": "2026-04-21T..." }
- * }</pre>
- *
- * <p>Example error payload:</p>
- * <pre>{@code
- * { "data": null, "errors": ["Invalid credentials"], "timestamp": "2026-04-21T..." }
- * }</pre>
+ * <p>OAuth protocol endpoints may return their protocol-native bodies instead;
+ * the OpenAPI document is authoritative for which envelope each endpoint uses.</p>
  *
  * @param <T> the type of the response body
  * @param data      the response payload (null on error)

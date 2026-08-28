@@ -22,7 +22,11 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
- * Centralized current-password step-up verification for sensitive operations.
+ * Applies current-password and lockout policy to sensitive operations.
+ *
+ * <p>Verification is fresh for each call; possession of an access token alone is
+ * insufficient. Failures increment the same progressive lockout state used by
+ * login and emit the caller-selected security event.</p>
  */
 @Service
 public class StepUpService {

@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 
 import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 
+/** Persists TOTP enrollment state and replay-prevention time steps. */
 public interface MfaTotpCredentialRepository extends JpaRepository<MfaTotpCredential, UUID> {
 
     boolean existsByUserIdAndConfirmedTrueAndDisabledAtIsNull(UUID userId);
@@ -27,6 +28,11 @@ public interface MfaTotpCredentialRepository extends JpaRepository<MfaTotpCreden
     @Modifying
     long deleteByUserIdIn(Collection<UUID> userIds);
 
+    /**
+     * Advances the accepted TOTP time step only when it is newer than the stored value.
+     *
+     * @return {@code 1} when this caller claimed the step, otherwise {@code 0}
+     */
     @Modifying
     @Query("""
             update MfaTotpCredential credential

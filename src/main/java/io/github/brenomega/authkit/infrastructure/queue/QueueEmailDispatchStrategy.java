@@ -12,6 +12,12 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
+/**
+ * Publishes a claimed email to the broker and records its acknowledgement deadline.
+ *
+ * <p>Publication and the database queued transition are not atomic. A failure
+ * between them may result in a later duplicate publication.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
 public class QueueEmailDispatchStrategy implements EmailDispatchStrategy {

@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.github.brenomega.authkit.domain.user.entity.User;
 
+/** Creates immutable consent evidence within the account-registration transaction. */
 @Service
 public class ConsentEventService {
 
@@ -19,6 +20,12 @@ public class ConsentEventService {
         this.auditDigestService = auditDigestService;
     }
 
+    /**
+     * Records current complete consent and refuses execution without an existing transaction.
+     *
+     * <p>Incomplete consent is a no-op. A persistence failure rolls back the
+     * surrounding business operation.</p>
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordCurrentConsent(User user) {
         if (!user.isTermsAccepted() || !user.isPrivacyPolicyAccepted() || user.getConsentAcceptedAt() == null) {

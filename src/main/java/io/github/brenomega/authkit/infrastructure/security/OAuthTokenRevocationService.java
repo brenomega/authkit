@@ -12,6 +12,14 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.micrometer.core.instrument.MeterRegistry;
 
+/**
+ * Tracks revoked OAuth access-token JTIs until their natural expiry.
+ *
+ * <p>Revocations are cached locally and written to the configured Redis or JDBC
+ * store when available. Storage failures are metered and treated as not revoked;
+ * this component therefore fails open during revocation-store outages and must not
+ * be described as an absolute immediate-revocation guarantee.</p>
+ */
 @Service
 public class OAuthTokenRevocationService {
 
@@ -65,6 +73,7 @@ public class OAuthTokenRevocationService {
         }
     }
 
+    /** Returns whether the JTI is known revoked, or {@code false} on lookup degradation. */
     public boolean isRevoked(String jti) {
         if (jti == null || jti.isBlank()) {
             return false;

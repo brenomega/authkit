@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.domain.oauth.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+/** Carries tokens issued by an OAuth authorization-code or refresh-token exchange. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record OAuthTokenResponse(
         @JsonProperty("access_token")

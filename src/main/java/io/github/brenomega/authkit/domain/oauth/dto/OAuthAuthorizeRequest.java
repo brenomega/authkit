@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+/** Carries an authorization-code request after first-party authentication. */
 public record OAuthAuthorizeRequest(
         @NotBlank @Pattern(regexp = "code") String responseType,
         @NotBlank @Size(max = 128) String clientId,

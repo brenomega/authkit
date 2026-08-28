@@ -29,6 +29,18 @@ import io.github.brenomega.authkit.service.spi.SessionPage;
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Implements revocable token state and one-time challenges in relational tables.
+ *
+ * <p>Raw secrets are persisted only as SHA-256 hashes. Refresh rotation locks the
+ * family and current session rows so concurrent uses cannot both advance a family;
+ * replay revokes its active member. Recovery and MFA consumption use row locks and
+ * delete-on-match semantics. Session cursors are hashed, owner-bound, single-use,
+ * and expire according to configuration.</p>
+ *
+ * <p>This adapter coordinates only through its database and is therefore approved
+ * by production validation solely in explicit single-instance mode.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend", havingValue = "jdbc")
 public class JdbcTokenStorage implements TokenStorage {
@@ -461,6 +473,7 @@ public class JdbcTokenStorage implements TokenStorage {
         return Boolean.TRUE.equals(consumed);
     }
 
+    /** Deletes expired sessions, families, one-time values, cursors, and OAuth revocations. */
     public int deleteExpired() {
         Integer deleted = transactionTemplate.execute(status -> {
             Timestamp now = timestamp(Instant.now());

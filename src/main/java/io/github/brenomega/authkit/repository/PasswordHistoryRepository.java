@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import io.github.brenomega.authkit.domain.user.entity.PasswordHistoryEntry;
 
+/** Provides newest-first password-history hashes for bounded reuse checks. */
 @Repository
 public interface PasswordHistoryRepository extends JpaRepository<PasswordHistoryEntry, UUID> {
 

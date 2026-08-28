@@ -8,10 +8,10 @@ import org.springframework.web.bind.annotation.RestController;
 import io.github.brenomega.authkit.infrastructure.security.JwtKeyService;
 
 /**
- * Controller exposing the JSON Web Key Set (JWKS) (DT 3.2.6).
+ * Publishes active and retiring JWT verification keys.
  *
- * <p>Allows downstream services to fetch the active public keys for
- * stateless signature verification.</p>
+ * <p>Configured revoked key IDs are excluded. The set never exposes private key
+ * material.</p>
  */
 @RestController
 public class JwksController {

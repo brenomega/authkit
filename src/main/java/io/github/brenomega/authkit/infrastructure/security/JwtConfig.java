@@ -26,9 +26,11 @@ import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 
 /**
- * JWT configuration that loads RSA keys and provides the decoder/encoder beans (DT 3.2.2).
+ * Configures RSA signing and first-party JWT validation.
  *
- * <p>Pins the JWT signature to RS256 with key ID (kid) and audience validation (DT 3.2.6).</p>
+ * <p>Validation pins RS256 and verifies issuer, expiry, API audience, first-party
+ * token use, signing-key revocation, and token JTI revocation. Server-side session
+ * activity and current authorities are enforced later by {@link UserAuthoritiesFilter}.</p>
  */
 @Configuration
 public class JwtConfig {
@@ -50,8 +52,7 @@ public class JwtConfig {
     }
 
     /**
-     * Creates a {@link JwtDecoder} that verifies JWT signatures using RS256.
-     * Enforces issuer and audience verification (DT 3.2.6, DT 3.2.7).
+     * Creates the decoder for first-party API bearer tokens.
      */
     @Bean
     public JwtDecoder jwtDecoder() {
@@ -100,8 +101,7 @@ public class JwtConfig {
     }
 
     /**
-     * Creates a {@link JwtEncoder} using both the Public and Private keys.
-     * Associates a configured key ID for JWKS targeting.
+     * Creates an RS256 encoder that stamps the configured active key ID.
      */
     @Bean
     public JwtEncoder jwtEncoder() {

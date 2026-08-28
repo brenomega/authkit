@@ -24,25 +24,15 @@ import io.github.brenomega.authkit.infrastructure.network.ip.NetworkIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Structured audit logging aspect for state-changing controller operations (DT 3.4.8, RN 04).
+ * Emits privacy-conscious structured logs after successful controller mutations.
  *
- * <p>Intercepts all {@code @PostMapping}, {@code @PutMapping}, {@code @PatchMapping}, and
- * {@code @DeleteMapping} methods across {@code AuthController} and {@code UserController}
- * to produce JSON-structured audit logs.</p>
+ * <p>Entries contain principal and tenant identifiers, operation, timestamp, and
+ * a masked resolved address; request bodies are never included. Advice runs only
+ * after a controller returns normally. These logs are operational signals and do
+ * not replace durable {@link io.github.brenomega.authkit.infrastructure.audit.SecurityEvent}
+ * persistence.</p>
  *
- * <h3>Captured Fields</h3>
- * <ul>
- *   <li>{@code userId} — from {@code SecurityContextHolder} JWT {@code sub} claim</li>
- *   <li>{@code action} — HTTP method and endpoint path</li>
- *   <li>{@code tenant_id} — from JWT {@code tenant_id} claim</li>
-     *   <li>{@code client_ip} — resolved and masked via {@link NetworkIPResolver} (DT 3.2.17)</li>
- *   <li>{@code timestamp} — ISO-8601 formatted instant</li>
- * </ul>
- *
- * <p><strong>Sanitization (DT 3.4.1):</strong> Request bodies are NEVER logged to prevent
- * leakage of passwords, tokens, or other sensitive data.</p>
- *
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  * @see LoggingAspect
  */
 @Aspect

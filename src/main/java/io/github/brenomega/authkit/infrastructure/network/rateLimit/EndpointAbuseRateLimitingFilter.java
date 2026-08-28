@@ -19,6 +19,13 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Applies endpoint-specific IP and device budgets before authentication services.
+ *
+ * <p>The device dimension combines resolved address and user agent; it is an
+ * abuse-control key, not a durable device identity. Service-layer subject budgets
+ * complement these perimeter budgets after identifiers are normalized.</p>
+ */
 @Component
 public class EndpointAbuseRateLimitingFilter extends OncePerRequestFilter {
 

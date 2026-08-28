@@ -2,6 +2,7 @@ package io.github.brenomega.authkit.exception;
 
 import org.springframework.http.HttpStatus;
 
+/** Indicates that a required critical audit record could not be persisted. */
 public class AuditUnavailableException extends ApiBaseException {
 
     public AuditUnavailableException(Throwable cause) {

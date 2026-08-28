@@ -21,33 +21,18 @@ import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.enums.AccountState;
 
 /**
- * Spring Data JPA repository for the {@link User} entity (DT 3.1.4).
- *
- * <p>Acts as an output adapter for the persistence layer, deliberately kept
- * separate from the domain package to isolate data-access technology from
- * the business model.</p>
+ * Provides account lookup and explicit tenant-scoped administration queries.
  */
 @Repository
 public interface UserRepository extends JpaRepository<User, java.util.UUID> {
 
-    /**
-     * Finds a user by their email address.
-     *
-     * @param email the email to search for
-     * @return an {@link Optional} containing the user, or empty if not found
-     */
     Optional<User> findByEmail(String email);
 
+    /** Locks the account row while performing an email-address ceremony. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.email = :email")
     Optional<User> findByEmailForUpdate(@Param("email") String email);
 
-    /**
-     * Finds a user by their email confirmation token.
-     *
-     * @param emailConfirmationToken the confirmation token to search for
-     * @return an {@link Optional} containing the user, or empty if not found
-     */
     Optional<User> findByEmailConfirmationToken(String emailConfirmationToken);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -17,6 +17,13 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.service.spi.EmailDeliveryResult;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
+/**
+ * Submits claimed outbox messages to a bounded provider executor.
+ *
+ * <p>The outbox record becomes queued before provider I/O. Executor rejection and
+ * provider failure transition it to retry or dead state. A stale queued record may
+ * be reclaimed after the delivery timeout, so provider calls can repeat.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "direct")
 public class DirectEmailDispatchStrategy implements EmailDispatchStrategy {

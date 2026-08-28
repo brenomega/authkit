@@ -51,17 +51,17 @@ import jakarta.servlet.http.HttpServletResponse;
  *       via {@link RateLimitingProperties#getGlobalCapacity()}.</li>
  * </ul>
  *
- * <h3>Heap Optimization</h3>
+ * <h2>Heap Optimization</h2>
  * <p>Both {@link BucketConfiguration} instances (local and global) are pre-computed at
  * construction time and reused across all requests. The {@code doFilterInternal} hot path
  * performs zero configuration-object allocations.</p>
  *
- * <h3>Fail-Open (DT 3.1.18)</h3>
+ * <h2>Fail-Open (DT 3.1.18)</h2>
  * <p>If Redis is unreachable (either at startup or at runtime), the filter degrades
  * gracefully to Layer 1 only, maintaining availability at the cost of cross-instance
  * consistency.</p>
  *
- * <h3>Log Throttling (DT 3.4.1)</h3>
+ * <h2>Log Throttling (DT 3.4.1)</h2>
  * <p>Redis failures are logged at most once every 5 minutes to prevent production
  * log flooding during sustained outages.</p>
  *

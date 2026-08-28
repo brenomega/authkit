@@ -11,7 +11,10 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.QueuePublisher;
 
 /**
- * Concrete RabbitMQ implementation of the {@link QueuePublisher} for emails.
+ * Submits email payloads to the durable RabbitMQ topology.
+ *
+ * <p>This adapter does not wait for consumer completion. Broker-confirm strength
+ * is determined by the surrounding Spring AMQP configuration.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)
@@ -28,10 +31,7 @@ public class RabbitMqEmailPublisher implements QueuePublisher<EmailPayload> {
     }
 
     /**
-     * Serializes the {@link EmailPayload} to JSON and dispatches it to the
-     * configured exchange and routing key.
-     *
-     * @param payload the email specification
+     * Serializes the payload to JSON and submits it to the email routing key.
      */
     @Override
     public void publish(EmailPayload payload) {

@@ -14,6 +14,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Defines an OAuth client, its exact redirects, permitted scopes, and tenant boundary.
+ *
+ * <p>Confidential client secrets are stored only as password hashes. A
+ * {@code null} tenant identifies a global client rather than an unscoped request.</p>
+ */
 @Entity
 @Table(name = "oauth_clients")
 public class OAuthClient {

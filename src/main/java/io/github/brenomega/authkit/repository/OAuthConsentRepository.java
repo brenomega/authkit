@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
 
+/** Persists active and revoked scope grants between users and OAuth clients. */
 public interface OAuthConsentRepository extends JpaRepository<OAuthConsent, UUID> {
 
     Optional<OAuthConsent> findByUserIdAndClientIdAndRevokedAtIsNull(UUID userId, String clientId);
