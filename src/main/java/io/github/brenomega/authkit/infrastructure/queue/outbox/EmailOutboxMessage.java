@@ -16,6 +16,13 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
+/**
+ * Represents durable email intent and its retryable delivery state.
+ *
+ * <p>The UUID is stable across claims and retries and is propagated as the
+ * provider idempotency or correlation key. Attempt count advances when claimed;
+ * terminal sent and dead records are not reclaimed.</p>
+ */
 @Entity
 @Table(name = "email_outbox")
 public class EmailOutboxMessage {

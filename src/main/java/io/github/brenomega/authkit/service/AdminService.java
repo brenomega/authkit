@@ -41,6 +41,14 @@ import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
+/**
+ * Enforces the administrative plane for users, tenants, and OAuth clients.
+ *
+ * <p>Every operation derives authorization from the supplied JWT and reloads the
+ * administrator from persistence. Tenant administrators are restricted to their
+ * own tenant; system administrators may cross tenant boundaries. Mutations also
+ * require current-password step-up and MFA when enabled.</p>
+ */
 @Service
 public class AdminService {
 
@@ -101,6 +109,12 @@ public class AdminService {
                 .toList();
     }
 
+    /**
+     * Changes a user's role within the caller's administrative boundary.
+     *
+     * <p>Changing authorization data evicts cached authorities and revokes the
+     * target's sessions so existing tokens cannot retain the previous role.</p>
+     */
     @Transactional
     public AdminUserResponse updateRole(Jwt jwt, UUID targetUserId, AdminUpdateRoleRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
@@ -170,6 +184,12 @@ public class AdminService {
                 .toList();
     }
 
+    /**
+     * Registers an OAuth client and returns its raw secret once.
+     *
+     * <p>Only an Argon2 hash is persisted. Redirect URIs, scopes, and tenant scope
+     * are validated before the client is committed.</p>
+     */
     @Transactional
     public AdminOAuthClientResponse createOAuthClient(Jwt jwt, AdminOAuthClientCreateRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
@@ -202,6 +222,12 @@ public class AdminService {
         return toClientResponse(client, rawSecret);
     }
 
+    /**
+     * Updates an OAuth client and optionally rotates its secret.
+     *
+     * <p>A rotated raw secret is present only in this method's response and cannot
+     * be recovered later.</p>
+     */
     @Transactional
     public AdminOAuthClientResponse updateOAuthClient(Jwt jwt, UUID clientId, AdminOAuthClientUpdateRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
@@ -234,6 +260,12 @@ public class AdminService {
         return toClientResponse(client, rawSecret);
     }
 
+    /**
+     * Prevents future authorization and token operations for an OAuth client.
+     *
+     * <p>This state change does not itself establish retroactive revocation of
+     * access tokens already issued to the client.</p>
+     */
     @Transactional
     public void disableOAuthClient(Jwt jwt, UUID clientId, String currentPassword, String mfaCode) {
         User admin = requireAdminPlanePrincipal(jwt);

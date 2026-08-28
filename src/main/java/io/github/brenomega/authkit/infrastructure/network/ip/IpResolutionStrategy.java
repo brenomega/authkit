@@ -5,10 +5,10 @@ import java.util.Optional;
 import jakarta.servlet.http.HttpServletRequest;
 
 /**
- * Strategy interface for resolving the real client IP from an HTTP request (DT 3.2.17, DT 3.2.20).
+ * Resolves a candidate client address from one trusted request signal.
  *
  * <p>Implementations extract the client IP from specific headers or connection
- * metadata, forming a prioritized chain orchestrated by {@link NetworkIPResolver}.
+ * metadata, forming a prioritized chain orchestrated by {@link NetworkIpResolver}.
  * Each strategy returns an {@link Optional} — empty if the strategy's header is
  * absent or invalid, present if a valid IP was extracted.</p>
  *
@@ -16,14 +16,10 @@ import jakarta.servlet.http.HttpServletRequest;
  * priority. The orchestrator iterates through strategies in ascending order
  * and returns the first non-empty result.</p>
  *
- * <h3>Available Strategies</h3>
- * <ul>
- *   <li>{@link CloudflareIpStrategy} — Order 100 (highest priority)</li>
- *   <li>{@link XForwardedForIpStrategy} — Order 200 (with trustedProxyDepth)</li>
- *   <li>{@link DirectIpStrategy} — Order 300 (fallback)</li>
- * </ul>
+ * <p>An empty result means that the signal is absent or unusable and allows the
+ * resolver to try the next strategy; it is not itself a request rejection.</p>
  *
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  */
 public interface IpResolutionStrategy {
 
@@ -36,9 +32,9 @@ public interface IpResolutionStrategy {
     Optional<String> resolveIp(HttpServletRequest request);
 
     /**
-     * Returns the priority order of this strategy. Lower values = higher priority.
+     * Returns the priority order of this strategy.
      *
-     * @return the priority order
+     * @return the priority; lower values are evaluated first
      */
     int getOrder();
 }

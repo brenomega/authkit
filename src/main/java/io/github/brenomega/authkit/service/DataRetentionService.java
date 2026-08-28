@@ -31,7 +31,12 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
- * Enforces configured data-retention windows for privacy governance.
+ * Purges expired audit, ceremony, authorization, and deleted-account data.
+ *
+ * <p>The scheduled run is protected by a distributed lock. Each bounded batch
+ * executes in its own {@code REQUIRES_NEW} transaction, so an already committed
+ * batch remains deleted if a later batch fails. Deleted-account purging removes
+ * dependent security and consent records before deleting the account row.</p>
  */
 @Service
 @ConditionalOnProperty(prefix = "authkit.auth.compliance", name = "retention-job-enabled", havingValue = "true", matchIfMissing = true)
@@ -85,6 +90,7 @@ public class DataRetentionService {
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
+    /** Executes one retention pass and propagates failures for scheduler visibility. */
     @Scheduled(cron = "${authkit.auth.compliance.retention-job-cron:0 30 3 * * *}")
     @SchedulerLock(name = "dataRetention",
             lockAtMostFor = "${authkit.auth.scheduler.retention-lock-at-most:PT2H}",

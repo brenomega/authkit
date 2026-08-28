@@ -4,6 +4,7 @@ import java.time.Duration;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/** Derives processing-lock windows from delivery and retry configuration. */
 public final class EmailOutboxTiming {
 
     private EmailOutboxTiming() {

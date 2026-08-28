@@ -23,6 +23,13 @@ import jakarta.mail.Session;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 
+/**
+ * Delivers email through SMTP with bounded retries and TLS settings from configuration.
+ *
+ * <p>The outbox UUID is propagated in {@code X-AuthKit-Message-Id} for correlation,
+ * but SMTP does not guarantee idempotency for that header; retry or reclaim can
+ * therefore produce duplicate mail.</p>
+ */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "smtp")
 public class SmtpEmailProvider implements EmailProvider {

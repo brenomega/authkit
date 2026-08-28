@@ -11,8 +11,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * Persisted WebAuthn credential material. Private key material never leaves the
- * authenticator; this table stores only public credential metadata.
+ * Represents persisted public WebAuthn credential material.
+ *
+ * <p>Private key material never leaves the authenticator. Signature count and
+ * last-use time advance after a verified assertion; disablement is a one-way
+ * transition and excludes the credential from ceremony lookup.</p>
  */
 @Entity
 @Table(name = "passkey_credentials")

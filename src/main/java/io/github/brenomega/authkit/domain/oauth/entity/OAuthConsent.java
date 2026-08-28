@@ -14,6 +14,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Records the active set of scopes granted by one user to one OAuth client.
+ *
+ * <p>Granting additional scopes is monotonic until the consent is explicitly
+ * revoked; tenant identity is retained as part of the evidence.</p>
+ */
 @Entity
 @Table(name = "oauth_consents")
 public class OAuthConsent {

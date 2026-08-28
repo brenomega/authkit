@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.query.Param;
 
+/** Provides newest-first audit lookup and bounded retention deletion primitives. */
 @org.springframework.stereotype.Repository
 public interface SecurityEventRepository extends JpaRepository<SecurityEvent, UUID> {
 

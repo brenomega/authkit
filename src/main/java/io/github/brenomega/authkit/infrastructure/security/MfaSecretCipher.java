@@ -20,7 +20,12 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
 /**
- * Encrypts TOTP shared secrets before database persistence.
+ * Encrypts TOTP shared secrets in a versioned, authenticated envelope.
+ *
+ * <p>New envelopes use AES-256-GCM with a random salt and IV and a PBKDF2-derived
+ * key identified by configured key ID. Decryption accepts configured previous
+ * keys and legacy envelope versions for rotation, but does not automatically
+ * re-encrypt old values.</p>
  */
 @Component
 public class MfaSecretCipher {
@@ -47,6 +52,7 @@ public class MfaSecretCipher {
         this.kdfIterations = authProperties.getMfa().getSecretEncryptionKdfIterations();
     }
 
+    /** Encrypts plaintext with the current key ID and KDF iteration count. */
     public String encrypt(String plaintext) {
         try {
             byte[] salt = new byte[SALT_BYTES];
@@ -73,6 +79,7 @@ public class MfaSecretCipher {
         }
     }
 
+    /** Decrypts a current or supported legacy envelope using its recorded key context. */
     public String decrypt(String encryptedValue) {
         if (encryptedValue != null && encryptedValue.startsWith(ENVELOPE_VERSION + ":")) {
             return decryptVersioned(encryptedValue);

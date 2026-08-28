@@ -13,10 +13,16 @@ import org.springframework.data.repository.query.Param;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyChallenge;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyChallengeType;
 
+/** Persists expiring WebAuthn ceremony state and its one-time transition. */
 public interface PasskeyChallengeRepository extends JpaRepository<PasskeyChallenge, UUID> {
 
     Optional<PasskeyChallenge> findByIdAndCeremonyType(UUID id, PasskeyChallengeType ceremonyType);
 
+    /**
+     * Consumes a matching, unexpired challenge exactly once.
+     *
+     * @return {@code 1} only for the ceremony that performed the transition
+     */
     @Modifying
     @Query("""
             update PasskeyChallenge challenge

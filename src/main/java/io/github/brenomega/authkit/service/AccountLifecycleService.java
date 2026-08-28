@@ -44,7 +44,13 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
- * Account privacy lifecycle operations: export, consent snapshot, and deletion/anonymization.
+ * Coordinates consent visibility, subject-data export, and account deletion.
+ *
+ * <p>Exports and deletion require password step-up and, when configured, MFA.
+ * Deletion anonymizes direct PII and records critical audit events in the same
+ * database transaction. Authority-cache eviction, refresh-session revocation,
+ * and queued-email cleanup run after commit and are best-effort because their
+ * stores do not participate in that transaction.</p>
  */
 @Service
 public class AccountLifecycleService {
@@ -97,6 +103,7 @@ public class AccountLifecycleService {
         this.abuseThrottleService = abuseThrottleService;
     }
 
+    /** Returns the legal-consent state stored on the active account. */
     @Transactional(readOnly = true)
     public ConsentSnapshotResponse getConsentSnapshot(String userId) {
         User user = loadActiveUser(userId);
@@ -109,6 +116,12 @@ public class AccountLifecycleService {
                 user.getLawfulBasis());
     }
 
+    /**
+     * Builds a tenant-scoped export of account, consent, OAuth, and security-event data.
+     *
+     * <p>The operation is read-only but performs fresh step-up verification before
+     * returning privacy-sensitive data.</p>
+     */
     @Transactional(readOnly = true)
     public UserDataExportResponse exportUserData(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);
@@ -169,6 +182,12 @@ public class AccountLifecycleService {
                 securityEvents);
     }
 
+    /**
+     * Immediately anonymizes and marks an account deleted.
+     *
+     * <p>The returned state reflects the database transition; cleanup in token,
+     * cache, and outbox stores is scheduled after commit and remains best-effort.</p>
+     */
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
         User user = loadActiveUser(userId);

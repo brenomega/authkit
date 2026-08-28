@@ -14,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 
+/** Persists active and disabled public passkey credentials. */
 public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCredential, UUID> {
 
     List<PasskeyCredential> findByUserIdAndDisabledAtIsNullOrderByCreatedAtDesc(UUID userId);
@@ -24,6 +25,7 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
 
     long countByUserIdAndDisabledAtIsNull(UUID userId);
 
+    /** Updates usage metadata only for an active credential owned by the user. */
     @Modifying
     @Query("""
             update PasskeyCredential credential
@@ -38,6 +40,11 @@ public interface PasskeyCredentialRepository extends JpaRepository<PasskeyCreden
                  @Param("signatureCount") long signatureCount,
                  @Param("usedAt") Instant usedAt);
 
+    /**
+     * Disables an active credential only when it is owned by the supplied user.
+     *
+     * @return {@code 1} when the credential was disabled
+     */
     @Modifying
     @Query("""
             update PasskeyCredential credential

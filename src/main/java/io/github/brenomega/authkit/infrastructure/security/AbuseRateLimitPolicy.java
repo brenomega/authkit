@@ -2,6 +2,13 @@ package io.github.brenomega.authkit.infrastructure.security;
 
 import java.time.Duration;
 
+/**
+ * Defines per-use-case distributed and degraded-local abuse budgets.
+ *
+ * <p>High risk identifies operational sensitivity; only policies for which
+ * {@link #failClosedEligible()} is true may deny requests solely because the
+ * distributed limiter is unavailable.</p>
+ */
 public enum AbuseRateLimitPolicy {
     LOGIN_ENDPOINT_IP("login_endpoint_ip", 30, 10, Duration.ofMinutes(1), true),
     LOGIN_ENDPOINT_DEVICE("login_endpoint_device", 20, 8, Duration.ofMinutes(1), true),

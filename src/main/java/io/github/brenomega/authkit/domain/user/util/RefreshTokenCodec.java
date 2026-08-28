@@ -4,8 +4,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Encodes opaque refresh tokens with enough public handle data to locate the
- * server-side hashed token record, including the token family identifier (DT 3.2.5).
+ * Encodes refresh secrets with public handles for server-side session lookup.
+ *
+ * <p>The user, session JTI, and family ID are routing metadata, not trusted
+ * authentication claims. A token is authenticated only after its entire raw value
+ * matches the server-side hash.</p>
  */
 public final class RefreshTokenCodec {
 
@@ -36,7 +39,9 @@ public final class RefreshTokenCodec {
     }
 
     /**
-     * Parses and validates the refresh token string format, extracting familyId.
+     * Parses structural handles without authenticating the token secret.
+     *
+     * @return parsed metadata when version, UUIDs, and minimum secret length are valid
      */
     public static Optional<IssuedRefreshToken> parse(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
@@ -60,7 +65,7 @@ public final class RefreshTokenCodec {
     }
 
     /**
-     * Reusable container holding parsed token metadata.
+     * Carries refresh-token routing metadata together with the raw secret-bearing value.
      */
     public record IssuedRefreshToken(String userId, String jti, String familyId, String rawToken) {
     }

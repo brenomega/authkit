@@ -33,10 +33,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Controller for User Profile and Session Management (RF 2.1.6 - 2.1.8).
- * 
- * <p>All endpoints require authentication and are bounded to the 'me' context
- * to prevent IDOR vulnerabilities (DT 3.2.24).</p>
+ * Adapts authenticated self-service account, MFA, passkey, and session use cases.
+ *
+ * <p>Operations are bound to the authenticated subject; the service layer also
+ * verifies tenant and account state.</p>
  */
 @RestController
 @RequestMapping("/api/v1/users/me")
@@ -59,7 +59,7 @@ public class UserController {
     }
 
     /**
-     * Returns the authenticated user's profile information (RF 2.1.6).
+     * Returns the authenticated subject's active profile.
      */
     @GetMapping
     public ApiResponse<ProfileResponse> getMyProfile(@AuthenticationPrincipal Jwt jwt) {
@@ -88,7 +88,7 @@ public class UserController {
     }
 
     /**
-     * Updates non-sensitive user data (RF 2.1.6).
+     * Updates only the subject's mutable profile attributes.
      */
     @PatchMapping
     public ApiResponse<ProfileResponse> updateMyProfile(
@@ -99,9 +99,7 @@ public class UserController {
     }
 
     /**
-     * Changes the password while the user is authenticated (RF 2.1.7).
-     * 
-     * <p>Revokes all other sessions except the current one upon success.</p>
+     * Changes the password after step-up and preserves only the current session.
      */
     @PostMapping("/password")
     public ApiResponse<String> changePassword(
@@ -112,7 +110,7 @@ public class UserController {
     }
 
     /**
-     * Lists active refresh token sessions (RF 2.1.8).
+     * Lists a cursor page of the subject's active refresh sessions.
      */
     @GetMapping("/sessions")
     public ApiResponse<SessionPageResponse> getMySessions(
@@ -129,6 +127,7 @@ public class UserController {
         return new ApiResponse<>(status, null, Instant.now());
     }
 
+    /** Starts TOTP enrollment after fresh password and optional MFA step-up. */
     @PostMapping("/mfa/totp/enroll")
     public ApiResponse<MfaTotpEnrollmentResponse> enrollTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -137,6 +136,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Activates TOTP, returns backup codes once, and revokes existing sessions. */
     @PostMapping("/mfa/totp/confirm")
     public ApiResponse<MfaBackupCodesResponse> confirmTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -145,6 +145,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Disables TOTP after step-up and revokes existing sessions. */
     @DeleteMapping("/mfa/totp")
     public ApiResponse<String> disableTotp(
             @AuthenticationPrincipal Jwt jwt,
@@ -153,6 +154,7 @@ public class UserController {
         return new ApiResponse<>("MFA disabled successfully.", null, Instant.now());
     }
 
+    /** Replaces unused backup codes and returns the new raw codes once. */
     @PostMapping("/mfa/backup-codes")
     public ApiResponse<MfaBackupCodesResponse> regenerateBackupCodes(
             @AuthenticationPrincipal Jwt jwt,
@@ -166,6 +168,7 @@ public class UserController {
         return new ApiResponse<>(passkeyService.list(jwt.getSubject()), null, Instant.now());
     }
 
+    /** Starts a user-bound passkey registration after step-up. */
     @PostMapping("/passkeys/options")
     public ApiResponse<PasskeyRegistrationOptionsResponse> startPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -174,6 +177,7 @@ public class UserController {
         return new ApiResponse<>(response, null, Instant.now());
     }
 
+    /** Completes passkey registration by consuming its challenge. */
     @PostMapping("/passkeys")
     public ApiResponse<PasskeyCredentialResponse> finishPasskeyRegistration(
             @AuthenticationPrincipal Jwt jwt,
@@ -192,7 +196,7 @@ public class UserController {
     }
 
     /**
-     * Revokes a specific session (RF 2.1.8).
+     * Revokes one subject-owned session after optional MFA step-up.
      */
     @DeleteMapping("/sessions/{jti}")
     public ApiResponse<String> revokeSession(

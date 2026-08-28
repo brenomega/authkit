@@ -28,12 +28,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Filter enforcing immediate permission revocation (DT 3.2.10).
+ * Binds first-party JWT authorization to current server-side account state.
  *
- * <p>By design, JWT claims represent the user's roles at the exact timestamp
- * of issuance. To guarantee immediate restriction on compromised or suspended roles
- * without waiting for the token to expire, this filter intercepts the request,
- * fetches the active roles natively from the DB, and overwrites the active context.</p>
+ * <p>The filter accepts only first-party token use and the configured API audience,
+ * requires the JWT {@code jti} to identify an active refresh session, and replaces
+ * authorities with the current database role. Authorities are cached for a short
+ * configured TTL and explicitly evicted on known authorization transitions; the
+ * guarantee is therefore bounded by that TTL for out-of-band database changes.</p>
  */
 @Component
 public class UserAuthoritiesFilter extends OncePerRequestFilter {
@@ -121,6 +122,7 @@ public class UserAuthoritiesFilter extends OncePerRequestFilter {
                 });
     }
 
+    /** Invalidates cached account activity and authorities after a known state change. */
     public void evict(UUID userId) {
         authorityCache.invalidate(userId);
     }

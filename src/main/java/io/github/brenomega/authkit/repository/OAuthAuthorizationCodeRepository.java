@@ -12,10 +12,16 @@ import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
 
+/** Persists authorization-code hashes and their conditional consumption. */
 public interface OAuthAuthorizationCodeRepository extends JpaRepository<OAuthAuthorizationCode, UUID> {
 
     Optional<OAuthAuthorizationCode> findByCodeHash(String codeHash);
 
+    /**
+     * Consumes a matching unexpired code exactly once.
+     *
+     * @return {@code 1} only for the exchange that performed the transition
+     */
     @Modifying
     @Query("""
             update OAuthAuthorizationCode code

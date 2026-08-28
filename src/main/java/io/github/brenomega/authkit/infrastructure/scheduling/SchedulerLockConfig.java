@@ -12,6 +12,12 @@ import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider;
 import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock;
 
+/**
+ * Provides database-time distributed locks for scheduled maintenance and outbox polling.
+ *
+ * <p>Production validation requires this configuration whenever scheduled jobs
+ * are enabled.</p>
+ */
 @Configuration
 @EnableSchedulerLock(defaultLockAtMostFor = "PT10M")
 @ConditionalOnProperty(prefix = "authkit.auth.scheduler", name = "distributed-lock-enabled",

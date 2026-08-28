@@ -10,12 +10,18 @@ import org.springframework.data.jpa.repository.Query;
 
 import io.github.brenomega.authkit.domain.mfa.entity.MfaBackupCode;
 
+/** Persists user-bound backup-code digests and their one-time-use transition. */
 public interface MfaBackupCodeRepository extends JpaRepository<MfaBackupCode, UUID> {
 
     int countByUserIdAndUsedAtIsNull(UUID userId);
 
     Optional<MfaBackupCode> findByUserIdAndCodeHashAndUsedAtIsNull(UUID userId, String codeHash);
 
+    /**
+     * Marks an unused matching code consumed with a single conditional update.
+     *
+     * @return {@code 1} only for the caller that performed the transition
+     */
     @Modifying
     @Query("""
             update MfaBackupCode code

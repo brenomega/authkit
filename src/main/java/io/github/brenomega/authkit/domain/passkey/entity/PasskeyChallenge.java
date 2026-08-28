@@ -13,8 +13,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * Short-lived WebAuthn ceremony state. Persisting this in the shared database
- * keeps the API horizontally safe when Redis is unavailable.
+ * Represents short-lived WebAuthn ceremony state shared across application instances.
+ *
+ * <p>An assertion challenge may omit {@code userId} for discoverable credentials;
+ * registration challenges are user-bound. Expiration and single consumption are
+ * enforced by a conditional repository update rather than this entity alone.</p>
  */
 @Entity
 @Table(name = "passkey_challenges")

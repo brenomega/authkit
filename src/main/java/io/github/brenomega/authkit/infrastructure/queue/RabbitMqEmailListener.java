@@ -14,13 +14,12 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 /**
- * Worker thread that consumes {@link EmailPayload} messages from RabbitMQ.
+ * Delivers queued email payloads and acknowledges their outbox state.
  *
- * <p><strong>Transaction/Performance Requirement:</strong> Because this class
- * executes in the RabbitMQ Listener Container background thread, it operates
- * completely independently of the HTTP request thread and its database
- * transaction. This ensures the slow external provider call never holds
- * a JPA database connection open.</p>
+ * <p>Provider I/O runs on the listener thread, outside the request and original
+ * business transaction. Outbox-backed failures are converted to retry/dead state
+ * and return normally; payloads without an outbox identity propagate failure to
+ * the listener container.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-outbox", name = "dispatch-mode", havingValue = "queue", matchIfMissing = true)

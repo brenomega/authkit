@@ -1,21 +1,19 @@
 package io.github.brenomega.authkit.domain.user.enums;
 
 /**
- * Enumeration of user roles within the authentication system (DT 3.2.9).
+ * Represents the mutually exclusive authorization role loaded from account state.
  *
- * <p>Roles are persisted as strings in the database via
- * {@code @Enumerated(EnumType.STRING)} and converted to Spring Security
- * {@code GrantedAuthority} instances with the {@code ROLE_} prefix by the
- * security layer.</p>
+ * <p>Roles are loaded from the database on first-party requests rather than
+ * trusted from JWT claims. {@code OWNER} currently has self-service access only;
+ * it is reserved for future ownership flows and is not an administrative role.</p>
  *
  * @see io.github.brenomega.authkit.infrastructure.security.SecurityUser
  */
 public enum Role {
 
-    /** Standard end-user with basic access rights. */
     USER,
 
-    /** Tenant owner with elevated data-management permissions. */
+    /** Reserved tenant-owner identity with no current admin-plane access. */
     OWNER,
 
     /** Tenant administrator scoped to users and OAuth clients in one tenant. */

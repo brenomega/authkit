@@ -20,6 +20,14 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.repository.PasswordHistoryRepository;
 import io.github.brenomega.authkit.service.spi.CompromisedPasswordChecker;
 
+/**
+ * Enforces composition, breach, and password-history policy before persistence.
+ *
+ * <p>User password changes and resets are rejected when the candidate matches the
+ * current hash or any of the five retained previous hashes. Argon2 comparisons
+ * use the shared non-blocking concurrency limiter; saturation is reported rather
+ * than queuing unbounded work.</p>
+ */
 @Service
 public class PasswordPolicyService {
 
@@ -71,6 +79,12 @@ public class PasswordPolicyService {
         }
     }
 
+    /**
+     * Appends the user's current hash to password history before replacement.
+     *
+     * <p>The caller is responsible for invoking this within the same transaction
+     * as the password update.</p>
+     */
     @Transactional
     public void recordCurrentPassword(User user) {
         passwordHistoryRepository.save(new PasswordHistoryEntry(user.getId(), user.getPassword(), Instant.now()));

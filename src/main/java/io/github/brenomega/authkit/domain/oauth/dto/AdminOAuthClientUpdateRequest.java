@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 
+/** Carries an administrative OAuth client update and optional secret rotation. */
 public record AdminOAuthClientUpdateRequest(
         @NotBlank @Size(max = 120) String displayName,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 512) String> redirectUris,

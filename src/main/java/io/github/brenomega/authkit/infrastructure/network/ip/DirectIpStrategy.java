@@ -15,10 +15,10 @@ import jakarta.servlet.http.HttpServletRequest;
  *
  * <p>This strategy has the <strong>lowest priority</strong> (order 300) and
  * is always active (no conditional property). It ensures that
- * {@link NetworkIPResolver} always returns a valid IP.</p>
+ * {@link NetworkIpResolver} always has a connection-level fallback.</p>
  *
  * @see IpResolutionStrategy
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  */
 @Component
 public class DirectIpStrategy implements IpResolutionStrategy {

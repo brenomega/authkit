@@ -8,6 +8,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/** Persists expiring OAuth revocation JTIs for the single-instance JDBC backend. */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.token-storage", name = "backend", havingValue = "jdbc")
 public class JdbcOAuthTokenRevocationStore {

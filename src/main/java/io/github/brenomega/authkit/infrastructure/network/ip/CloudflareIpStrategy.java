@@ -23,7 +23,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * {@code network.strategy.cloudflare.enabled=false}</p>
  *
  * @see IpResolutionStrategy
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  */
 @Component
 @ConditionalOnProperty(name = "network.strategy.cloudflare.enabled", havingValue = "true", matchIfMissing = true)

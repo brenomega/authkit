@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 
+/** Carries an administrator-authorized OAuth client registration request. */
 public record AdminOAuthClientCreateRequest(
         UUID tenantId,
         @NotBlank @Size(max = 120) String displayName,

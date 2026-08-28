@@ -241,14 +241,18 @@ public class AuthProperties {
         this.cors = cors;
     }
 
+    /** Configures first-party token lifetimes. */
     public static class Token {
 
+        /** Access-token lifetime in seconds. */
         @Min(60)
         private long accessTokenTtlSeconds = 900;
 
+        /** Refresh-session lifetime in days. */
         @Min(1)
         private long refreshTokenTtlDays = 7;
 
+        /** Password-recovery token lifetime in minutes. */
         @Min(1)
         private long recoveryTokenTtlMinutes = 15;
 
@@ -277,12 +281,14 @@ public class AuthProperties {
         }
     }
 
+    /** Selects the revocable-token backend and its supported deployment topology. */
     public static class TokenStorage {
 
         @NotBlank
         @Pattern(regexp = "redis|jdbc")
         private String backend = "redis";
 
+        /** Must be explicitly true for the JDBC backend outside test and development. */
         private boolean singleInstanceMode;
 
         @Valid
@@ -312,11 +318,14 @@ public class AuthProperties {
             this.jdbc = jdbc;
         }
 
+        /** Configures maintenance and cursors for JDBC token storage. */
         public static class Jdbc {
 
+            /** Cleanup scheduler delay in milliseconds. */
             @Min(1000)
             private long cleanupDelayMs = 300000;
 
+            /** Opaque session-cursor lifetime in seconds. */
             @Min(60)
             private long sessionCursorTtlSeconds = 300;
 
@@ -338,6 +347,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures the refresh-token cookie; production validation requires secure and HTTP-only. */
     public static class Cookie {
 
         @NotBlank
@@ -401,6 +411,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures double-submit protection for cookie-backed refresh and logout operations. */
     public static class Csrf {
 
         private boolean enabled = true;
@@ -415,6 +426,7 @@ public class AuthProperties {
         @Pattern(regexp = "/.*")
         private String path = "/api/v1/auth";
 
+        /** Entropy source length in bytes for generated CSRF tokens. */
         @Min(16)
         @Max(128)
         private int tokenBytes = 32;
@@ -460,6 +472,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures issuer identity, API audience, and RSA key rotation metadata. */
     public static class Jwt {
 
         @NotBlank
@@ -474,8 +487,10 @@ public class AuthProperties {
         @Pattern(regexp = "^(?!\\$\\{).+")
         private String keyId = "authkit-key-1";
 
+        /** Semicolon-delimited verification-only public keys retained during rotation. */
         private String retiringPublicKeys = "";
 
+        /** Key IDs excluded from verification and JWKS publication. */
         private String revokedKeyIds = "";
 
         public String getIssuer() {
@@ -571,6 +586,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures freshness accepted for passkey-based administrative step-up. */
     public static class StepUp {
 
         @Min(60)
@@ -586,6 +602,7 @@ public class AuthProperties {
         }
     }
 
+    /** Bounds how long current database authorities may be reused between requests. */
     public static class AuthorityCache {
 
         @Min(1)
@@ -612,8 +629,10 @@ public class AuthProperties {
         }
     }
 
+    /** Configures request-level resource limits. */
     public static class Request {
 
+        /** Maximum buffered request-body size in bytes. */
         @Min(1024)
         private long maxBodyBytes = 65536;
 
@@ -626,6 +645,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures global abuse-budget scaling and selected fail-closed behavior. */
     public static class AbuseControl {
 
         @Min(1)
@@ -651,6 +671,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures HIBP screening timeouts and the bounded k-anonymity prefix cache. */
     public static class Password {
 
         private boolean hibpEnabled;
@@ -711,6 +732,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures email claim, dispatch, retry, and executor behavior. */
     public static class EmailOutbox {
 
         private boolean enabled = true;
@@ -731,9 +753,11 @@ public class AuthProperties {
         private long pollDelayMs = 5000;
 
         @Min(1)
+        /** Stale-claim threshold in seconds for queued dispatch mode. */
         private long lockTtlSeconds = 300;
 
         @Min(1)
+        /** Time in seconds before an unacknowledged queued delivery may be reclaimed. */
         private long deliveryAckTimeoutSeconds = 600;
 
         @Min(1)
@@ -868,6 +892,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures provider selection, transport timeouts, retries, and sender identity. */
     public static class EmailProvider {
 
         @NotBlank
@@ -1035,6 +1060,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures consent versions, retention windows, and retention-job batching. */
     public static class Compliance {
 
         @NotBlank
@@ -1141,11 +1167,13 @@ public class AuthProperties {
         }
     }
 
+    /** Configures pseudonymization secret and bounded non-critical audit execution. */
     public static class Audit {
 
         @NotBlank
         @jakarta.validation.constraints.Size(min = 32)
         @Pattern(regexp = "^(?!\\$\\{).+")
+        /** HMAC key shared by audit pseudonyms, backup codes, and abuse dimensions. */
         private String hashPepper = "test-only-authkit-audit-hash-pepper-32-bytes";
 
         private boolean asyncEnabled = true;
@@ -1230,6 +1258,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures TOTP availability, challenge lifetime, encryption, and status caching. */
     public static class Mfa {
 
         private boolean enabled = true;
@@ -1251,6 +1280,7 @@ public class AuthProperties {
         @Pattern(regexp = "[A-Za-z0-9._-]{1,64}")
         private String secretEncryptionKeyId = "mfa-key-1";
 
+        /** Previous key-ID/material pairs accepted for decryption during rotation. */
         private String previousSecretEncryptionKeys = "";
 
         @Min(1)
@@ -1336,6 +1366,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures the WebAuthn relying party, allowed origins, and challenge lifetime. */
     public static class Passkey {
 
         private boolean enabled = true;
@@ -1417,6 +1448,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures provider enablement and authorization-code and ID-token lifetimes. */
     public static class OAuth {
 
         private boolean providerEnabled = true;
@@ -1454,6 +1486,7 @@ public class AuthProperties {
         }
     }
 
+    /** Configures browser cross-origin access; credentialed origins must be explicit. */
     public static class Cors {
 
         private boolean enabled = true;

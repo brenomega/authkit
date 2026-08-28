@@ -23,30 +23,15 @@ import io.github.brenomega.authkit.infrastructure.cache.Bucket4jProxyManagerFact
 import io.github.brenomega.authkit.domain.user.util.EmailMasker;
 
 /**
- * Hybrid service for managing progressive account lockout state (DT 3.2.23).
+ * Maintains progressive account lockout across local and distributed budgets.
  *
- * <p>Uses a two-layer architecture for horizontal scalability and atomic state transitions:</p>
- * <ul>
- *   <li><strong>Layer 1 — Caffeine (Local Cache):</strong> Tracks rapid failures locally 
- *       to prevent overwhelming Redis during micro-bursts and provides fail-open resilience.</li>
- *   <li><strong>Layer 2 — Redis (Source of Truth):</strong> Global Bucket4j state tracking
- *       ensuring consistency across horizontally-scaled instances.</li>
- * </ul>
+ * <p>Redis-backed Bucket4j state is the cross-instance authority; a Caffeine layer
+ * bounds local micro-bursts and remains the fallback when Redis is unavailable.
+ * The three concurrent thresholds enforce 5 attempts per 15 minutes, 10 per hour,
+ * and 15 per 24 hours. Degraded enforcement is therefore per-instance.</p>
  *
- * <h3>Progressive Lockout Math (DT 3.2.23)</h3>
- * <p>The progressive policy (15m -> 1h -> 24h) is elegantly enforced using Bucket4j's
- * multi-bandwidth limits. The bucket has three concurrent limits:</p>
- * <ol>
- *   <li>5 attempts max, refilling 5 every 15 minutes.</li>
- *   <li>10 attempts max, refilling 10 every 1 hour.</li>
- *   <li>15 attempts max, refilling 15 every 24 hours.</li>
- * </ol>
- * <p>If a user fails 5 times, Limit 1 hits 0 tokens. The account is locked until Limit 1 refills (15m).
- * If they fail 5 more times, Limit 2 hits 0 tokens. Even if Limit 1 refills, Limit 2 prevents
- * further access until the 1-hour mark. The same applies for Limit 3 (24h).</p>
- *
- * <p><strong>Fail-Open (DT 3.1.18):</strong> If Redis is unreachable, all operations degrade
- * gracefully to the local Caffeine cache. Lockouts are still enforced per-instance.</p>
+ * <p>Lockout is cleared only after a complete successful authentication ceremony
+ * or successful password recovery, never after password verification alone.</p>
  *
  * @see io.github.brenomega.authkit.exception.AccountLockedException
  */

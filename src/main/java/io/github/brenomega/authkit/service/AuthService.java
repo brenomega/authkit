@@ -42,14 +42,18 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
 /**
- * Core authentication service handling the login lifecycle (RF 2.1.2).
+ * Coordinates first-party authentication and refresh-session lifecycle.
  *
- * <p>Integrates with {@link AccountLockoutService} for progressive lockout
- * enforcement (DT 3.2.23) and implements stealth responses (DT 3.2.15)
- * to prevent account enumeration.</p>
+ * <p>Password login normalizes the identifier, applies abuse and progressive
+ * lockout controls, and performs a dummy Argon2 verification for unknown users.
+ * No refresh session is created until every required factor has succeeded.
+ * Authentication failures intentionally do not disclose whether an account
+ * exists, is locked, or has an invalid password.</p>
  *
- * <p>Uses a {@link Semaphore} to limit concurrent Argon2id hash computations,
- * protecting against thread exhaustion (DT 3.2.26).</p>
+ * <p>Issued first-party access tokens are bound by {@code jti} to a server-side
+ * refresh session. Consequently, session revocation invalidates both refresh use
+ * and subsequent access-token authorization through
+ * {@link io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter}.</p>
  *
  * @see AccountLockoutService
  * @see TokenStorage
@@ -93,19 +97,20 @@ public class AuthService {
     }
 
     /**
-     * Reusable container holding both public and restricted tokens post login.
+     * Keeps the HTTP-safe response separate from the refresh secret that is
+     * written only to a protected cookie.
      */
     public record LoginResult(LoginResponse response, String refreshToken) {}
 
     /**
-     * Executes the secure identity negotiation lifecycle (RF 2.1.2).
+     * Authenticates a password or starts the MFA continuation of that login.
      *
-     * <p>Lockout flow (DT 3.2.23): After 5 failed attempts, the account is locked
-     * and all subsequent login attempts return the same generic credential failure
-     * used for invalid credentials.</p>
+     * <p>An MFA continuation is a short-lived, single-use challenge rather than
+     * an authenticated session. Lockout state is cleared only after the entire
+     * ceremony succeeds.</p>
      *
      * @param request the login credentials
-     * @return a {@link LoginResult} containing the access and refresh tokens
+     * @return a token pair, or a response containing only an MFA challenge
      */
     @LogExecutionTime
     public LoginResult login(LoginRequest request) {
@@ -223,6 +228,13 @@ public class AuthService {
         return issueTokenPair(user, refreshToken, java.util.List.of("pwd"));
     }
 
+    /**
+     * Completes a pending password login with TOTP or a backup code.
+     *
+     * <p>The login challenge is consumed before the factor is verified and cannot
+     * be replayed after either success or failure. A successful backup code is
+     * also consumed exactly once by {@link MfaService}.</p>
+     */
     @LogExecutionTime
     public LoginResult verifyMfaLogin(MfaLoginVerificationRequest request) {
         IssuedMfaChallenge challenge = MfaChallengeCodec.parse(request.mfaToken())
@@ -337,7 +349,11 @@ public class AuthService {
     }
 
     /**
-     * Rotates a refresh token and returns a new access/refresh token pair.
+     * Rotates a refresh token and returns its successor token pair.
+     *
+     * <p>Rotation is delegated to {@link TokenStorage} as an atomic family
+     * transition. Replay of an already rotated token revokes the active family
+     * member and is reported as a compromised family.</p>
      */
     @LogExecutionTime
     public LoginResult refresh(String rawRefreshToken) {
@@ -450,7 +466,7 @@ public class AuthService {
     }
 
     /**
-     * Proactively revokes all active refresh token sessions for the given user (DT 3.2.11).
+     * Revokes all refresh sessions after any configured MFA step-up.
      */
     @LogExecutionTime
     public void logoutAll(String userId) {
@@ -458,7 +474,7 @@ public class AuthService {
     }
 
     /**
-     * Proactively revokes all active refresh token sessions after MFA step-up when enabled.
+     * Revokes all refresh sessions, requiring an MFA code when the user has MFA enabled.
      */
     @LogExecutionTime
     public void logoutAll(String userId, String mfaCode) {
@@ -480,8 +496,10 @@ public class AuthService {
     }
 
     /**
-     * Revokes a refresh-token-backed session. Malformed or absent tokens are
-     * treated as a client cleanup no-op so logout remains idempotent.
+     * Revokes a refresh-token-backed session.
+     *
+     * <p>Malformed, expired, absent, or already revoked tokens are cleanup no-ops,
+     * making logout idempotent from the caller's perspective.</p>
      */
     @LogExecutionTime
     public void logout(String rawRefreshToken) {
@@ -503,6 +521,16 @@ public class AuthService {
                 });
     }
 
+    /**
+     * Issues a first-party session for a user already verified by a non-password ceremony.
+     *
+     * <p>Callers are responsible for the ceremony's cryptographic verification;
+     * this method still enforces account activity and email confirmation before
+     * creating the session.</p>
+     *
+     * @param amr authentication-method references to preserve in the JWT
+     * @param reason stable audit reason for the successful login
+     */
     public LoginResult issueLoginForVerifiedUser(User user, java.util.List<String> amr, String reason) {
         if (user.isDeleted()) {
             throw new InvalidCredentialsException();

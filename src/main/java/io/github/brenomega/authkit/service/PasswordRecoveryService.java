@@ -31,17 +31,16 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
- * Service for handling password recovery workflows (RF 2.1.3, RF 2.1.4).
+ * Coordinates stealth password-recovery initiation and one-time reset.
  *
- * <p>Implements the "stealth" initiation strategy (DT 3.2.15) and
- * secure token-based reset with infrastructure integration.</p>
+ * <p>Initiation returns the same externally visible outcome for known and unknown
+ * accounts. For an eligible account, a newly stored recovery secret replaces the
+ * previous secret and the raw value is sent only through the email outbox.</p>
  *
- * <p><strong>Lockout Integration (DT 3.2.23):</strong> A successful password
- * reset is the <strong>only</strong> sanctioned path to clear the progressive
- * lockout counter and unlock a frozen account.</p>
- *
- * <p><strong>Session Revocation (RF 2.1.12):</strong> All active refresh tokens
- * are revoked upon password reset to force re-authentication.</p>
+ * <p>Reset consumes the recovery token before loading and updating the user. The
+ * token store is outside the JPA transaction, so a later database or policy
+ * failure does not restore the consumed token. A successful reset records password
+ * history, clears lockout, revokes every session, and enqueues confirmation.</p>
  *
  * @see AccountLockoutService
  */
@@ -85,10 +84,7 @@ public class PasswordRecoveryService {
     }
 
     /**
-     * Initiates the password recovery flow (RF 2.1.3).
-     *
-     * <p><strong>Stealth Strategy (DT 3.2.15):</strong> Always returns success
-     * regardless of account existence to prevent enumeration.</p>
+     * Initiates recovery without disclosing account existence.
      *
      * @param email the email to send the recovery link to
      */
@@ -134,12 +130,12 @@ public class PasswordRecoveryService {
     }
 
     /**
-     * Resets the user's password using a valid token (RF 2.1.4).
+     * Consumes a recovery token and replaces the account password.
      *
      * @param email       the user's email
      * @param token       the recovery token
      * @param newPassword the new password
-     * @throws IllegalArgumentException if the token is invalid or expired
+     * @throws InvalidTokenException if the token is invalid, expired, or already consumed
      */
     @Transactional
     @LogExecutionTime
@@ -184,7 +180,7 @@ public class PasswordRecoveryService {
         user.setPassword(encodeWithCapacity(newPassword));
         userRepository.save(user);
 
-        // DT 3.2.23: Clear progressive lockout — this is the ONLY unlock path
+        // Clear progressive lockout after the complete recovery ceremony succeeds.
         lockoutService.clearLockout(normalizedEmail);
 
         // RF 2.1.12: Revoke all active sessions to force re-authentication

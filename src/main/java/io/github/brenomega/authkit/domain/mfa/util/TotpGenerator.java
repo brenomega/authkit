@@ -9,7 +9,12 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * RFC 6238 TOTP generation and bounded-window verification.
+ * Implements RFC 6238 TOTP generation and bounded-window verification.
+ *
+ * <p>Verification accepts the previous, current, or next 30-second step and uses
+ * constant-time code comparison. A supplied last-used step excludes that step and
+ * every earlier one; cross-thread atomicity is provided by the repository's
+ * conditional update, not by this stateless calculation.</p>
  */
 public class TotpGenerator {
 
@@ -27,6 +32,11 @@ public class TotpGenerator {
         this.clock = clock;
     }
 
+    /**
+     * Finds a valid, not-previously-used time step for a six- to eight-digit code.
+     *
+     * @return the matched step for conditional persistence, or an invalid result
+     */
     public VerificationResult verify(String base32Secret, String code, Long lastUsedTimeStep) {
         if (code == null || !code.matches("\\d{6,8}")) {
             return VerificationResult.invalid();

@@ -41,7 +41,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * {@code network.strategy.x-forwarded-for.enabled=false}</p>
  *
  * @see IpResolutionStrategy
- * @see NetworkIPResolver
+ * @see NetworkIpResolver
  */
 @Component
 @ConditionalOnProperty(name = "network.strategy.x-forwarded-for.enabled", havingValue = "true", matchIfMissing = true)
@@ -68,9 +68,9 @@ public class XForwardedForIpStrategy implements IpResolutionStrategy {
      * the trusted proxy depth algorithm (DT 3.2.20).
      *
      * <p>Selects the IP at index {@code length - proxyDepth - 1}, which is the
-     * IP appended by the outermost trusted proxy (the real client). If the header
-     * doesn't contain enough entries for the configured depth, the first IP is
-     * returned as a safe fallback.</p>
+     * IP appended by the outermost trusted proxy. If the header does not contain
+     * enough entries for the configured depth, this strategy returns empty and
+     * allows the resolver to continue to a less preferred signal.</p>
      *
      * @param request the HTTP servlet request
      * @return the resolved client IP, or empty if the header is absent

@@ -23,6 +23,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 
+/**
+ * Enforces the configured byte limit while buffering supported request bodies.
+ *
+ * <p>The filter checks declared length for every request and streams POST, PUT,
+ * and PATCH bodies through a hard byte bound when length is absent or inaccurate.
+ * Other methods, including DELETE, are not buffered by this component.</p>
+ */
 @Component
 public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
 

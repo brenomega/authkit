@@ -24,6 +24,14 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
 
+/**
+ * Owns active JWT signing material and the public key-rotation view.
+ *
+ * <p>The active private RSA key is used only for signing. JWKS publication includes
+ * the active public key and configured retiring public keys, excluding every
+ * revoked key ID. Retiring entries are verification-only and do not change the
+ * key ID used for newly issued tokens.</p>
+ */
 @Service
 public class JwtKeyService {
 
@@ -55,6 +63,7 @@ public class JwtKeyService {
                 .build();
     }
 
+    /** Returns the active and retiring verification keys after revoked IDs are removed. */
     public JWKSet publishedPublicJwkSet() {
         Set<RSAKey> keys = new LinkedHashSet<>();
         RSAKey active = publicJwk(authProperties.getJwt().getKeyId(), activePublicKey);

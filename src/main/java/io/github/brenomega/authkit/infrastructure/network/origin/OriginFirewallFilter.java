@@ -19,22 +19,17 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.MDC;
 
 /**
- * Reverse-proxy-agnostic origin firewall filter (DT 3.2.19).
+ * Rejects connections whose TCP peer is outside configured edge CIDRs.
  *
  * <p>Validates that inbound TCP connections originate from a trusted reverse
  * proxy or edge network by delegating to a {@link TrustedOriginProvider}.
  * Requests from untrusted origins are rejected with HTTP 403 before any
  * application logic executes.</p>
  *
- * <p>This filter is positioned first in the Spring Security filter chain
- * (before {@code DisableEncodeUrlFilter}) to ensure that architecture-bypass
- * attacks — where malicious actors target backend IPs directly — are blocked
- * at the earliest possible point.</p>
- *
- * <p>The implementation is fully decoupled from any specific edge provider
- * (Cloudflare, AWS API Gateway, Nginx, etc.). The trusted CIDR ranges are
- * configured via {@code network.security.trusted-origins.ranges} in
- * {@code application.yml}.</p>
+ * <p>The decision uses {@link HttpServletRequest#getRemoteAddr()}, never a
+ * forwarded header, and runs before application authentication. It protects a
+ * deployment only when the network perimeter prevents untrusted peers from
+ * choosing that socket address.</p>
  *
  * @see TrustedOriginProvider
  * @see ConfiguredOriginsProvider

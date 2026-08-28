@@ -20,6 +20,12 @@ import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
+/**
+ * Adapts active JPA passkey credentials to Yubico's WebAuthn repository contract.
+ *
+ * <p>User handles are the UTF-8 representation of the account UUID. Disabled
+ * credentials and deleted users are excluded from ceremony lookup.</p>
+ */
 @Component
 public class JpaWebAuthnCredentialRepository implements CredentialRepository {
 
@@ -84,6 +90,7 @@ public class JpaWebAuthnCredentialRepository implements CredentialRepository {
                 .collect(Collectors.toUnmodifiableSet());
     }
 
+    /** Derives the stable WebAuthn user handle used by this deployment. */
     public static ByteArray userHandle(UUID userId) {
         return new ByteArray(userId.toString().getBytes(StandardCharsets.UTF_8));
     }

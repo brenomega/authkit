@@ -56,6 +56,14 @@ import io.github.brenomega.authkit.repository.PasskeyChallengeRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 
+/**
+ * Coordinates WebAuthn registration, assertion, and credential lifecycle.
+ *
+ * <p>Ceremonies require user verification and rely on the configured RP ID and
+ * allowed origins. Challenge state is persisted in the database and conditionally
+ * consumed in the same transaction as credential creation or counter update, so a
+ * challenge can complete at most once. Only public credential material is stored.</p>
+ */
 @Service
 public class PasskeyService {
 
@@ -101,6 +109,12 @@ public class PasskeyService {
                 .toList();
     }
 
+    /**
+     * Starts registration after password step-up and any configured MFA step-up.
+     *
+     * <p>The persisted challenge expires according to passkey configuration and
+     * is bound to the authenticated user.</p>
+     */
     @Transactional
     public PasskeyRegistrationOptionsResponse startRegistration(String userId, StepUpRequest request) {
         ensureEnabled();
@@ -146,6 +160,12 @@ public class PasskeyService {
         return new PasskeyRegistrationOptionsResponse(challenge.getId(), toCredentialsCreateJson(options));
     }
 
+    /**
+     * Verifies a registration response and consumes its challenge exactly once.
+     *
+     * <p>Credential persistence and challenge consumption share a database
+     * transaction; failures roll back both.</p>
+     */
     @Transactional
     public PasskeyCredentialResponse finishRegistration(String userId, PasskeyRegistrationFinishRequest request) {
         ensureEnabled();
@@ -205,6 +225,12 @@ public class PasskeyService {
         }
     }
 
+    /**
+     * Starts a discoverable or username-bound assertion without revealing account existence.
+     *
+     * <p>An unknown email still produces assertion options and a stored challenge;
+     * the optional user binding is checked only when the assertion finishes.</p>
+     */
     @Transactional
     public PasskeyAssertionOptionsResponse startAssertion(PasskeyAssertionOptionsRequest request) {
         ensureEnabled();
@@ -248,6 +274,13 @@ public class PasskeyService {
         return new PasskeyAssertionOptionsResponse(challenge.getId(), toCredentialsGetJson(assertionRequest));
     }
 
+    /**
+     * Verifies a WebAuthn assertion and creates a first-party session.
+     *
+     * <p>RP/origin checks, signature verification, user verification, challenge
+     * consumption, and signature-counter advancement must all succeed. The issued
+     * authentication method reference is {@code webauthn}.</p>
+     */
     @Transactional
     public AuthService.LoginResult finishAssertion(PasskeyAssertionFinishRequest request) {
         ensureEnabled();
@@ -308,6 +341,7 @@ public class PasskeyService {
         }
     }
 
+    /** Disables a credential owned by the user after password and optional MFA step-up. */
     @Transactional
     public void disable(String userId, UUID credentialId, StepUpRequest request) {
         User user = loadActiveUser(userId);

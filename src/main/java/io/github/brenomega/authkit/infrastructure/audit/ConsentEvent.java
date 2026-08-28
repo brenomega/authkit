@@ -12,6 +12,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Represents immutable evidence of the policy versions accepted by a user.
+ *
+ * <p>The row carries an HMAC integrity digest but is not linked to adjacent rows
+ * as a cryptographic chain.</p>
+ */
 @Entity
 @Immutable
 @Table(name = "consent_events")

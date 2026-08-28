@@ -16,9 +16,16 @@ import org.springframework.stereotype.Repository;
 
 import jakarta.persistence.LockModeType;
 
+/** Persists outbox records with locked claiming and conditional state transitions. */
 @Repository
 public interface EmailOutboxRepository extends JpaRepository<EmailOutboxMessage, UUID> {
 
+    /**
+     * Locks and returns the oldest due or stale-processing records for claiming.
+     *
+     * <p>The caller must mutate the returned managed entities before committing
+     * the same transaction.</p>
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select message

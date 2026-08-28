@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 
 import org.springframework.data.repository.Repository;
 
+/** Stores immutable consent evidence in newest-acceptance order. */
 @org.springframework.stereotype.Repository
 public interface ConsentEventRepository extends Repository<ConsentEvent, UUID> {
 

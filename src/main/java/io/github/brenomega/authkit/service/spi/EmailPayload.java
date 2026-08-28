@@ -6,12 +6,15 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 
 /**
- * Data Transfer Object representing an email requested by application services.
+ * Carries a rendered email across dispatch and provider boundaries.
  *
  * <p>Produced by service use-cases and consumed by infrastructure adapters to
  * perform queueing or provider dispatch without binding services to those
  * implementation details.</p>
  *
+ * @param messageId stable outbox identity used for correlation and, where
+ *                  supported, provider idempotency; may be {@code null} for a
+ *                  direct, non-outbox dispatch
  * @param to       the recipient's email address
  * @param subject  the subject line of the email
  * @param htmlBody the HTML content of the email

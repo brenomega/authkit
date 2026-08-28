@@ -46,11 +46,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 /**
- * Unified entry point for Identity and Access Management (IAM) (DT 3.1.1).
+ * Adapts public first-party authentication and account-entry use cases to HTTP.
  *
- * <p>Handles Registration (RF 2.1.1), Login (RF 2.1.2), and Password
- * Recovery (RF 2.1.3, RF 2.1.4) to centralize security filter application
- * and documentation boundaries.</p>
+ * <p>This controller alone owns refresh and double-submit CSRF cookie creation,
+ * renewal, validation, and clearing.</p>
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -76,7 +75,7 @@ public class AuthController {
     }
 
     /**
-     * Executes the secure identity negotiation lifecycle (RF 2.1.2).
+     * Authenticates a password and either establishes cookies or returns an MFA continuation.
      */
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
@@ -106,12 +105,14 @@ public class AuthController {
                 .body(ApiResponse.success(result.response()));
     }
 
+    /** Starts an enumeration-safe passkey assertion ceremony. */
     @PostMapping("/passkeys/options")
     public ResponseEntity<ApiResponse<PasskeyAssertionOptionsResponse>> passkeyOptions(
             @Valid @RequestBody(required = false) PasskeyAssertionOptionsRequest request) {
         return ResponseEntity.ok(ApiResponse.success(passkeyService.startAssertion(request)));
     }
 
+    /** Completes a passkey assertion and establishes first-party session cookies. */
     @PostMapping("/passkeys/verify")
     public ResponseEntity<ApiResponse<LoginResponse>> verifyPasskey(
             @Valid @RequestBody PasskeyAssertionFinishRequest request) {
@@ -125,7 +126,7 @@ public class AuthController {
     }
 
     /**
-     * Rotates the refresh token and issues a fresh access token (RF 2.1.5, DT 3.2.4).
+     * Applies cookie CSRF protection and rotates the refresh-token family.
      */
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<LoginResponse>> refresh(HttpServletRequest request) {
@@ -141,7 +142,7 @@ public class AuthController {
     }
 
     /**
-     * Revokes the current refresh-token-backed session and clears the cookie (RF 2.1.5).
+     * Idempotently revokes the current session and clears session cookies.
      */
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<String>> logout(HttpServletRequest request) {
@@ -157,7 +158,7 @@ public class AuthController {
     }
 
     /**
-     * Revokes all active refresh-token-backed sessions for the authenticated user (RF 2.1.10).
+     * Revokes all sessions after optional MFA step-up and clears session cookies.
      */
     @PostMapping("/logout-all")
     public ResponseEntity<ApiResponse<String>> logoutAll(
@@ -172,7 +173,7 @@ public class AuthController {
     }
 
     /**
-     * Registers a new user account (RF 2.1.1).
+     * Registers an inactive account using the configured enumeration-safe conflict policy.
      */
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<?>> register(
@@ -211,7 +212,7 @@ public class AuthController {
     }
 
     /**
-     * Confirms a registered user's email address (RF 2.1.7).
+     * Consumes an activation token and confirms its account email.
      */
     @PostMapping("/email-confirmation/confirm")
     public ResponseEntity<ApiResponse<String>> confirmEmail(@RequestParam String token) {
@@ -219,6 +220,7 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("Email confirmed successfully."));
     }
 
+    /** Requests another activation email without disclosing account state. */
     @PostMapping("/email-confirmation/resend")
     public ResponseEntity<ApiResponse<String>> resendEmailConfirmation(
             @Valid @RequestBody EmailConfirmationResendRequest request) {
@@ -228,10 +230,7 @@ public class AuthController {
     }
 
     /**
-     * Initiates the password recovery flow (RF 2.1.3).
-     *
-     * <p><strong>Stealth Strategy (DT 3.2.15):</strong> Always returns a successful 
-     * message regardless of email existence to prevent user enumeration.</p>
+     * Requests recovery without disclosing whether an eligible account exists.
      */
     @PostMapping("/password-recovery/request")
     public ResponseEntity<ApiResponse<String>> requestRecovery(
@@ -244,10 +243,7 @@ public class AuthController {
     }
 
     /**
-     * Executes the password reset using a secure token (RF 2.1.4).
-     *
-     * <p>Consumes the recovery token and updates the user credential using 
-     * Argon2id (DT 3.2.1).</p>
+     * Consumes a recovery token and invalidates all sessions after password replacement.
      */
     @PostMapping("/password-recovery/reset")
     public ResponseEntity<ApiResponse<String>> resetPassword(

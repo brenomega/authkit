@@ -3,15 +3,10 @@ package io.github.brenomega.authkit.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * Thrown when an operation is attempted on an account that has been locked
- * due to exceeding the progressive lockout threshold (DT 3.2.23).
+ * Indicates that progressive lockout blocks an authenticated management operation.
  *
- * <p>Maps to HTTP 403 Forbidden. This exception is used for management
- * endpoints ({@code /users/me/password}, {@code /users/me/sessions/*})
- * where the user is already authenticated but the account is frozen.</p>
- *
- * <p>The <strong>only</strong> way to clear the lockout is via the email-based
- * password recovery flow (RF 2.1.4).</p>
+ * <p>Lockout state is cleared after a complete successful authentication ceremony
+ * or successful password recovery, not after an isolated credential check.</p>
  */
 public class AccountLockedException extends ApiBaseException {
 

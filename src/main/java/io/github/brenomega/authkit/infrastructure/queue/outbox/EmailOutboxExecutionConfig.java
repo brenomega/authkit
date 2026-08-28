@@ -8,6 +8,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 
+/** Configures bounded scheduler and direct-delivery executors for the email outbox. */
 @Configuration
 public class EmailOutboxExecutionConfig {
 

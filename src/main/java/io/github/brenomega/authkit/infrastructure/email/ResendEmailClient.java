@@ -17,13 +17,12 @@ import io.github.brenomega.authkit.service.spi.EmailPayload;
 import io.github.brenomega.authkit.service.spi.EmailProvider;
 
 /**
- * Dispatches an email to the external Resend API via HTTP POST.
+ * Submits rendered email to Resend with bounded retries.
  *
- * <p><strong>Performance Rule:</strong> Because network I/O is slow and
- * potentially blocky, this client should <em>only</em> be invoked
- * from independent worker threads (e.g. from a RabbitMQ listener or outbox scheduler),
- * to guarantee that database connections or transactions from the
- * main request thread are not kept open awaiting this API.</p>
+ * <p>The outbox UUID becomes a stable provider idempotency key, allowing retries
+ * of the same message identity without intentionally creating another submission.
+ * Provider acceptance is returned as metadata and does not prove recipient
+ * delivery. Calls are expected from outbox workers rather than request transactions.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "resend", matchIfMissing = true)
@@ -44,9 +43,7 @@ public class ResendEmailClient implements EmailProvider {
     }
 
     /**
-     * Sends the email by posting to the external Resend API.
-     *
-     * @param payload the target email definition
+     * Submits the payload with a stable idempotency key when it has an outbox identity.
      */
     @SuppressWarnings("null")
     @Override

@@ -28,6 +28,7 @@ import io.github.brenomega.authkit.response.ApiResponse;
 import io.github.brenomega.authkit.service.AdminService;
 import jakarta.validation.Valid;
 
+/** Exposes tenant-scoped and system-wide administrative use cases. */
 @RestController
 @RequestMapping("/api/v1/admin")
 @PreAuthorize("hasAnyRole('ADMIN', 'TENANT_ADMIN')")
@@ -46,6 +47,7 @@ public class AdminController {
         return new ApiResponse<>(adminService.listUsers(jwt, limit), null, Instant.now());
     }
 
+    /** Changes authorization state after fresh administrative step-up. */
     @PatchMapping("/users/{userId}/role")
     public ApiResponse<AdminUserResponse> updateRole(
             @AuthenticationPrincipal Jwt jwt,
@@ -66,6 +68,7 @@ public class AdminController {
         return new ApiResponse<>(adminService.listOAuthClients(jwt), null, Instant.now());
     }
 
+    /** Registers a client and returns its raw secret for this response only. */
     @PostMapping("/oauth-clients")
     public ApiResponse<AdminOAuthClientResponse> createOAuthClient(
             @AuthenticationPrincipal Jwt jwt,
@@ -73,6 +76,7 @@ public class AdminController {
         return new ApiResponse<>(adminService.createOAuthClient(jwt, request), null, Instant.now());
     }
 
+    /** Updates client policy and returns a raw secret only when rotation was requested. */
     @PatchMapping("/oauth-clients/{clientId}")
     public ApiResponse<AdminOAuthClientResponse> updateOAuthClient(
             @AuthenticationPrincipal Jwt jwt,
@@ -81,6 +85,7 @@ public class AdminController {
         return new ApiResponse<>(adminService.updateOAuthClient(jwt, clientId, request), null, Instant.now());
     }
 
+    /** Disables future use of a client after fresh administrative step-up. */
     @DeleteMapping("/oauth-clients/{clientId}")
     public ApiResponse<String> disableOAuthClient(
             @AuthenticationPrincipal Jwt jwt,

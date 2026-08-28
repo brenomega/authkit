@@ -12,6 +12,7 @@ import com.yubico.webauthn.CredentialRepository;
 import com.yubico.webauthn.RelyingParty;
 import com.yubico.webauthn.data.RelyingPartyIdentity;
 
+/** Creates the WebAuthn relying party from the configured RP identity and allowed origins. */
 @Configuration
 public class WebAuthnConfig {
 

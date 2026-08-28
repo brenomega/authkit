@@ -6,7 +6,11 @@ import java.util.UUID;
 import io.github.brenomega.authkit.domain.user.util.SecureTokenGenerator;
 
 /**
- * Opaque MFA challenge token containing only lookup handles and random entropy.
+ * Encodes MFA login challenges with lookup handles and random entropy.
+ *
+ * <p>User and JTI components are untrusted routing metadata. Parsing validates
+ * only structure; authentication requires atomic comparison with the hashed,
+ * expiring value held by {@link io.github.brenomega.authkit.service.spi.TokenStorage}.</p>
  */
 public final class MfaChallengeCodec {
 
@@ -25,6 +29,7 @@ public final class MfaChallengeCodec {
         return new IssuedMfaChallenge(userId, jti, raw);
     }
 
+    /** Returns structural metadata without authenticating or consuming the challenge. */
     public static Optional<IssuedMfaChallenge> parse(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
             return Optional.empty();
