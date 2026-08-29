@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
@@ -21,6 +22,11 @@ public interface OAuthRefreshTokenFamilyRepository
     Optional<OAuthRefreshTokenFamily> findByIdForUpdate(@Param("id") UUID id);
 
     List<OAuthRefreshTokenFamily> findByUserIdIn(Collection<UUID> userIds);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update OAuthRefreshTokenFamily f set f.revokedAt = :revokedAt " +
+            "where f.userId = :userId and f.revokedAt is null")
+    int revokeActiveByUserId(@Param("userId") UUID userId, @Param("revokedAt") java.time.Instant revokedAt);
 
     long deleteByUserIdIn(Collection<UUID> userIds);
 

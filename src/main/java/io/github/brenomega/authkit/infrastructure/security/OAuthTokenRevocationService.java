@@ -11,14 +11,14 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import io.github.brenomega.authkit.exception.TokenRevocationUnavailableException;
 
 /**
  * Tracks revoked OAuth access-token JTIs until their natural expiry.
  *
- * <p>Revocations are cached locally and written to the configured Redis or JDBC
- * store when available. Storage failures are metered and treated as not revoked;
- * this component therefore fails open during revocation-store outages and must not
- * be described as an absolute immediate-revocation guarantee.</p>
+ * <p>The configured Redis or JDBC store is authoritative and the local cache is
+ * only a positive-result accelerator. Read or write degradation is metered and
+ * fails closed so endpoints that promise live token state never revive a JTI.</p>
  */
 @Service
 public class OAuthTokenRevocationService {
@@ -54,32 +54,39 @@ public class OAuthTokenRevocationService {
         if (ttl.isNegative() || ttl.isZero()) {
             return;
         }
-        localRevocations.put(jti, expiresAt);
-        jdbcStore.ifPresent(store -> {
+        if (redisRevocationEnabled) {
             try {
-                store.revoke(jti, expiresAt);
+                StringRedisTemplate template = redisTemplate
+                        .orElseThrow(TokenRevocationUnavailableException::new);
+                template.opsForValue().set(KEY_PREFIX + jti, expiresAt.toString(), ttl);
+            } catch (RuntimeException ex) {
+                meterRegistry.counter(
+                    "security.infrastructure.failure",
+                    "component",
+                    "oauth_token_revocation").increment();
+                if (ex instanceof TokenRevocationUnavailableException unavailable) {
+                    throw unavailable;
+                }
+                throw new TokenRevocationUnavailableException(ex);
+            }
+        } else {
+            try {
+                jdbcStore.orElseThrow(TokenRevocationUnavailableException::new).revoke(jti, expiresAt);
             } catch (RuntimeException ex) {
                 meterRegistry.counter(
                     "security.infrastructure.failure",
                     "component",
                     "oauth_token_revocation_jdbc").increment();
-            }
-        });
-        if (redisRevocationEnabled) {
-            redisTemplate.ifPresent(template -> {
-                try {
-                    template.opsForValue().set(KEY_PREFIX + jti, expiresAt.toString(), ttl);
-                } catch (RuntimeException ex) {
-                    meterRegistry.counter(
-                        "security.infrastructure.failure",
-                        "component",
-                        "oauth_token_revocation").increment();
+                if (ex instanceof TokenRevocationUnavailableException unavailable) {
+                    throw unavailable;
                 }
-            });
+                throw new TokenRevocationUnavailableException(ex);
+            }
         }
+        localRevocations.put(jti, expiresAt);
     }
 
-    /** Returns whether the JTI is known revoked, or {@code false} on lookup degradation. */
+    /** Returns whether the JTI is durably revoked and fails closed on lookup degradation. */
     public boolean isRevoked(String jti) {
         if (jti == null || jti.isBlank()) {
             return false;
@@ -91,32 +98,33 @@ public class OAuthTokenRevocationService {
             }
             localRevocations.invalidate(jti);
         }
-        if (jdbcStore.map(store -> {
+        if (!redisRevocationEnabled) {
             try {
-                return store.isRevoked(jti);
+                return jdbcStore.orElseThrow(TokenRevocationUnavailableException::new).isRevoked(jti);
             } catch (RuntimeException ex) {
                 meterRegistry.counter(
                     "security.infrastructure.failure",
                     "component",
                     "oauth_token_revocation_jdbc").increment();
-                return false;
+                if (ex instanceof TokenRevocationUnavailableException unavailable) {
+                    throw unavailable;
+                }
+                throw new TokenRevocationUnavailableException(ex);
             }
-        }).orElse(false)) {
-            return true;
         }
-        if (!redisRevocationEnabled) {
-            return false;
-        }
-        return redisTemplate.map(template -> {
-            try {
-                return template.opsForValue().get(KEY_PREFIX + jti) != null;
-            } catch (RuntimeException ex) {
-                meterRegistry.counter(
-                    "security.infrastructure.failure",
-                    "component",
-                    "oauth_token_revocation").increment();
-                return false;
+        try {
+            StringRedisTemplate template = redisTemplate
+                    .orElseThrow(TokenRevocationUnavailableException::new);
+            return template.opsForValue().get(KEY_PREFIX + jti) != null;
+        } catch (RuntimeException ex) {
+            meterRegistry.counter(
+                "security.infrastructure.failure",
+                "component",
+                "oauth_token_revocation").increment();
+            if (ex instanceof TokenRevocationUnavailableException unavailable) {
+                throw unavailable;
             }
-        }).orElse(false);
+            throw new TokenRevocationUnavailableException(ex);
+        }
     }
 }

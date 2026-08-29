@@ -89,6 +89,10 @@ public class OAuthRefreshTokenFamily {
         return expiresAt;
     }
 
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
     public Instant getRevokedAt() {
         return revokedAt;
     }

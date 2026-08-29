@@ -3,6 +3,8 @@ package io.github.brenomega.authkit.infrastructure.audit;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Collection;
+import java.util.Optional;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
@@ -18,6 +20,10 @@ public interface SecurityEventRepository extends JpaRepository<SecurityEvent, UU
 
     List<SecurityEvent> findByTargetUserIdOrderByOccurredAtDesc(UUID targetUserId, Pageable pageable);
     List<SecurityEvent> findByTargetUserIdOrderByOccurredAtDesc(UUID targetUserId);
+
+    Optional<SecurityEvent> findFirstByTargetUserIdAndEventTypeInOrderByOccurredAtDesc(
+            UUID targetUserId,
+            Collection<SecurityEventType> eventTypes);
 
     @Query("select e.id from SecurityEvent e where e.occurredAt < :cutoff order by e.occurredAt asc")
     List<UUID> findExpiredIds(@Param("cutoff") Instant cutoff, Pageable pageable);

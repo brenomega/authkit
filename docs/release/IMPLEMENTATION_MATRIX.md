@@ -1,112 +1,127 @@
 # AuthKit v0.1.0 implementation matrix
 
-This is the live implementation record for the pre-release hardening pass. English is normative. A state of `IMPLEMENTED` means the repository change exists; `VERIFIED` additionally means the listed local checks passed. External release gates remain separate and may keep the candidate at NO-GO.
+English is normative. This ledger describes the uncommitted remediation candidate requested after the independent pre-release audit. It is implementation evidence, not release approval.
 
-## Preserved baseline
+## Candidate identity and evidence semantics
 
-- Branch: `develop`
-- Starting HEAD: `b2a54eac19d40021a935d9680511665a53145051`
-- Starting tracked diff: 22 modified files, 168 insertions, 69 deletions, nothing staged.
-- Starting untracked release-relevant files: the EN/pt-BR release specifications, `release_audit.md`, the 2026-06-06 audit and container proof, `EmailConfirmationConfirmRequest.java`, and `RedisConfigTest.java`.
-- Pre-existing user work preserved: fragment/body email confirmation, recovery lookup HMACs, mandatory atomic token-storage methods, Redis client wiring, focused tests, smoke harness updates, and their supporting documentation/proof notes.
-- The implementation pass does not claim ownership of those baseline changes and will not discard them.
-
-## Findings and evidence
-
-| ID | Requirement / disposition | Code and configuration | Migration | Tests | Proof and documentation | State |
-| --- | --- | --- | --- | --- | --- | --- |
-| AK-001 | Google and generic OIDC RP; safe linking/unlinking | Exact-issuer Google/generic OIDC RP, discovery/token/ID-token validation, state/nonce/PKCE, `(issuer, subject)` identities, social-only accounts, explicit link/unlink, no email auto-link, provider-token discard, local-MFA continuation | V20 provider/identity/one-time transaction tables and uniqueness | Social account, no-auto-link, explicit link, concurrent one-time state and encrypted admin-secret tests passed in the final suite | External Google and independent OIDC provider proof still required | VERIFIED LOCAL / EXTERNAL PROOF PENDING |
-| AK-002 | Secure email-change lifecycle | Durable pending address/token state; authenticated request/cancel; public JSON confirmation; old-address notifications; commit-time uniqueness; session/recovery revocation; critical audit | V17 fields, consistency and unique partial indexes | Request/confirm/cancel/invalid-token unit tests and two-contender integration test passed with exactly one completion | OpenAPI paths, canonical templates and bilingual operations guidance are complete | VERIFIED |
-| AK-003 | ACTIVE/SUSPENDED/DELETION_PENDING/anonymized and admin suspension | `AccountState`, entity transitions, live-authority enforcement, platform-admin suspend/reactivate endpoints and synchronous audit | V15 state/backfill/checks/last-admin trigger | Entity/admin state tests and PostgreSQL trigger passed; live authority dependency failure now returns opaque fail-closed 503 | `docs/SECURITY_MODEL.md`; manual PostgreSQL stop/recovery drill passed | VERIFIED |
-| AK-004 | 0–30 day deletion grace, default 7, cancel/anonymize/purge | Pending state revokes sessions without early PII destruction; zero-day inline path; strongly authenticated platform-admin cancellation; locked idempotent anonymization worker | V15 state fields; V16 lifecycle consistency constraint | Request/grace/cancel/worker/idempotency tests and fresh/upgrade migrations passed | Retention-only purge and audit disposition are covered by AK-018 and the operations guide | VERIFIED |
-| AK-005 | USER/PLATFORM_ADMIN; personal opaque tenant; global OAuth clients | Role/security/admin plane rewritten; tenant inventory removed; OAuth client tenant scoping removed | V15 maps `ADMIN` to `PLATFORM_ADMIN`, reduces `OWNER`/`TENANT_ADMIN` to `USER`, removes OAuth client tenant column | Admin/OAuth tests passed; fresh and representative V14→V15 PostgreSQL 17 migrations passed; DB last-admin guard verified | `docs/SECURITY_MODEL.md` | VERIFIED |
-| AK-006 | Nullable password for social-only accounts | Entity/JPA accept null password; password login uses dummy hash when absent | V15 drops password NOT NULL | Nullable-password entity, social-only login behavior and PostgreSQL insert passed | Federation creation/linking is covered by AK-001 | VERIFIED |
-| AK-007 | Explicit public/restricted registration | `AUTH_REGISTRATION_MODE` required outside test/dev; service rejects public signup unless `public` | None | Public/restricted service and production fail-fast tests passed | Canonical bilingual configuration/install references complete | VERIFIED |
-| AK-008 | Conventional GET authorize and safe redirects | Public `GET /oauth2/authorize`; exact redirect validation before all redirects; S256/state/nonce; standard error redirect; deprecated JSON compatibility route retained | V21 durable signed transaction | Authorization-server suite passes browser transaction, PKCE, redirect and replay paths | External client/conformance proof required | VERIFIED (local) |
-| AK-009 | Opaque rotating OAuth refresh families | Opaque 384-bit refresh credentials, pessimistically locked family rotation, replay compromise revocation, family-bound access token live validation | V21 refresh families/tokens with cascading ownership | Serial and concurrent rotation tests pass; replay revokes family and immediately makes family access/refresh inactive | External client proof required | VERIFIED (local) |
-| AK-010 | Standard userinfo/introspection/revocation and token-specific chains | OAuth wire responses are unwrapped/snake_case; confidential authenticated introspection; revocation handles JWT and opaque family; discovery/JWKS/ID-token metadata updated; strict token-use decoder retained | V21 family state | Userinfo/audience/revocation/introspection/token-class tests and manual discovery/JWKS checks passed | External interoperability/conformance proof required | VERIFIED LOCAL / EXTERNAL PROOF PENDING |
-| AK-011 | Resumable one-time authorization/consent transaction | Signed opaque handle points to expiring server state; authenticated inspect/approve/deny resumes login and consent; conditional consume is one-time and transactional | V21 authorization transaction | Inspect/resume/replay tests pass; audit failure participates in transaction | Canonical OpenAPI, integrator guidance and cross-site example document the resumable flow | VERIFIED (local) |
-| AK-012 | One-shot non-HTTP bootstrap and complete admin plane | Offline `bootstrap-admin` reads a validated secret document only from stdin/mount; database-serialized first verified admin; signed search cursors, safe authenticator inventory, session revocation, OAuth/social management, minimized event and operational views; every mutation requires local step-up | V25 durable singleton guard, upgrade backfill for existing admin | Creation/repeat rejection, critical-audit rollback, admin cursor binding/inventory/revocation and fresh/upgrade PostgreSQL tests passed; one-shot bootstrap and replay rejection also passed in the clean golden stack | OpenAPI and bilingual install/admin instructions complete | VERIFIED LOCAL |
-| AK-013 | Safe session metadata, throttled lastSeen, first-party introspection | Opaque public session IDs, masked IP/client summaries/device label, bounded lastSeen writes, cursor pagination, authenticated worker introspection and immediate logout revocation | V19 session metadata/backfill/indexes | Redis 7 and PostgreSQL/JDBC tests plus manual HTTP introspection/logout/replay checks passed | Bilingual integrator and operations documentation complete | VERIFIED |
-| AK-014 | Recovery atomicity and safe retry across Redis/JDBC/DB | Claim/finalize/compensate SPI implemented in Redis Lua and JDBC locking; transaction completion consumes or releases; request outbox rollback conditionally revokes only its own token | V17 adds JDBC claim state and consistency check | Redis/JDBC lifecycle tests, real Redis 7 scripts, HTTP recovery integration and outbox fault compensation passed | Redis and email stop/recovery drills confirmed fail-closed/idempotent behavior | VERIFIED |
-| AK-015 | Confirmation and one-time state concurrency | Confirmation lookup now uses pessimistic row lock; fragment/body and replay rejection preserved | Existing confirmation digest plus V17 locked email-change token state | Barrier-based concurrent confirmation and email-change tests passed with exactly one winner | Local concurrency proof recorded; full PostgreSQL service-level race remains AK-026 | VERIFIED |
-| AK-016 | Operator-owned validated templates; provider-acceptance semantics | Restricted external renderer for 14 operator-owned text/HTML templates; startup validation; fragment `action_url`; SMTP performs one transport attempt per durable claim while Resend retains bounded idempotent retries | V22 acceptance terminology | Renderer path/traversal/required-variable tests, dispatch timing/provider tests and real local SMTP acceptance passed | Real production SMTP and Resend credentials/inbox observation remain external proof | VERIFIED (local) |
-| AK-017 | Critical synchronous transactional audit classification | Synchronous fail-closed classification covers password/email/MFA/passkey/consent/admin/lifecycle/session/social/bootstrap critical mutations | None | Audit service and rollback integration tests passed, including anonymization and bootstrap store failures | Canonical security and operations documentation defines the abort-on-audit-failure contract | VERIFIED |
-| AK-018 | Retention-only delete role/process for audit | Runtime repositories no longer expose audit DELETE; dedicated retention connection invokes narrow SECURITY DEFINER functions; missing worker credentials fail startup when enabled | V18 non-login `authkit_retention` role, revoked direct DELETE, append-only purge log, scoped functions | PostgreSQL 17 test proves runtime and retention worker cannot direct-delete, runtime cannot execute functions, worker can execute and produces purge log | Golden initialization and bilingual retention runbook complete | VERIFIED |
-| AK-019 | Reject missing/ambiguous `token_use`; strict token classes | `JwtTokenUse.java`; fixtures/docs updated | None | `JwtTokenUseTest`, `ContractFixtureTokenGeneratorTest` passed | Negative fixture contract updated | VERIFIED |
-| AK-020 | No test keys/test profile in production JAR/image/context | Test resources moved; Maven excludes; `.dockerignore`; Docker audit stage; inspection script/CI | None | Focused token/security suite passed | JAR, exact build context, and `/app/app.jar` in final local image `sha256:fe284ec…977ceb` passed inspection | VERIFIED |
-| AK-021 | Monotonic passkey counter and last-authenticator invariant | Conditional counter update rejects positive replay/decrease; disable verifies ownership and preserves password/passkey/social last-authenticator invariant; social-only passkey enrollment supported after fresh federated auth | V16 nonnegative counter constraint; V20 social identity relation | Repository concurrency/replay and service last-authenticator tests passed; PostgreSQL migration passed | External authenticator ceremony proof remains AK-027 | VERIFIED |
-| AK-022 | Versioned complete export without secrets | `authkit-user-data-export/v1` covers profile/pending-email, consent history, OAuth consent, credential metadata, social identities, safe sessions, deletion and security events while omitting password hashes, TOTP secrets, credential IDs/public keys, provider subjects and tokens | None | Full-fixture serialization asserts required sections and redacts password/TOTP/passkey/provider subject/client secret/JTI/event metadata; step-up and audit tests passed | Bilingual integrator/security documentation complete | VERIFIED |
-| AK-023 | Installable canonical prod golden path and mounted secrets | Canonical prod profile and hardened Compose for AuthKit/PostgreSQL 17/Redis 7/Caddy TLS; `_FILE` secrets; separate owner/runtime/retention logins; direct durable outbox and SMTP | V23 runtime role plus V18 retention role | Compose/shell validation plus a fresh-volume golden startup from V1→V25, TLS health, offline bootstrap and manual account flow passed | `deploy/golden` and bilingual public install/operations guides complete; independent fresh-operator drill remains Gate 15 | VERIFIED LOCAL |
-| AK-024 | Duplicate rejection, safe CORS/proxy, fail-closed, Retry-After | Global duplicate query/form rejection, strict Jackson duplicate/unknown fields, request IDs, concrete HTTPS prod CORS, trusted-peer header enforcement, corrected XFF depth, high-risk Redis fail-closed, uniform 429 headers | None | Edge contract and proxy spoof/depth tests passed; negative manual calls passed | TLS topology proof remains AK-027 | VERIFIED (local) |
-| AK-025 | Complete semantic OpenAPI and requestId envelope | AuthKit requestId envelope separated from standard OAuth wire formats; machine codes and expanded OAuth/social/admin schemas/paths | None | Semantic OpenAPI dereference/required/unknown-field/token-response tests pass; manual header/body correlation, 429 `Retry-After` and OAuth unwrapped errors passed | `docs/openapi.yaml` is the canonical API contract | VERIFIED |
-| AK-026 | Complete negative/concurrency/one-time test matrix | Barrier and fault-injection coverage across confirmation, recovery, email change, passkeys, OAuth transaction/refresh, Redis/JDBC and audit boundaries | As feature rows | Final evidence `clean verify`: 289 tests, zero failures/errors/skips, with real Redis 7 and PostgreSQL 17.9; manual duplicates/unknown fields/rate/replay checks passed | Final evidence bundle records the suite | VERIFIED |
-| AK-027 | Real TLS/providers/interoperability/downstream JWKS proof | TLS golden harness, external-provider report template and downstream resource-server sample supplied | None | Local TLS health/discovery/security-header checks and sample token validation passed; local CA is not public-topology evidence | Real DNS/certificates, Google, generic OIDC, external OAuth client/conformance and downstream rotation remain NOT PROVEN | PARTIAL LOCAL / EXTERNAL PROOF PENDING |
-| AK-028 | Restore/chaos/alerts/load/burst/4h soak proof | Reproducible PostgreSQL/Redis backup/restore scripts, golden failure drills and k6 mixed-load harness supplied | None | Clean disposable-container restores passed (Flyway 25, representative counts, 24 Redis keys); PostgreSQL/Redis/email stop/recovery drills and short k6 contract run passed | Off-host/clean-host DR, alert routing and ≥4h reference-host soak remain NOT PROVEN | PARTIAL LOCAL / EXTERNAL PROOF PENDING |
-| AK-029 | Scans, multiarch digest, SBOM, checksums, signing, provenance | Local evidence pipeline produces JAR/image inspection, CycloneDX, checksums, source-tree identity, unsigned provenance and multiarch OCI; scanner/signing wrappers fail honestly | None | Pipeline and pinned CI validated; real amd64/arm64 OCI export passed at `sha256:704a9e…922a2d`; local scanner inventory found Trivy/Gitleaks/Semgrep/Checkov/Hadolint/Cosign unavailable | No artifact published; blocking scans, maintainer signature and registry-bound attestation remain NOT PROVEN | IMPLEMENTED / EXTERNAL PROOF PENDING |
-| AK-030 | Complete bilingual docs and two executable examples | Canonical EN normative plus full pt-BR install/config/security/integrator/operations/releasing/design/traceability corpus; same-site first-party and cross-site OAuth samples | None | EN/pt-BR pair/link checks, JavaScript syntax, resource-server sample (2/2), Mermaid/source review and OpenAPI semantic tests passed | Public documentation is rooted at `README.md` and `docs/INSTALL.md` | VERIFIED LOCAL |
-| AK-031 | Apache-2.0 and mandatory OSS policies/POM metadata | `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `GOVERNANCE.md`, `CHANGELOG.md`, `pom.xml` | None | Maven package/model validation passed | DCO/no CLA documented | VERIFIED |
-| AK-032 | Remove overstated production claims and superseded audit prose | Public corpus uses evidence-qualified language, distinguishes provider acceptance/inbox delivery and marks every external gate NOT PROVEN | None | Claim/reference scan passed except immutable historical wording in V11/V12 migration comments retained to preserve Flyway checksums | Temporary specs, superseded audits/prompts/strategies and obsolete deployment/proof docs removed after absorption | VERIFIED |
-| AK-033 | Honest experimental support boundary | Alternate paths classified unsupported preview/example and opt-in | None | Existing tests retained; promotion requires dedicated real smoke | EN/pt-BR support matrix added | IMPLEMENTED |
-| AK-034 | Prod defaults: Redis/direct/SMTP/HIBP/access TTL ≤300 | `application-prod.yml` and golden Compose require Redis, direct outbox, SMTP TLS, HIBP, explicit public URLs/origins and 300-second access TTL | None | Production validator, provider timing, clean golden startup and manual JWT TTL/HIBP/SMTP checks passed | Single bilingual configuration reference complete | VERIFIED |
-| AK-035 | Remove phone everywhere | Removed from entity, constructor, profile/admin/export DTOs and service mappings | V15 drops `users.phone` | Compilation/source/OpenAPI scan clean; representative V14→V25 PostgreSQL test verifies column removal | Canonical docs contain no phone contract | VERIFIED |
-| AK-036 | Coherent candidate version/changelog/evidence identity | Maven/sample/OpenAPI/changelog use `0.1.0-rc.1`; evidence manifest binds baseline HEAD plus tracked-patch and untracked-file hashes to local image and OCI identities | None | Final clean verify, artifact inspection and real amd64/arm64 export passed | No tag/publish; signature and registry-bound attestation require maintainer authorization and remain NOT PROVEN | VERIFIED LOCAL / EXTERNAL PROOF PENDING |
-| AK-037 | Provider acceptance naming, never inbox-delivery claim | Model/repository/service use `ACCEPTED`, `acceptedAt`, `markAccepted`; no inbox-delivery inference | V22 compatibly maps `SENT` and renames `delivered_at` | Outbox/provider tests and representative migration passed; local SMTP row recorded `ACCEPTED`, timestamp present, one attempt | Canonical email operations docs remain Phase 6 | VERIFIED (local) |
-
-## Local commands recorded so far
-
-| Command | Result |
+| Field | Current value |
 | --- | --- |
-| `git rev-parse HEAD`, `git branch --show-current`, `git status --short --branch` | Baseline captured as above. |
-| Full reads of both release specifications and `release_audit.md` | Completed before edits. |
-| Full tracked diff and relevant untracked-file inspection | Completed before edits; secrets in ignored `.env` were not read. |
-| `git diff --check` | Passed after initial Phase 0 edits. |
-| `./mvnw -q -Dspring.profiles.active=test -Dtest=JwtTokenUseTest,ContractFixtureTokenGeneratorTest test` | Passed. |
-| `./mvnw -DskipTests package -B` | BUILD SUCCESS; JAR and CycloneDX JSON/XML generated. |
-| `testing/release/inspect-release-artifacts.sh --jar target/authkit-0.1.0-SNAPSHOT.jar --context` | Context passed; first JAR extraction failed because the harness used a relative path after `cd`. Harness corrected and JAR rerun passed. |
-| First `docker build -t authkit-local:v0.1.0-rc .` | Stopped after 155 seconds because `dependency:go-offline` was resolving unrelated plugin/BOM metadata. Dockerfile corrected to use the actual package build with a BuildKit Maven cache. |
-| Repeated `docker build -t authkit-local:v0.1.0-rc .` | BUILD SUCCESS; local digest `sha256:7b43efe8056f2260225065c689355b557596ce9c6f9ac07ce0a9da73699dd23e`. No publication. |
-| `testing/release/inspect-release-artifacts.sh --image authkit-local:v0.1.0-rc` | Initial run exposed an overbroad `.pem` rule; second exposed selection of the JRE JAR. Both harness defects were corrected. Final run inspected `/app/app.jar` and passed. |
-| `./mvnw -q -Dspring.profiles.active=test -Dtest=JwtTokenUseTest,UserAuthoritiesFilterTest,OAuthProviderServiceTest,ContractFixtureTokenGeneratorTest,RedisConfigTest,ProductionFirewallTest test` | Passed. |
-| `./mvnw -q clean test-compile -DskipTests` | Initially exposed every stale Phase 1 test contract; all references were corrected and subsequent test compilation passed. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=ProfileIntegrationTest test` | Passed after removing Spring Security test JWT's implicit `scope`, which strict first-party token separation correctly rejects. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=AdminServiceTest,OAuthProviderServiceTest,UserTest,ProfileServiceTest test` | Passed. |
-| `./mvnw -q -Ddebug=false -Dlogging.level.root=WARN -Dtest=PostgresMigrationTest test` | Sandbox run could not access Docker and was skipped; escalated real Docker run first exposed test-schema isolation/pgcrypto search-path defects. After harness corrections, all four PostgreSQL 17.9 tests passed, including fresh V1→V15 and representative V14→V15 data. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=AccountLifecycleServiceTest,AccountAnonymizationServiceTest,ProfileIntegrationTest,AdminServiceTest test` | Passed for grace entry, session revocation, admin cancellation, scheduled anonymization, suspension, and reactivation. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=RegistrationServiceTest,RegistrationIntegrationTest,ProductionConfigValidatorTest,AccountLifecycleServiceTest,AccountAnonymizationServiceTest,AdminServiceTest test` | Passed, including explicit public/restricted registration and missing-mode production rejection. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=SecurityEventServiceTest,CriticalAuditRollbackIntegrationTest,AccountLifecycleServiceTest,AccountAnonymizationServiceTest test` | Passed; expected injected audit-store failures demonstrated critical fail-closed rollback and noncritical best effort. |
-| `./mvnw -q -Dspring.profiles.active=test -Ddebug=false -Dlogging.level.root=WARN -Dtest=PasskeyCounterIntegrationTest test` | First run exposed missing test transaction; after fixing repository flush/clear and test transaction, passed monotonic/replay/zero-counter checks. |
-| Repeated real `PostgresMigrationTest` after V16 | Passed all four tests on PostgreSQL 17.9: fresh V1→V16, representative V14→V16, ShedLock, and purge relationships. |
-| `./mvnw ... -Dtest=AuthServiceTest,LoggingEmailProviderTest,OpenApiContractTest test` | Passed 17 tests after reconciling active-account fixtures, logging capture, and lifecycle routes. |
-| `./mvnw ... -Dtest=EmailChangeServiceTest,RegistrationServiceTest,OpenApiContractTest test` | Passed request/confirm/cancel/invalid-token email-change tests, locked confirmation tests, and route coverage. |
-| `./mvnw ... -Dtest=PasswordRecoveryIntegrationTest,PasswordRecoveryServiceTest,RedisTokenStorageTest,JdbcTokenStorageTest,... test` | Passed recovery HTTP, transaction compensation, and both token-storage claim lifecycles. |
-| `./mvnw ... -Dtest=RedisTokenStorageContainerTest,PostgresMigrationTest test` | Passed real Redis 7 claim scripts and PostgreSQL 17.9 fresh/upgrade migrations through V17. |
-| `./mvnw ... -Dtest=OneTimeStateConcurrencyIntegrationTest,PasswordRecoveryServiceTest test` | Passed barrier races for confirmation/email change with exactly one winner and outbox rollback fault compensation. |
-| `./mvnw ... -Dtest=DataRetentionServiceTest,PostgresMigrationTest test` | Passed V18 on PostgreSQL 17.9; real roles prove direct DELETE denial and audited retention-function execution. |
-| Focused Phase 3 Redis/JDBC/session/introspection suites | Passed real Redis 7 and PostgreSQL 17 session metadata, pagination, throttled lastSeen, authenticated first-party introspection and immediate logout invalidation. |
-| `./mvnw ... -Dtest=SocialIdentityServiceIntegrationTest,PasskeyServiceTest,... test` | Passed social-only account, exact identity, no email auto-link, explicit linking, one-time/concurrent state, local-MFA continuation and last-authenticator cases. |
-| `./mvnw -q -Dtest=SocialIdentityServiceIntegrationTest#platformAdminCanConfigureAllowlistedProviderWithoutSecretDisclosure test` | Passed; configured provider secret is encrypted at rest and never returned. |
-| `./mvnw -q -Dtest=OAuthProviderServiceTest test` | Passed 10 tests: conventional resumable transaction, authorization-code PKCE, public/confidential clients, opaque refresh rotation, replay-family revocation, concurrent one-winner behavior, userinfo, authenticated introspection and revocation. |
-| `./mvnw -q -Dtest=OpenApiContractTest test` | Passed after adding Phase 4 paths and standard OAuth schemas. |
-| Escalated `./mvnw -q -Dtest=PostgresMigrationTest test` | Passed 5 tests on PostgreSQL 17.9; fresh V1→V21, idempotent rerun and representative V14→V21 data migration all succeeded. |
-| `./mvnw clean verify` | Pre-bundle local run passed in 3m26s with 288 tests. The final evidence run, after adding the transaction-acquisition regression, passed in 3m11s: 289 tests, 0 failures, 0 errors, 0 skipped; PostgreSQL 17.9 and Redis 7 Testcontainers ran; JAR and CycloneDX JSON/XML produced. |
-| `docker buildx build --platform linux/amd64,linux/arm64 --output type=oci,...` | First run correctly failed with `exec format error` because the host lacked ARM binfmt. After installing pinned `tonistiigi/binfmt:qemu-v10.0.4`, the real ARM build passed and exported an unpublished OCI index `sha256:704a9e08268ec55efd6724f1ddbb8717d4c1ea63667a1e08913b2a9bd7922a2d`. |
-| `./mvnw -f samples/resource-server-spring/pom.xml clean test` | Passed 2/2 downstream resource-server token-class/audience/scope tests. |
-| Golden Compose fresh-volume install and HTTPS manual calls | PostgreSQL 17.9, Redis 7.4, AuthKit, Caddy and Mailpit STARTTLS became healthy; V1→V25, offline bootstrap/replay rejection, registration/confirmation replay, login/profile, introspection, refresh-family replay revocation, logout, JSON/query/form duplicate rejection, unknown fields and 429 `Retry-After` passed. |
-| `deploy/scripts/backup-postgres.sh` and `deploy/scripts/restore-postgres-check.sh` | Checksummed dump restored into a disposable clean PostgreSQL container at Flyway 25 with 2 users, bootstrap guard 1, 2 accepted email records and both restricted roles usable. Earlier invalid attempts were rejected and are not evidence. |
-| `deploy/scripts/restore-redis-check.sh` | Checksummed RDB restored into a disposable read-only/cap-dropped Redis 7 container; 24 keys recovered. |
-| Controlled container stops for Redis, PostgreSQL and Mailpit | Redis login failed closed with opaque 503 and recovered; PostgreSQL authenticated live-state returned opaque 503 plus requestId and recovered; SMTP failure produced durable FAILED attempt and natural retry to ACCEPTED after recovery. |
-| Short `testing/proof/run-reference-load.sh` contract run | Harness passed 16/16 checks with 0 transport failures, p95 64.236 ms and 6 expected login throttles over 8 seconds. Explicitly not Gate 10 and not capacity evidence. |
-| Local scanner inventory | `trivy`, `gitleaks`, `semgrep`, `checkov`, `hadolint`, `cosign`, `syft` and `grype` unavailable; their gates remain NOT PROVEN. |
-| Deprecated NVD-based Dependency-Check attempt | Explicitly abandoned and excluded from release evidence at maintainer direction; the Maven profile was removed. No result from the partial/deprecated path is treated as a scan disposition. SCA remains assigned to the non-NVD release scanner pipeline and Gate 13 remains NOT PROVEN. |
+| Branch | `release/authkit-v0.1.0-rc1-final-audit` |
+| Base commit | `23a6ad66bec32ce247ce8505dd4035a4f9865014` |
+| Base commit tree | `7a895d2fe552e032f4bfc05293b939f94480cbfa` |
+| Candidate state | Tracked and release-relevant untracked remediation is intentionally uncommitted; the working tree is not frozen |
+| Flyway | V1–V25 unchanged by this remediation |
+| Publication authorization | None; no commit, tag, push, signature, publication or promotion was performed |
+| Evidence binding | `target/release-evidence/manifest.json` binds the base commit, tracked patch hash, release-relevant untracked manifest and local image ID |
 
-## Migration and compatibility decisions
+The terms below are deliberately distinct:
 
-- V15 is the intentional compatibility boundary: it maps legacy `ADMIN` to `PLATFORM_ADMIN`, maps legacy organization-style roles to `USER`, creates account state and personal opaque partitions, drops phone and OAuth-client tenant scoping, and permits social-only null passwords.
-- V16–V25 add lifecycle constraints, secure email change, restricted retention deletion, session metadata, federation, OAuth browser/refresh-family state, provider-acceptance terminology, a restricted runtime role, hash-width alignment and serialized one-shot bootstrap. Fresh V1→V25 and representative V14→V25 PostgreSQL 17.9 paths pass; rerunning at V25 is idempotent.
-- Existing V11/V12 migration files retain two obsolete historical wording references because changing an applied versioned migration would invalidate Flyway checksums for installed databases. Public/canonical documentation contains no such prompt-era references.
-- Deprecated compatibility routes are retained only where explicitly documented; they do not weaken the conventional OAuth endpoints or token-class boundaries. No migration silently reduces a GA capability.
+- `IMPLEMENTED`: code/configuration exists in the current working candidate.
+- `VERIFIED LOCAL`: an automated local test passed.
+- `PROVED REAL`: the path ran against a real local dependency or container, not a mock.
+- `EXTERNAL PROOF PENDING`: credentials, infrastructure, independent operator or publication authority was unavailable.
+- `HUMAN AUTHORIZATION PENDING`: only a maintainer may freeze, sign or publish the candidate.
 
-## Release-gate rule
+## Independent-audit remediation dispositions
 
-No row marked `BLOCKED (external proof)` is inferred to pass. The candidate remains NO-GO until every mandatory gate has real, current evidence and a new independent audit is complete.
+| Audit ID | Disposition | Implementation | Objective acceptance evidence |
+| --- | --- | --- | --- |
+| AUD-001 | RESOLVED | Corrected PostgreSQL purge SQL construction; Docker-dependent tests fail instead of silently skipping; PostgreSQL/Redis images are digest-pinned. | Exact `./mvnw clean verify -B`: 303 tests, 0 failures, 0 errors, 0 skips; PostgreSQL 17.9 and Redis 7.4 ran for real. |
+| AUD-002 | RESOLVED | Suspension, deletion request and anonymization synchronously revoke OAuth refresh families. Access tokens carry a durable account lifecycle epoch; introspection/userinfo verify account state and epoch. Lock ordering serializes issuance/refresh with lifecycle transitions. | Real PostgreSQL tests cover access and refresh invalidation, reactivation non-resurrection, deletion, and concurrent refresh versus suspension. |
+| AUD-003 | RESOLVED LOCALLY | Social RP accepts only the configured singleton audience and, when present, requires `azp` to equal the configured client; nonce and subject remain mandatory. | Negative fixtures reject extra audience, missing/wrong `azp`, wrong client, wrong nonce and blank subject. Real Google/generic-provider proof remains external. |
+| AUD-004 | RESOLVED | Social signup applies configured terms/privacy/lawful-basis and appends exactly one immutable consent event in the same transaction as user/identity creation. | Real PostgreSQL test proves configured export/history, rollback on ledger failure and one-winner concurrent state consumption. |
+| AUD-005 | RESOLVED LOCALLY | Every GA success response with a body has a concrete OpenAPI schema; OAuth no-body revocation is explicit; OAuth errors/introspection 503 are modeled. | Semantic parser and reflection-backed controller/DTO contract test pass; representative golden responses were exercised. External generated-client/conformance proof remains pending. |
+| AUD-006 | RESOLVED IN CANDIDATE | `.agents/` and `skills-lock.json` are deleted from the release candidate; obsolete role Javadocs are corrected; the private audit report is excluded from Docker/evidence/docs-distribution checks. | Distribution/context inspection passes; no migration changed; `git diff --check` passes. Deletions become part of Git history only after an authorized future commit. |
+| AUD-007 | RESOLVED | Startup rejects missing/invalid/duplicate/revoked active or retiring key IDs. Both first-party and OAuth decoders require a nonblank currently published `kid`. | Negative key/config tests cover missing, unknown, duplicate and active-revoked IDs; JWKS golden response publishes the active ID. External downstream rotation drill remains pending. |
+| AUD-008 | RESOLVED | Redis/JDBC is authoritative for revoked OAuth JTIs; the local cache accelerates positive results only. Read/write degradation meters failure and throws a 503 `temporarily_unavailable` response instead of accepting unknown state. | Unit tests, real Redis restart/reconstruction and real Redis outage tests pass. Golden Redis outage returned opaque 503 and recovered. |
+| AUD-009 | RESOLVED LOCALLY | Maven distribution/wrapper checksums, Docker bases, Compose services, restore/load/truststore helpers and Testcontainers/Ryuk are fixed by immutable digest/SHA. Evidence records all resolved image inputs and SBOM identity. | Two isolated clean Maven builds produce identical JAR and CycloneDX hashes; Docker context/JAR/image inspection passes. Registry signature and published provenance remain external. |
+| AUD-010 | RESOLVED AND REPRODUCED | Local SMTP instructions now require SANs for both the proof public host and `DNS:mailpit`, use the exact `.pem` filenames, build a combined JVM truststore and include start/acceptance commands. | From-empty local secrets produced hostname-valid STARTTLS and one Mailpit message; `email_outbox` recorded one `ACCEPTED` row. This is not real-provider/inbox proof. |
+
+## AK-001–AK-037 current disposition
+
+| AK | Current disposition | Evidence boundary |
+| --- | --- | --- |
+| AK-001 | VERIFIED LOCAL / EXTERNAL PROOF PENDING | OIDC RP validation/linking tests pass after AUD-003; Google and independent generic OIDC remain external. |
+| AK-002 | VERIFIED LOCAL | Email-change request/confirm/cancel, collision, replay and revocation coverage remains green. |
+| AK-003 | PROVED REAL LOCALLY | PostgreSQL lifecycle tests now include OAuth access/refresh invalidation and non-resurrection. |
+| AK-004 | PROVED REAL LOCALLY | Deletion/anonymization lifecycle and OAuth invalidation pass; retention operations remain separately governed. |
+| AK-005 | VERIFIED LOCAL | Only `USER`/`PLATFORM_ADMIN`; personal opaque partition and last-admin protections remain green. |
+| AK-006 | VERIFIED LOCAL | Social-only nullable-password account path passes with real PostgreSQL. |
+| AK-007 | VERIFIED LOCAL | Public/restricted registration and production fail-fast remain covered; golden used intentional public mode. |
+| AK-008 | VERIFIED LOCAL / EXTERNAL PROOF PENDING | Authorization Code + PKCE/resumable transaction pass; independent standards client remains external. |
+| AK-009 | PROVED REAL LOCALLY | Opaque refresh rotation/replay/concurrency and lifecycle revocation pass on PostgreSQL. |
+| AK-010 | PROVED REAL LOCALLY / EXTERNAL PROOF PENDING | Live introspection/userinfo/revocation now fail closed; interoperability remains external. |
+| AK-011 | VERIFIED LOCAL | Signed expiring one-time authorization transaction and consent resume tests pass. |
+| AK-012 | PROVED REAL LOCALLY | Offline bootstrap succeeded once on golden PostgreSQL and repeat execution was rejected. |
+| AK-013 | VERIFIED LOCAL | First-party session metadata/introspection/logout behavior remains covered. |
+| AK-014 | PROVED REAL LOCALLY | Redis/JDBC recovery claim/finalize/compensation coverage remains green. |
+| AK-015 | PROVED REAL LOCALLY | Confirmation, social state and email-change concurrency have exactly one winner. |
+| AK-016 | PROVED REAL LOCALLY / EXTERNAL PROOF PENDING | Template/outbox/SMTP STARTTLS acceptance passed locally; real SMTP and Resend remain external. |
+| AK-017 | VERIFIED LOCAL | Critical audit failure rolls back protected mutations, including social consent. |
+| AK-018 | PROVED REAL LOCALLY | PostgreSQL runtime/retention role and purge relationships pass. |
+| AK-019 | VERIFIED LOCAL | Strict token class plus mandatory published `kid` tests pass. |
+| AK-020 | PROVED REAL LOCALLY | JAR, Docker context and runtime image contain no test profile/private key material. |
+| AK-021 | VERIFIED LOCAL / EXTERNAL PROOF PENDING | Passkey invariants pass; real authenticator ceremony remains external. |
+| AK-022 | PROVED REAL LOCALLY | Social configured consent and immutable history appear in full export without secrets. |
+| AK-023 | PROVED REAL LOCALLY / INDEPENDENT OPERATOR PENDING | Fresh golden stack reached healthy V25 and completed selected golden flows. |
+| AK-024 | VERIFIED LOCAL | Strict request parsing, proxy/CORS and Redis high-risk fail-closed behavior remain green. |
+| AK-025 | VERIFIED LOCAL / EXTERNAL CLIENT PENDING | Canonical OpenAPI is semantically typed and reflection-checked. |
+| AK-026 | PROVED REAL LOCALLY | Clean suite is 303/303 with real PostgreSQL/Redis and no skips. |
+| AK-027 | EXTERNAL PROOF PENDING | Public TLS/browser topology/providers/conformance/downstream rotation were not executed. |
+| AK-028 | PARTIAL LOCAL / EXTERNAL PROOF PENDING | Clean-container PostgreSQL/Redis restore and Redis fault injection passed; off-host/clean-host/alerts/soak remain external. |
+| AK-029 | PARTIAL LOCAL / EXTERNAL PROOF PENDING | Immutable inputs, SBOM and local provenance exist; blocking scanners/signature/registry attestation are not proved. |
+| AK-030 | VERIFIED LOCAL | Documentation/link checker, shell syntax, JavaScript syntax and resource-server sample pass. |
+| AK-031 | VERIFIED LOCAL | Apache-2.0 and OSS policy/governance metadata are unchanged and present. |
+| AK-032 | VERIFIED IN CANDIDATE | Agent material removed, stale Javadocs corrected and evidence claims regenerated. |
+| AK-033 | IMPLEMENTED / PROMOTION PROOF PENDING | Preview/unsupported paths remain explicit and opt-in. |
+| AK-034 | PROVED REAL LOCALLY / EXTERNAL PROVIDERS PENDING | Golden Redis/direct SMTP/HIBP/300-second token defaults ran locally. |
+| AK-035 | VERIFIED LOCAL | Phone remains absent from code/schema/contracts. |
+| AK-036 | IMPLEMENTED / FREEZE PENDING | Current evidence binds the uncommitted patch; immutable committed tree/signature/publication do not yet exist. |
+| AK-037 | PROVED REAL LOCALLY / EXTERNAL INBOX PENDING | SMTP provider acceptance maps to `ACCEPTED`; no inbox-delivery claim is made. |
+
+## Current real commands and results
+
+| Command/proof | Result |
+| --- | --- |
+| `./mvnw clean verify -B` | BUILD SUCCESS; 303 tests; 0 failures/errors/skips; 2m40s in the first full remediation run. Final evidence reruns the same command after ledger regeneration. |
+| `../../mvnw test -B` in `samples/resource-server-spring` | BUILD SUCCESS; 2 tests; 0 failures/errors/skips. |
+| `PostgresMigrationTest` | PostgreSQL 17.9; 5/5; fresh V1–V25, representative V14–V25 upgrade, rerun, retention and purge relationships. |
+| `RedisTokenStorageContainerTest` | Redis 7.4; 6/6; durable reconstruction and outage behavior included. |
+| `OAuthProviderServiceTest` | PostgreSQL 17.9; 13/13; lifecycle and concurrency included. |
+| `SocialIdentityServiceIntegrationTest` | PostgreSQL 17.9; 6/6; consent/export/rollback/concurrency included. |
+| OIDC/key/revocation/OpenAPI negative set | 11/11; 0 failures/errors/skips. |
+| OpenAPI semantic/controller/DTO contract | 65 controller operations represented; all GA success bodies concretely typed; explicit no-body revocation. |
+| Golden Compose/API | Healthy PostgreSQL 17.9, Redis 7.4, AuthKit, Caddy and Mailpit; TLS discovery/JWKS, registration, SMTP acceptance, confirmation/replay, login, refresh, profile and negative credentials passed. |
+| Golden fault injection | Redis stopped: correct login returned opaque 503 with request ID; Redis restart restored health. |
+| Backup/restore | PostgreSQL restored at Flyway 25 with user/consent/accepted-outbox data; Redis restored 20 keys in a clean read-only container. |
+| Artifact inspection | JAR/context/image passed; image runs as `appuser`; no test profile, test key or private-key marker. |
+| Documentation/scripts/Compose | 46 distributed Markdown files, 12 bilingual pairs, 37 AK rows; shell and JavaScript syntax pass; all Compose files resolve using declared examples. |
+| Scanner inventory | `trivy`, `gitleaks`, `semgrep`, `checkov`, and `hadolint` unavailable; Gate 13 remains NOT PROVEN. |
+| `git diff --check` | PASS. |
+
+## Artifact identities from the reproducibility run
+
+| Artifact | SHA-256 / identity |
+| --- | --- |
+| Application JAR | `9869de06d5a0724993f0d27f93009e704065ee6df4b190a237c60b44e3de1882` |
+| CycloneDX JSON | `3f37f87d00e53bc38400b4aaea139059136aa990b87aeb8fcaf759b9133e3a58` |
+| CycloneDX XML | `6a13a3f9883d591868cfadad835419f5036c5a1768ba1c32d6478dd75ea47d3d` |
+| Local single-platform image | `sha256:97e7c8d6e999e5fedafaad87b75474e0fd4bd9fa518ba9aa6406b7f090877e3c` |
+| Evidence checksums | `target/release-evidence/checksums.sha256` (local, ignored, unpublished) |
+
+## Sanitization allowlist
+
+The final remediation diff is limited to:
+
+1. OAuth lifecycle epoch/revocation and lock-order implementation plus tests.
+2. OIDC audience/`azp`, social consent atomicity, key-ID validation and fail-closed revocation plus negative tests.
+3. Semantic OpenAPI schemas and stronger controller/DTO contract tests.
+4. Immutable Maven/container/Testcontainers/restore/load/truststore inputs and evidence metadata.
+5. Deletion of `.agents/` and `skills-lock.json`, correction of stale Javadocs and local SMTP proof documentation.
+6. Evidence ledgers regenerated from this remediation run.
+
+No V1–V25 migration was edited. The independent report `pre-release-audit.md` remains untracked and unchanged; it is audit input, not a distributable product file.
+
+## Release boundary
+
+The implementation is locally remediated and internally validated; Gate 16 is closed. External gates, an immutable committed tree/image, maintainer signing and publication authorization remain mandatory before release.

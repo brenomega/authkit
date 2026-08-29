@@ -9,46 +9,46 @@ security:
   - bearerAuth: []
 paths:
   /.well-known/openid-configuration:
-    get: {security: [], responses: {'200': {description: OIDC discovery metadata}}}
+    get: {security: [], responses: {'200': {$ref: '#/components/responses/OidcDiscovery'}}}
   /.well-known/jwks.json:
-    get: {security: [], responses: {'200': {description: Public signing keys}}}
+    get: {security: [], responses: {'200': {$ref: '#/components/responses/Jwks'}}}
   /api/v1/auth/login:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/Login'}
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Login'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/mfa/verify-login:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/MfaLoginVerification'}
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Login'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/passkeys/options:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/PasskeyAssertionOptions'}
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/PasskeyAssertionOptions'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/passkeys/verify:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/PasskeyAssertionFinish'}
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Login'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/refresh:
     post:
       security: [{refreshCookie: [], csrfHeader: []}]
-      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Login'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/logout:
     post:
       security: [{refreshCookie: [], csrfHeader: []}]
-      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/logout-all:
     post:
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
-      responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/register:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/Register'}
-      responses: {'201': {description: Created in non-stealth mode}, '202': {description: Accepted without account-enumeration disclosure}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'201': {$ref: '#/components/responses/Register'}, '202': {$ref: '#/components/responses/RegistrationAccepted'}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/email-confirmation/confirm:
     post:
       security: []
@@ -57,36 +57,36 @@ paths:
         content:
           application/json:
             schema: {$ref: '#/components/schemas/EmailConfirmationConfirmRequest'}
-      responses: {'200': {description: Successful response}, '400': {description: Invalid request}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/email-confirmation/resend:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/EmailConfirmationResend'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/email-change/confirm:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/EmailChangeConfirm'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/password-recovery/request:
     post:
       security: []
       requestBody: {$ref: '#/components/requestBodies/PasswordRecovery'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/password-recovery/reset:
     post:
       security: []
       parameters:
         - {name: email, in: query, required: true, schema: {type: string, format: email, maxLength: 255}}
       requestBody: {$ref: '#/components/requestBodies/PasswordReset'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {description: Dependency unavailable}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '429': {$ref: '#/components/responses/RateLimited'}, '503': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/social/{providerKey}/start:
     post:
       security: []
       parameters: [{$ref: '#/components/parameters/ProviderKey'}]
       requestBody:
         content: {application/json: {schema: {$ref: '#/components/schemas/SocialLoginStartRequest'}}}
-      responses: {'200': {description: 'OIDC authorization URL with server-bound state, nonce and PKCE'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/SocialAuthorization'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/auth/social/{providerKey}/callback:
     get:
       security: []
@@ -94,18 +94,19 @@ paths:
         - {$ref: '#/components/parameters/ProviderKey'}
         - {name: state, in: query, required: true, schema: {type: string, minLength: 32, maxLength: 256}}
         - {name: code, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 4096}}
-      responses: {'200': {description: Federated authentication or explicit linking completed}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/SocialCallback'}, '400': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me:
-    get: &authGet
-      responses: {'200': {description: Successful response}, '401': {description: Unauthorized}, '403': {description: Forbidden}}
+    get:
+      responses: {'200': {$ref: '#/components/responses/Profile'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     patch:
       requestBody: {$ref: '#/components/requestBodies/ProfileUpdate'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Profile'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     delete:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AccountDeletion'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/consent:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/ConsentSnapshot'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/export:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
@@ -113,14 +114,14 @@ paths:
   /api/v1/users/me/password:
     post:
       requestBody: {$ref: '#/components/requestBodies/PasswordChange'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/email-change:
     post:
       requestBody: {$ref: '#/components/requestBodies/EmailChange'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/EmailChangeStatus'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
     delete:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/EmailChangeStatus'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/sessions:
     get:
       parameters:
@@ -137,7 +138,7 @@ paths:
     delete:
       parameters: [{$ref: '#/components/parameters/SessionId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}}
   /api/v1/internal/tokens/introspect:
     post:
       description: Authenticated live introspection for first-party access tokens. Requires the trusted-origin worker credential.
@@ -152,54 +153,57 @@ paths:
           description: Live first-party token state
           content: {application/json: {schema: {$ref: '#/components/schemas/FirstPartyIntrospectionApiResponse'}}}
   /api/v1/users/me/mfa:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/MfaStatus'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp/enroll:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaTotpEnrollment'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp/confirm:
     post:
       requestBody: {$ref: '#/components/requestBodies/MfaTotpConfirm'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp:
     delete:
       requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/backup-codes:
     post:
       requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/PasskeyCredentialList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     post:
       requestBody: {$ref: '#/components/requestBodies/PasskeyRegistrationFinish'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/PasskeyCredential'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/options:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/PasskeyRegistrationOptions'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/{credentialId}:
     delete:
       parameters: [{$ref: '#/components/parameters/CredentialId'}]
       requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}}
   /api/v1/users/me/social-identities:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/SocialIdentityList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/social-identities/{providerKey}/link/start:
     post:
       parameters: [{$ref: '#/components/parameters/ProviderKey'}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
-      responses: {'200': {description: OIDC authorization URL for an explicit link ceremony}, '401': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/SocialAuthorization'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/social-identities/{identityId}:
     delete:
       parameters: [{$ref: '#/components/parameters/IdentityId'}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '409': {description: Last usable authenticator cannot be removed}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '409': {$ref: '#/components/responses/Error'}}
   /api/v1/oauth2/authorize:
     description: Deprecated JSON compatibility endpoint. New clients use the conventional browser endpoint below.
     post:
       requestBody: {$ref: '#/components/requestBodies/OAuthAuthorize'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/OAuthAuthorize'}, '400': {$ref: '#/components/responses/Error'}}
   /oauth2/authorize:
     get:
       security: []
@@ -242,89 +246,91 @@ paths:
         '200': {description: Standard OAuth token response, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthTokenResponse'}}}}
         '400': {$ref: '#/components/responses/OAuthError'}
         '401': {$ref: '#/components/responses/OAuthError'}
-        '503': {description: Dependency unavailable}
+        '503': {$ref: '#/components/responses/OAuthError'}
   /oauth2/revoke:
     post:
       security: [{oauthClientBasic: []}]
       requestBody: {$ref: '#/components/requestBodies/OAuthRevocation'}
-      responses: {'200': {description: Token revoked or already inactive}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}}
+      responses: {'200': {description: Token revoked or already inactive; intentionally no response body}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}, '503': {$ref: '#/components/responses/OAuthError'}}
   /oauth2/introspect:
     post:
       security: [{oauthClientBasic: []}]
       requestBody: {$ref: '#/components/requestBodies/OAuthIntrospection'}
-      responses: {'200': {description: Standard OAuth introspection response, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthIntrospectionResponse'}}}}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}}
+      responses: {'200': {description: Standard OAuth introspection response, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthIntrospectionResponse'}}}}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}, '503': {$ref: '#/components/responses/OAuthError'}}
   /oauth2/userinfo:
     get:
       security: [{oauthAccessBearer: []}]
       description: Requires an AuthKit OAuth access token with `token_use=oauth_access`; ID tokens and first-party access tokens are rejected.
-      responses: {'200': {description: OIDC userinfo claims}, '400': {description: Invalid token class or malformed bearer token}, '401': {description: Unauthorized}}
+      responses: {'200': {$ref: '#/components/responses/OidcUserInfo'}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}, '503': {$ref: '#/components/responses/OAuthError'}}
   /api/v1/admin/users:
     get:
       parameters:
         - {name: search, in: query, required: false, schema: {type: string, maxLength: 255}, description: Case-insensitive email or display-name search}
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
         - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 1024}, description: Signed short-lived cursor bound to search and limit}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUserPage'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}:
     get:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       description: Safe account and authenticator status; no password hashes, provider subjects, credential IDs, public keys, or MFA secrets are returned.
-      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUserDetail'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/sessions/revoke:
     post:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       description: Revokes every AuthKit session for the target after recent local administrator step-up.
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/role:
     patch:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminUpdateRole'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
   /api/v1/admin/users/{userId}/suspension:
     post:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
     delete:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
   /api/v1/admin/users/{userId}/deletion:
     delete:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
   /api/v1/admin/oauth-clients:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClientList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     post:
       requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientCreate'}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/oauth-clients/{clientId}:
     patch:
       parameters: [{$ref: '#/components/parameters/ClientId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientUpdate'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}}
     delete:
       parameters: [{$ref: '#/components/parameters/ClientId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}}
   /api/v1/admin/social-providers:
-    get: *authGet
+    get:
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProviderList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     post:
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderCreateRequest'}}}
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/social-providers/{providerId}:
     patch:
       parameters: [{$ref: '#/components/parameters/ProviderId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminSocialProviderUpdate'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}}
     delete:
       parameters: [{$ref: '#/components/parameters/ProviderId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
-      responses: {'200': {$ref: '#/components/responses/Success'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}}
   /api/v1/admin/security-events:
     get:
       parameters:
@@ -332,11 +338,11 @@ paths:
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
         - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 1024}}
       description: Privacy-minimized security-event view with masked network and identity fields.
-      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSecurityEventPage'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/operations:
     get:
       description: Non-secret operational posture and provider-acceptance outbox counts.
-      responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOperationalStatus'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
 components:
   securitySchemes:
     bearerAuth:
@@ -410,10 +416,6 @@ components:
       schema: {type: string, format: uuid}
       description: Request correlation identifier; a valid inbound X-Request-ID is preserved, otherwise AuthKit generates one.
   responses:
-    Success:
-      description: Successful response
-      headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
-      content: {application/json: {schema: {$ref: '#/components/schemas/ApiResponse'}}}
     Error:
       description: Opaque error response
       headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
@@ -432,6 +434,37 @@ components:
       description: Versioned data-subject export; credential and provider secrets are omitted
       headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}
       content: {application/json: {schema: {$ref: '#/components/schemas/UserDataExportApiResponse'}}}
+    OidcDiscovery: {description: OIDC discovery metadata, content: {application/json: {schema: {$ref: '#/components/schemas/OidcDiscoveryResponse'}}}}
+    Jwks: {description: Public signing keys, content: {application/json: {schema: {$ref: '#/components/schemas/JwksResponse'}}}}
+    OidcUserInfo: {description: OIDC UserInfo claims authorized by scopes, content: {application/json: {schema: {$ref: '#/components/schemas/OidcUserInfoResponse'}}}}
+    Login: {description: Authentication result, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/LoginApiResponse'}}}}
+    PasskeyAssertionOptions: {description: Passkey assertion ceremony options, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyAssertionOptionsApiResponse'}}}}
+    Message: {description: Successful operation message, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/MessageApiResponse'}}}}
+    Register: {description: Account created, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/RegisterApiResponse'}}}}
+    RegistrationAccepted: {description: Registration accepted without account-enumeration disclosure, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/RegistrationAcceptedApiResponse'}}}}
+    SocialAuthorization: {description: 'OIDC authorization URL with server-bound state, nonce and PKCE', headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/SocialAuthorizationApiResponse'}}}}
+    SocialCallback: {description: Federated authentication or explicit linking result, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/SocialCallbackApiResponse'}}}}
+    Profile: {description: Current profile, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/ProfileApiResponse'}}}}
+    AccountDeletion: {description: Account deletion lifecycle state, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AccountDeletionApiResponse'}}}}
+    ConsentSnapshot: {description: Current consent snapshot, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/ConsentSnapshotApiResponse'}}}}
+    EmailChangeStatus: {description: Email-change ceremony state, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/EmailChangeStatusApiResponse'}}}}
+    MfaStatus: {description: MFA enrollment state, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/MfaStatusApiResponse'}}}}
+    MfaTotpEnrollment: {description: One-time TOTP enrollment material, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/MfaTotpEnrollmentApiResponse'}}}}
+    MfaBackupCodes: {description: One-time plaintext backup codes, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/MfaBackupCodesApiResponse'}}}}
+    PasskeyCredential: {description: Passkey credential metadata, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyCredentialApiResponse'}}}}
+    PasskeyCredentialList: {description: Passkey credential metadata list, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyCredentialListApiResponse'}}}}
+    PasskeyRegistrationOptions: {description: Passkey registration ceremony options, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyRegistrationOptionsApiResponse'}}}}
+    SocialIdentityList: {description: Linked social identities, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/SocialIdentityListApiResponse'}}}}
+    OAuthAuthorize: {description: Deprecated JSON authorization-code response, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizeApiResponse'}}}}
+    AdminUser: {description: Administrative user state, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserApiResponse'}}}}
+    AdminUserPage: {description: Bounded administrative user page, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserPageApiResponse'}}}}
+    AdminUserDetail: {description: Safe administrative user and authenticator detail, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserDetailApiResponse'}}}}
+    AdminOAuthClient: {description: OAuth client metadata and optional one-time secret, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminOAuthClientApiResponse'}}}}
+    AdminOAuthClientList: {description: OAuth client metadata list, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminOAuthClientListApiResponse'}}}}
+    AdminSocialProvider: {description: Social provider metadata without secret, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderApiResponse'}}}}
+    AdminSocialProviderList: {description: Social provider metadata list, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderListApiResponse'}}}}
+    AdminSecurityEventPage: {description: Privacy-minimized security-event page, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminSecurityEventPageApiResponse'}}}}
+    AdminOperationalStatus: {description: Non-secret operational posture, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminOperationalStatusApiResponse'}}}}
   schemas:
     LoginRequest:
       type: object
@@ -573,12 +606,13 @@ components:
         sub: {type: string, format: uuid}
         client_id: {type: string}
         scope: {type: string}
-        token_type: {type: string, enum: [Bearer]}
+        token_type: {type: string, enum: [Bearer, refresh_token]}
         exp: {type: integer, format: int64}
         iat: {type: integer, format: int64}
         iss: {type: string, format: uri}
         aud: {type: array, items: {type: string}}
         token_use: {type: string, enum: [oauth_access]}
+        jti: {type: string}
     AdminUpdateRoleRequest:
       type: object
       additionalProperties: false
@@ -636,7 +670,7 @@ components:
       additionalProperties: false
       required: [error, error_description]
       properties:
-        error: {type: string, enum: [invalid_request, invalid_client, invalid_grant, invalid_token, unsupported_grant_type, unsupported_response_type, invalid_scope, access_denied]}
+        error: {type: string, enum: [invalid_request, invalid_client, invalid_grant, invalid_token, unsupported_grant_type, unsupported_response_type, invalid_scope, access_denied, temporarily_unavailable]}
         error_description: {type: string}
     OAuthTokenRequest:
       type: object
@@ -687,7 +721,7 @@ components:
       additionalProperties: false
       required: [timestamp, requestId]
       properties:
-        data: {}
+        data: {type: object, nullable: true, additionalProperties: false, description: Error responses do not carry success data}
         errors: {type: array, items: {type: string}, nullable: true}
         timestamp: {type: string, format: date-time}
         code: {type: string, pattern: '^[a-z0-9_]+$', nullable: true, description: Stable machine-readable error code}
@@ -907,3 +941,77 @@ components:
           minLength: 32
           maxLength: 128
           description: One-time activation token read by the frontend from the URL fragment and submitted in the JSON body.
+    ApiResponseMetadata:
+      type: object
+      required: [timestamp, requestId]
+      properties:
+        errors: {type: array, items: {type: string}, nullable: true}
+        timestamp: {type: string, format: date-time}
+        code: {type: string, pattern: '^[a-z0-9_]+$', nullable: true}
+        requestId: {type: string, minLength: 1, maxLength: 128}
+    LoginApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/LoginResponse'}}}]}
+    PasskeyAssertionOptionsApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/PasskeyAssertionOptionsResponse'}}}]}
+    MessageApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: string}}}]}
+    RegisterApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/RegisterResponse'}}}]}
+    RegistrationAcceptedApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/RegistrationAcceptedResponse'}}}]}
+    SocialAuthorizationApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/SocialAuthorizationResponse'}}}]}
+    SocialCallbackApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/SocialCallbackResponse'}}}]}
+    ProfileApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/ProfileResponse'}}}]}
+    AccountDeletionApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AccountDeletionResponse'}}}]}
+    ConsentSnapshotApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/ConsentSnapshotResponse'}}}]}
+    EmailChangeStatusApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/EmailChangeStatusResponse'}}}]}
+    MfaStatusApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/MfaStatusResponse'}}}]}
+    MfaTotpEnrollmentApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/MfaTotpEnrollmentResponse'}}}]}
+    MfaBackupCodesApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/MfaBackupCodesResponse'}}}]}
+    PasskeyCredentialApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/PasskeyCredentialResponse'}}}]}
+    PasskeyCredentialListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/PasskeyCredentialResponse'}}}}]}
+    PasskeyRegistrationOptionsApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/PasskeyRegistrationOptionsResponse'}}}]}
+    SocialIdentityListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/SocialIdentityResponse'}}}}]}
+    OAuthAuthorizeApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/OAuthAuthorizeResponse'}}}]}
+    AdminUserApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserResponse'}}}]}
+    AdminUserPageApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserPageResponse'}}}]}
+    AdminUserDetailApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserDetailResponse'}}}]}
+    AdminOAuthClientApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminOAuthClientResponse'}}}]}
+    AdminOAuthClientListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/AdminOAuthClientResponse'}}}}]}
+    AdminSocialProviderApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminSocialProviderResponse'}}}]}
+    AdminSocialProviderListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/AdminSocialProviderResponse'}}}}]}
+    AdminSecurityEventPageApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminSecurityEventPageResponse'}}}]}
+    AdminOperationalStatusApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminOperationalStatusResponse'}}}]}
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [expiresIn, mfaRequired]
+      properties:
+        accessToken: {type: string, nullable: true}
+        expiresIn: {type: integer, format: int64, minimum: 0}
+        mfaRequired: {type: boolean}
+        mfaToken: {type: string, nullable: true}
+    RegisterResponse: {type: object, additionalProperties: false, required: [id, email, tenantId], properties: {id: {type: string, format: uuid}, email: {type: string, format: email}, tenantId: {type: string, format: uuid}}}
+    RegistrationAcceptedResponse: {type: object, additionalProperties: false, required: [message], properties: {message: {type: string}}}
+    ProfileResponse: {type: object, additionalProperties: false, required: [id, email], properties: {id: {type: string, format: uuid}, email: {type: string, format: email}, name: {type: string, nullable: true}}}
+    AccountDeletionResponse: {type: object, additionalProperties: false, required: [status, deletionRequestedAt, graceExpiresAt], properties: {status: {type: string, enum: [deletion_pending, anonymized]}, deletionRequestedAt: {type: string, format: date-time}, graceExpiresAt: {type: string, format: date-time}, deletedAt: {type: string, format: date-time, nullable: true}, anonymizedAt: {type: string, format: date-time, nullable: true}}}
+    ConsentSnapshotResponse: {type: object, additionalProperties: false, required: [termsAccepted, privacyPolicyAccepted], properties: {termsAccepted: {type: boolean}, privacyPolicyAccepted: {type: boolean}, termsVersion: {type: string, nullable: true}, privacyPolicyVersion: {type: string, nullable: true}, consentAcceptedAt: {type: string, format: date-time, nullable: true}, lawfulBasis: {type: string, nullable: true}}}
+    EmailChangeStatusResponse: {type: object, additionalProperties: false, required: [status], properties: {status: {type: string}, pendingEmail: {type: string, format: email, nullable: true}, requestedAt: {type: string, format: date-time, nullable: true}, expiresAt: {type: string, format: date-time, nullable: true}}}
+    MfaStatusResponse: {type: object, additionalProperties: false, required: [totpEnabled, backupCodesRemaining], properties: {totpEnabled: {type: boolean}, backupCodesRemaining: {type: integer, minimum: 0}, enrolledAt: {type: string, format: date-time, nullable: true}}}
+    MfaTotpEnrollmentResponse: {type: object, additionalProperties: false, required: [credentialId, secret, otpauthUri], properties: {credentialId: {type: string, format: uuid}, secret: {type: string, writeOnly: true}, otpauthUri: {type: string, format: uri, writeOnly: true}}}
+    MfaBackupCodesResponse: {type: object, additionalProperties: false, required: [backupCodes], properties: {backupCodes: {type: array, minItems: 1, items: {type: string, writeOnly: true}}}}
+    PasskeyAssertionOptionsResponse: {type: object, additionalProperties: false, required: [challengeId, publicKeyCredentialRequestOptionsJson], properties: {challengeId: {type: string, format: uuid}, publicKeyCredentialRequestOptionsJson: {type: string}}}
+    PasskeyRegistrationOptionsResponse: {type: object, additionalProperties: false, required: [challengeId, publicKeyCredentialCreationOptionsJson], properties: {challengeId: {type: string, format: uuid}, publicKeyCredentialCreationOptionsJson: {type: string}}}
+    PasskeyCredentialResponse: {type: object, additionalProperties: false, required: [id, credentialId, discoverable, createdAt], properties: {id: {type: string, format: uuid}, credentialId: {type: string}, label: {type: string, nullable: true}, transports: {type: string, nullable: true}, discoverable: {type: boolean}, createdAt: {type: string, format: date-time}, lastUsedAt: {type: string, format: date-time, nullable: true}}}
+    SocialAuthorizationResponse: {type: object, additionalProperties: false, required: [authorizationUrl, expiresIn], properties: {authorizationUrl: {type: string, format: uri}, expiresIn: {type: integer, format: int64, minimum: 1}}}
+    SocialCallbackResponse: {type: object, additionalProperties: false, required: [status], properties: {status: {type: string, enum: [authenticated, linked]}, login: {$ref: '#/components/schemas/LoginResponse'}}}
+    SocialIdentityResponse: {type: object, additionalProperties: false, required: [id, providerKey, issuer, createdAt], properties: {id: {type: string, format: uuid}, providerKey: {type: string}, issuer: {type: string, format: uri}, emailAtLink: {type: string, format: email, nullable: true}, createdAt: {type: string, format: date-time}, lastLoginAt: {type: string, format: date-time, nullable: true}}}
+    OAuthAuthorizeResponse: {type: object, additionalProperties: false, required: [redirectUri, expiresIn], properties: {redirectUri: {type: string, format: uri}, state: {type: string, nullable: true}, expiresIn: {type: integer, format: int64, minimum: 1}}}
+    AdminUserResponse: {type: object, additionalProperties: false, required: [id, tenantId, email, role, accountState, emailConfirmed], properties: {id: {type: string, format: uuid}, tenantId: {type: string, format: uuid}, email: {type: string, format: email}, name: {type: string, nullable: true}, role: {type: string, enum: [USER, PLATFORM_ADMIN]}, accountState: {type: string, enum: [ACTIVE, SUSPENDED, DELETION_PENDING, ANONYMIZED]}, emailConfirmed: {type: boolean}, suspendedAt: {type: string, format: date-time, nullable: true}, suspensionReason: {type: string, nullable: true}, deletionRequestedAt: {type: string, format: date-time, nullable: true}, deletedAt: {type: string, format: date-time, nullable: true}, anonymizedAt: {type: string, format: date-time, nullable: true}}}
+    AdminUserPageResponse: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AdminUserResponse'}}, nextCursor: {type: string, nullable: true}}}
+    AdminAuthenticatorStatus: {type: object, additionalProperties: false, required: [password, activeTotpCredentials, activePasskeys, linkedSocialIdentities], properties: {password: {type: boolean}, activeTotpCredentials: {type: integer, format: int64, minimum: 0}, activePasskeys: {type: integer, format: int64, minimum: 0}, linkedSocialIdentities: {type: integer, format: int64, minimum: 0}}}
+    AdminUserDetailResponse: {type: object, additionalProperties: false, required: [user, authenticators], properties: {user: {$ref: '#/components/schemas/AdminUserResponse'}, authenticators: {$ref: '#/components/schemas/AdminAuthenticatorStatus'}}}
+    AdminOAuthClientResponse: {type: object, additionalProperties: false, required: [id, clientId, publicClient, displayName, redirectUris, scopes, requirePkce, enabled, createdAt, updatedAt], properties: {id: {type: string, format: uuid}, clientId: {type: string}, clientSecret: {type: string, nullable: true, writeOnly: true}, publicClient: {type: boolean}, displayName: {type: string}, redirectUris: {type: array, items: {type: string, format: uri}}, scopes: {type: array, items: {type: string}}, requirePkce: {type: boolean}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}, disabledAt: {type: string, format: date-time, nullable: true}}}
+    AdminSocialProviderResponse: {type: object, additionalProperties: false, required: [id, providerKey, displayName, providerType, issuer, clientId, scopes, clientAuthMethod, enabled, createdAt, updatedAt], properties: {id: {type: string, format: uuid}, providerKey: {type: string}, displayName: {type: string}, providerType: {type: string, enum: [GOOGLE, GENERIC_OIDC, GOVBR_EXPERIMENTAL]}, issuer: {type: string, format: uri}, clientId: {type: string}, scopes: {type: array, items: {type: string}}, clientAuthMethod: {type: string, enum: [CLIENT_SECRET_BASIC, CLIENT_SECRET_POST]}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}, disabledAt: {type: string, format: date-time, nullable: true}}}
+    AdminSecurityEventResponse: {type: object, additionalProperties: false, required: [id, occurredAt, type, outcome, severity], properties: {id: {type: string, format: uuid}, occurredAt: {type: string, format: date-time}, type: {type: string}, outcome: {type: string}, severity: {type: string}, actorUserId: {type: string, format: uuid, nullable: true}, targetUserId: {type: string, format: uuid, nullable: true}, emailMasked: {type: string, nullable: true}, clientIpMasked: {type: string, nullable: true}, reason: {type: string, nullable: true}, metadataJson: {type: string, nullable: true}}}
+    AdminSecurityEventPageResponse: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AdminSecurityEventResponse'}}, nextCursor: {type: string, nullable: true}}}
+    AdminOperationalStatusResponse: {type: object, additionalProperties: false, required: [emailOutbox, emailDispatchMode, tokenStorageBackend, retentionWorkerEnabled], properties: {emailOutbox: {type: object, additionalProperties: {type: integer, format: int64, minimum: 0}}, emailDispatchMode: {type: string}, tokenStorageBackend: {type: string, enum: [redis, jdbc]}, retentionWorkerEnabled: {type: boolean}}}
+    OidcUserInfoResponse: {type: object, additionalProperties: false, required: [sub, tenant_id], properties: {sub: {type: string, format: uuid}, tenant_id: {type: string, format: uuid}, email: {type: string, format: email}, email_verified: {type: boolean}, name: {type: string}}}
+    OidcDiscoveryResponse: {type: object, additionalProperties: true, required: [issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri, response_types_supported, subject_types_supported, id_token_signing_alg_values_supported], properties: {issuer: {type: string, format: uri}, authorization_endpoint: {type: string, format: uri}, token_endpoint: {type: string, format: uri}, userinfo_endpoint: {type: string, format: uri}, jwks_uri: {type: string, format: uri}, response_types_supported: {type: array, items: {type: string}}, subject_types_supported: {type: array, items: {type: string}}, id_token_signing_alg_values_supported: {type: array, items: {type: string}}}}
+    JwksResponse: {type: object, additionalProperties: false, required: [keys], properties: {keys: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Jwk'}}}}
+    Jwk: {type: object, additionalProperties: true, required: [kty, kid, use, alg, n, e], properties: {kty: {type: string, enum: [RSA]}, kid: {type: string}, use: {type: string, enum: [sig]}, alg: {type: string, enum: [RS256]}, n: {type: string}, e: {type: string}}}

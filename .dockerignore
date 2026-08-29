@@ -16,6 +16,7 @@ src/test
 AUTHKIT_V0.1_RELEASE_SPEC.md
 AUTHKIT_V0.1_RELEASE_SPEC-ptBR.md
 release_audit.md
+pre-release-audit.md
 docs/audits
 docs/proof/reports
 skills-lock.json

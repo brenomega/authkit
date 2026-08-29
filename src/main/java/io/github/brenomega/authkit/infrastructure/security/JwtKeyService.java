@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Base64;
+import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -40,6 +41,7 @@ public class JwtKeyService {
     private final RSAPrivateKey activePrivateKey;
     private final AuthProperties authProperties;
     private final ResourceLoader resourceLoader;
+    private final JWKSet publishedPublicKeys;
 
     public JwtKeyService(@Value("${jwt.public.key}") RSAPublicKey activePublicKey,
                          @Value("${jwt.private.key}") RSAPrivateKey activePrivateKey,
@@ -49,6 +51,8 @@ public class JwtKeyService {
         this.activePrivateKey = activePrivateKey;
         this.authProperties = authProperties;
         this.resourceLoader = resourceLoader;
+        validateConfiguration();
+        this.publishedPublicKeys = buildPublishedPublicJwkSet();
     }
 
     public RSAPublicKey activePublicKey() {
@@ -66,6 +70,10 @@ public class JwtKeyService {
 
     /** Returns the active and retiring verification keys after revoked IDs are removed. */
     public JWKSet publishedPublicJwkSet() {
+        return publishedPublicKeys;
+    }
+
+    private JWKSet buildPublishedPublicJwkSet() {
         Set<RSAKey> keys = new LinkedHashSet<>();
         RSAKey active = publicJwk(authProperties.getJwt().getKeyId(), activePublicKey);
         if (!isRevokedKid(active.getKeyID())) {
@@ -81,6 +89,12 @@ public class JwtKeyService {
 
     public boolean isRevokedKid(String kid) {
         return revokedKeyIds().contains(kid);
+    }
+
+    /** Returns whether a non-revoked key ID is present in the current JWKS view. */
+    public boolean isPublishedKid(String kid) {
+        return kid != null && publishedPublicKeys.getKeys().stream()
+                .anyMatch(key -> kid.equals(key.getKeyID()));
     }
 
     public Set<String> revokedKeyIds() {
@@ -105,6 +119,38 @@ public class JwtKeyService {
                     return keys;
                 })
                 .orElseGet(Set::of);
+    }
+
+    private void validateConfiguration() {
+        String activeKeyId = authProperties.getJwt().getKeyId();
+        if (activeKeyId == null || !activeKeyId.matches("[A-Za-z0-9._-]{1,64}")) {
+            throw new IllegalStateException("JWT active key ID is invalid.");
+        }
+        List<String> revokedEntries = Optional.ofNullable(authProperties.getJwt().getRevokedKeyIds())
+                .filter(value -> !value.isBlank())
+                .map(value -> Arrays.stream(value.split("[,;]"))
+                        .map(String::trim)
+                        .filter(item -> !item.isBlank())
+                        .toList())
+                .orElseGet(List::of);
+        if (new LinkedHashSet<>(revokedEntries).size() != revokedEntries.size()) {
+            throw new IllegalStateException("JWT revoked key IDs contain duplicates.");
+        }
+        if (revokedEntries.contains(activeKeyId)) {
+            throw new IllegalStateException("JWT active key ID cannot be revoked.");
+        }
+
+        Set<String> publishedIds = new LinkedHashSet<>();
+        publishedIds.add(activeKeyId);
+        for (RSAKey retiringKey : parseRetiringPublicKeys()) {
+            String retiringId = retiringKey.getKeyID();
+            if (retiringId == null || !retiringId.matches("[A-Za-z0-9._-]{1,64}")) {
+                throw new IllegalStateException("JWT retiring key ID is invalid.");
+            }
+            if (!publishedIds.add(retiringId)) {
+                throw new IllegalStateException("JWT published key IDs contain duplicates.");
+            }
+        }
     }
 
     private RSAKey parseRetiringPublicKey(String entry) {

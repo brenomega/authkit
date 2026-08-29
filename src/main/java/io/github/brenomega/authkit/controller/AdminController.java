@@ -36,7 +36,7 @@ import io.github.brenomega.authkit.service.AdminService;
 import io.github.brenomega.authkit.service.SocialProviderAdminService;
 import jakarta.validation.Valid;
 
-/** Exposes tenant-scoped and system-wide administrative use cases. */
+/** Exposes instance-wide use cases restricted to the {@code PLATFORM_ADMIN} role. */
 @RestController
 @RequestMapping("/api/v1/admin")
 @PreAuthorize("hasRole('PLATFORM_ADMIN')")

@@ -126,18 +126,19 @@ public class JwtConfig {
         }
     }
 
-    private static class KeyRevocationValidator implements OAuth2TokenValidator<Jwt> {
+    static class KeyRevocationValidator implements OAuth2TokenValidator<Jwt> {
         private final JwtKeyService jwtKeyService;
 
-        private KeyRevocationValidator(JwtKeyService jwtKeyService) {
+        KeyRevocationValidator(JwtKeyService jwtKeyService) {
             this.jwtKeyService = jwtKeyService;
         }
 
         @Override
         public OAuth2TokenValidatorResult validate(Jwt jwt) {
             Object kid = jwt.getHeaders().get("kid");
-            if (kid instanceof String keyId && jwtKeyService.isRevokedKid(keyId)) {
-                OAuth2Error error = new OAuth2Error("invalid_token", "JWT signing key has been revoked", null);
+            if (!(kid instanceof String keyId) || keyId.isBlank() || !jwtKeyService.isPublishedKid(keyId)) {
+                OAuth2Error error = new OAuth2Error(
+                        "invalid_token", "JWT signing key ID is missing or not published", null);
                 return OAuth2TokenValidatorResult.failure(error);
             }
             return OAuth2TokenValidatorResult.success();

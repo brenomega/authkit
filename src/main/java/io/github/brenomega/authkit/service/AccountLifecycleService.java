@@ -84,6 +84,7 @@ public class AccountLifecycleService {
     private final PasskeyCredentialRepository passkeyCredentialRepository;
     private final MfaTotpCredentialRepository mfaTotpCredentialRepository;
     private final PasswordHistoryRepository passwordHistoryRepository;
+    private final OAuthLifecycleRevocationService oauthLifecycleRevocationService;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
@@ -102,7 +103,8 @@ public class AccountLifecycleService {
                                    SocialIdentityProviderRepository socialIdentityProviderRepository,
                                    PasskeyCredentialRepository passkeyCredentialRepository,
                                    MfaTotpCredentialRepository mfaTotpCredentialRepository,
-                                   PasswordHistoryRepository passwordHistoryRepository) {
+                                   PasswordHistoryRepository passwordHistoryRepository,
+                                   OAuthLifecycleRevocationService oauthLifecycleRevocationService) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
@@ -121,6 +123,7 @@ public class AccountLifecycleService {
         this.passkeyCredentialRepository = passkeyCredentialRepository;
         this.mfaTotpCredentialRepository = mfaTotpCredentialRepository;
         this.passwordHistoryRepository = passwordHistoryRepository;
+        this.oauthLifecycleRevocationService = oauthLifecycleRevocationService;
     }
 
     /** Returns the consent state persisted on the active account. */
@@ -257,7 +260,12 @@ public class AccountLifecycleService {
      */
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
-        User user = loadActiveUser(userId);
+        UUID requestedUserId = UUID.fromString(userId);
+        @SuppressWarnings("null")
+        User user = userRepository.findByIdForUpdate(requestedUserId)
+                .orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
+        user.requireEmailConfirmed();
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.ACCOUNT_DELETION_USER, user);
         verifyStepUp(user,
                 stepUpRequest,
@@ -297,6 +305,7 @@ public class AccountLifecycleService {
                 originalEmail,
                 "account_deletion_requested",
                 Map.of("grace_days", Integer.toString(graceDays)));
+        oauthLifecycleRevocationService.revokeAll(userUuid, now);
         if (graceDays == 0) {
             securityEventService.record(
                     SecurityEventType.ACCOUNT_ANONYMIZED,

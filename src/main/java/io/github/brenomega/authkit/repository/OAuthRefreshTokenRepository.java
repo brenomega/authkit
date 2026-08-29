@@ -23,6 +23,11 @@ public interface OAuthRefreshTokenRepository extends JpaRepository<OAuthRefreshT
 
     Optional<OAuthRefreshToken> findByTokenHash(String hash);
 
+    /** Resolves the resource owner without hydrating refresh entities before lifecycle serialization. */
+    @Query("select f.userId from OAuthRefreshToken t, OAuthRefreshTokenFamily f " +
+            "where t.familyId = f.id and t.tokenHash = :hash")
+    Optional<UUID> findUserIdByTokenHash(@Param("hash") String hash);
+
     List<OAuthRefreshToken> findByFamilyId(UUID familyId);
 
     long deleteByFamilyIdIn(Collection<UUID> familyIds);

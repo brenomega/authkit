@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -26,11 +27,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.github.brenomega.authkit.domain.social.dto.SocialLoginStartRequest;
 import io.github.brenomega.authkit.domain.social.dto.AdminSocialProviderCreateRequest;
@@ -46,25 +51,33 @@ import io.github.brenomega.authkit.exception.SocialLinkRequiredException;
 import io.github.brenomega.authkit.infrastructure.security.SocialSecretCipher;
 import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
 import io.github.brenomega.authkit.repository.SocialIdentityRepository;
+import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
+import io.github.brenomega.authkit.support.PostgresIntegrationTestSupport;
 
 @SpringBootTest
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
         "authkit.auth.social.enabled=true",
         "authkit.auth.social.issuer-allowlist=https://issuer.example",
-        "authkit.auth.social.callback-base-url=https://auth.example"
+        "authkit.auth.social.callback-base-url=https://auth.example",
+        "authkit.auth.compliance.terms-version=terms-social-2026",
+        "authkit.auth.compliance.privacy-policy-version=privacy-social-2026",
+        "authkit.auth.compliance.lawful-basis=consent"
 })
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
-class SocialIdentityServiceIntegrationTest {
+@Testcontainers(disabledWithoutDocker = false)
+class SocialIdentityServiceIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired
     SocialIdentityService service;
     @Autowired
     SocialIdentityProviderRepository providers;
     @Autowired
     SocialIdentityRepository identities;
+    @Autowired
+    SocialLoginTransactionRepository socialTransactions;
     @Autowired
     UserRepository users;
     @Autowired
@@ -75,11 +88,18 @@ class SocialIdentityServiceIntegrationTest {
     SocialProviderAdminService providerAdminService;
     @Autowired
     PasskeyCredentialRepository passkeyRepository;
+    @Autowired
+    AccountLifecycleService accountLifecycleService;
+    @Autowired
+    JdbcTemplate jdbc;
+    @MockitoSpyBean
+    ConsentEventRepository consentEvents;
     @MockitoBean
     SocialOidcClient oidc;
 
     @BeforeEach
     void metadata() {
+        jdbc.execute("TRUNCATE TABLE users, social_identity_providers RESTART IDENTITY CASCADE");
         when(oidc.metadata(any())).thenReturn(new SocialOidcClient.OidcProviderMetadata(
                 "https://issuer.example", "https://issuer.example/authorize",
                 "https://issuer.example/token", "https://issuer.example/jwks"));
@@ -104,8 +124,34 @@ class SocialIdentityServiceIntegrationTest {
         User user = users.findByEmail("social-new@example.com").orElseThrow();
         assertNull(user.getPassword());
         assertTrue(user.isEmailConfirmed());
+        assertEquals("terms-social-2026", user.getTermsVersion());
+        assertEquals("privacy-social-2026", user.getPrivacyPolicyVersion());
+        var consentHistory = consentEvents.findByUserIdOrderByAcceptedAtDesc(user.getId());
+        assertEquals(1, consentHistory.size());
+        assertEquals("terms-social-2026", consentHistory.getFirst().getTermsVersion());
+        assertEquals("privacy-social-2026", consentHistory.getFirst().getPrivacyPolicyVersion());
         assertEquals(user.getId(), identities.findByIssuerAndSubject("https://issuer.example", "subject-new")
                 .orElseThrow().getUserId());
+        passkeyRepository.saveAndFlush(new PasskeyCredential(user.getId(), user.getTenantId(),
+                "social-export-passkey", "public-key", 0, "internal", "Export key", true, Instant.now()));
+        Jwt exportJwt = Jwt.withTokenValue("social-export")
+                .header("alg", "RS256")
+                .subject(user.getId().toString())
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", user.getTenantId().toString())
+                .claim("amr", List.of("webauthn"))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(exportJwt));
+        try {
+            var export = accountLifecycleService.exportUserData(user.getId().toString(), new StepUpRequest(null, null));
+            assertEquals("terms-social-2026", export.consent().termsVersion());
+            assertEquals("privacy-social-2026", export.consent().privacyPolicyVersion());
+            assertEquals(1, export.consentHistory().size());
+            assertEquals("terms-social-2026", export.consentHistory().getFirst().termsVersion());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
         assertThrows(InvalidSocialLoginException.class,
                 () -> service.callback(provider.getProviderKey(), state, "provider-code"));
     }
@@ -124,6 +170,27 @@ class SocialIdentityServiceIntegrationTest {
         assertThrows(SocialLinkRequiredException.class,
                 () -> service.callback(provider.getProviderKey(), state, "provider-code"));
         assertTrue(identities.findByIssuerAndSubject("https://issuer.example", "subject-collision").isEmpty());
+    }
+
+    @Test
+    void consentLedgerFailureRollsBackSocialAccountAndIdentity() {
+        SocialIdentityProvider provider = provider("generic-consent-rollback");
+        String state = query(service.startLogin(provider.getProviderKey(),
+                new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+        when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(claim("social-rollback@example.com", "subject-rollback"));
+        doThrow(new IllegalStateException("consent store unavailable"))
+                .when(consentEvents).save(any());
+
+        RuntimeException failure = assertThrows(RuntimeException.class,
+                () -> service.callback(provider.getProviderKey(), state, "provider-code"));
+        Throwable rootCause = failure;
+        while (rootCause.getCause() != null) {
+            rootCause = rootCause.getCause();
+        }
+        assertEquals("consent store unavailable", rootCause.getMessage());
+        assertTrue(users.findByEmail("social-rollback@example.com").isEmpty());
+        assertTrue(identities.findByIssuerAndSubject("https://issuer.example", "subject-rollback").isEmpty());
     }
 
     @Test

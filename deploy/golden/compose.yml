@@ -2,7 +2,7 @@ name: authkit-golden
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6
     environment:
       POSTGRES_DB: authkit
       POSTGRES_USER: authkit_owner
@@ -28,7 +28,7 @@ services:
         ipv4_address: 172.30.0.30
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     user: "redis:redis"
     entrypoint: ["/usr/local/bin/authkit-redis-entrypoint.sh"]
     secrets:
@@ -171,7 +171,7 @@ services:
       egress: {}
 
   tls-proxy:
-    image: caddy:2.10-alpine
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     environment:
       AUTHKIT_PUBLIC_HOST: ${AUTHKIT_PUBLIC_HOST:?Set AUTHKIT_PUBLIC_HOST}
     secrets:

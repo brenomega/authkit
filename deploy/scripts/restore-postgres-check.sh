@@ -53,7 +53,7 @@ docker run --detach --name "${container_name}" \
   --mount "type=bind,source=${secrets_directory}/postgres_app_password,target=/run/secrets/postgres_app_password,readonly" \
   --mount "type=bind,source=${secrets_directory}/postgres_retention_password,target=/run/secrets/postgres_retention_password,readonly" \
   --mount "type=bind,source=${repo_root}/deploy/golden/init-database-roles.sh,target=/docker-entrypoint-initdb.d/10-authkit-roles.sh,readonly" \
-  postgres:17-alpine >/dev/null
+  postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6 >/dev/null
 
 ready=false
 for _ in $(seq 1 45); do

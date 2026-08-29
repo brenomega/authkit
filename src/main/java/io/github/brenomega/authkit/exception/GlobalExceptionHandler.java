@@ -60,6 +60,18 @@ public class GlobalExceptionHandler {
                         "Malformed JSON request or unknown properties provided"));
     }
 
+    /** Keeps infrastructure degradation on OAuth wire endpoints unwrapped and fail-closed. */
+    @ExceptionHandler(TokenRevocationUnavailableException.class)
+    public ResponseEntity<Map<String, String>> handleTokenRevocationUnavailable(
+            TokenRevocationUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .header(org.springframework.http.HttpHeaders.PRAGMA, "no-cache")
+                .body(Map.of(
+                        "error", "temporarily_unavailable",
+                        "error_description", "Token state is temporarily unavailable"));
+    }
+
     @ExceptionHandler(ApiBaseException.class)
     public ResponseEntity<ApiResponse<Void>> handleApiException(ApiBaseException ex) {
         if (ex instanceof AuthenticationCapacityExceededException) {

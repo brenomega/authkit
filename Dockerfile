@@ -10,7 +10,7 @@ FROM scratch AS build-context
 COPY . /context
 
 # --- Stage 1: Build ---
-FROM maven:3.9-eclipse-temurin-21-alpine AS build
+FROM maven:3.9-eclipse-temurin-21-alpine@sha256:65353f527c86cb23187c8233475713e15067e8d36220d18863c379680698fe85 AS build
 WORKDIR /app
 
 # Copy project definition first (layer caching for dependencies)
@@ -42,7 +42,7 @@ COPY src src
 RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests -B
 
 # --- Stage 2: Runtime ---
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
 WORKDIR /app
 
 # Create a non-root user for security

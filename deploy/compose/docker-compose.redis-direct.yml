@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-authkit}"
       POSTGRES_USER: "${POSTGRES_USER:-authkit}"
@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     environment:
       REDIS_PASSWORD: "${REDIS_PASSWORD:-CHANGE-ME-redis-password}"
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-CHANGE-ME-redis-password}"]
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
 
   mailpit:
-    image: axllent/mailpit:v1.26
+    image: axllent/mailpit:v1.26@sha256:079759020faa42e243a07aaa3e31086de70e93e78b02b844e4149e0108dd5428
     networks:
       - authkit-internal
     restart: unless-stopped

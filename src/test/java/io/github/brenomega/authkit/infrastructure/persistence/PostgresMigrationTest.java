@@ -24,12 +24,14 @@ import org.testcontainers.utility.DockerImageName;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers(disabledWithoutDocker = false)
 class PostgresMigrationTest {
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>(DockerImageName.parse("postgres:17-alpine"));
+            new PostgreSQLContainer<>(DockerImageName.parse(
+                    "postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6")
+                    .asCompatibleSubstituteFor("postgres"));
 
     @Test
     @DisplayName("Flyway migrations apply on PostgreSQL and enforce lower(email) uniqueness")
@@ -402,10 +404,10 @@ class PostgresMigrationTest {
                     values ('%s', '%s', '%s', 'terms-v1', 'privacy-v1', 'consent', now(), now(), '%s')
                     """.formatted(UUID.randomUUID(), userId, tenantId, "e".repeat(64)));
 
-            statement.executeUpdate("delete from security_events where actor_user_id = '%s' or " +
-                "target_user_id = '%s'".formatted(
-                userId,
-                userId));
+            statement.executeUpdate(("delete from security_events where actor_user_id = '%s' or " +
+                "target_user_id = '%s'").formatted(
+                    userId,
+                    userId));
             statement.executeUpdate("delete from consent_events where user_id = '%s'".formatted(userId));
             statement.executeUpdate("delete from users where id = '%s'".formatted(userId));
 
@@ -433,8 +435,8 @@ class PostgresMigrationTest {
         }
     }
 
-@SuppressWarnings("null")
-private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
+    @SuppressWarnings("null")
+    private JdbcTemplateLockProvider lockProvider(DriverManagerDataSource dataSource) {
         return new JdbcTemplateLockProvider(
                 JdbcTemplateLockProvider.Configuration.builder()
                         .withJdbcTemplate(new JdbcTemplate(dataSource))

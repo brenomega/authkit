@@ -84,6 +84,7 @@ class AccountLifecycleServiceTest {
     private PasskeyCredentialRepository passkeyCredentialRepository;
     private MfaTotpCredentialRepository mfaTotpCredentialRepository;
     private PasswordHistoryRepository passwordHistoryRepository;
+    private OAuthLifecycleRevocationService oauthLifecycleRevocationService;
     private AccountLifecycleService service;
 
     @BeforeEach
@@ -109,6 +110,7 @@ class AccountLifecycleServiceTest {
         passkeyCredentialRepository = mock(PasskeyCredentialRepository.class);
         mfaTotpCredentialRepository = mock(MfaTotpCredentialRepository.class);
         passwordHistoryRepository = mock(PasswordHistoryRepository.class);
+        oauthLifecycleRevocationService = mock(OAuthLifecycleRevocationService.class);
         when(tokenStorage.listSessions(any(), eq(100), any())).thenReturn(
                 new SessionPage(List.of(), null));
         service = new AccountLifecycleService(
@@ -134,7 +136,8 @@ class AccountLifecycleServiceTest {
                 socialIdentityProviderRepository,
                 passkeyCredentialRepository,
                 mfaTotpCredentialRepository,
-                passwordHistoryRepository);
+                passwordHistoryRepository,
+                oauthLifecycleRevocationService);
     }
 
 @SuppressWarnings("null")
@@ -146,7 +149,7 @@ class AccountLifecycleServiceTest {
         user.setEmailConfirmed(true);
         ReflectionTestUtils.setField(user, "id", userId);
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("current-pass", "old-hash")).thenReturn(true);
 
         AccountDeletionResponse response = service.requestDeletion(
@@ -163,6 +166,7 @@ class AccountLifecycleServiceTest {
         assertNull(user.getAnonymizedAt());
         verify(userAuthoritiesFilter).evict(userId);
         verify(tokenStorage).revokeAllSessions(userId.toString());
+        verify(oauthLifecycleRevocationService).revokeAll(eq(userId), any());
         verify(userRepository).save(user);
         verify(mfaService).requireMfaIfEnabled(user, null, "account_deletion");
         verify(securityEventService).record(
@@ -189,7 +193,7 @@ class AccountLifecycleServiceTest {
         user.setRole(Role.PLATFORM_ADMIN);
         ReflectionTestUtils.setField(user, "id", userId);
 
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
         when(userRepository.countByRoleAndAccountState(Role.PLATFORM_ADMIN, AccountState.ACTIVE)).thenReturn(1L);
         when(passwordEncoder.matches("current-pass", "old-hash")).thenReturn(true);
 
@@ -220,7 +224,7 @@ class AccountLifecycleServiceTest {
         user.setEmailConfirmed(true);
         ReflectionTestUtils.setField(user, "id", userId);
         authProperties.getCompliance().setDeletionGracePeriodDays(0);
-        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(userId)).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("current-pass", "old-hash")).thenReturn(true);
 
         AccountDeletionResponse response = service.requestDeletion(

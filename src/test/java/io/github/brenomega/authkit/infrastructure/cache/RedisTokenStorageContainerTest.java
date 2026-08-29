@@ -8,12 +8,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.UUID;
 import java.util.HashSet;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -23,16 +26,20 @@ import org.testcontainers.utility.DockerImageName;
 import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.infrastructure.audit.AuditDigestService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
+import io.github.brenomega.authkit.infrastructure.security.OAuthTokenRevocationService;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
+import io.github.brenomega.authkit.exception.TokenRevocationUnavailableException;
 import io.github.brenomega.authkit.service.spi.SessionMetadata;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers(disabledWithoutDocker = false)
 class RedisTokenStorageContainerTest {
 
     @SuppressWarnings("resource")
     @Container
     private static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+            new GenericContainer<>(DockerImageName.parse(
+                    "redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"))
                     .withExposedPorts(6379);
 
     @Test
@@ -189,6 +196,73 @@ class RedisTokenStorageContainerTest {
         } finally {
             connectionFactory.destroy();
         }
+    }
+
+    @Test
+    @DisplayName("OAuth JTI revocation remains durable across service reconstruction on real Redis")
+    void oauthRevocationSurvivesServiceReconstruction() {
+        @SuppressWarnings("null")
+        RedisStandaloneConfiguration configuration =
+                new RedisStandaloneConfiguration(REDIS.getHost(), REDIS.getMappedPort(6379));
+        LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        try {
+            StringRedisTemplate template = new StringRedisTemplate(connectionFactory);
+            template.afterPropertiesSet();
+            AuthProperties properties = new AuthProperties();
+            properties.getTokenStorage().setBackend("redis");
+            OAuthTokenRevocationService first = new OAuthTokenRevocationService(
+                    Optional.of(template), Optional.empty(), properties, new SimpleMeterRegistry());
+            String jti = "real-redis-" + UUID.randomUUID();
+            first.revoke(jti, Instant.now().plusSeconds(300));
+
+            OAuthTokenRevocationService reconstructed = new OAuthTokenRevocationService(
+                    Optional.of(template), Optional.empty(), properties, new SimpleMeterRegistry());
+            assertTrue(reconstructed.isRevoked(jti));
+        } finally {
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    @DisplayName("OAuth live-state lookup fails closed during a real Redis outage")
+    void oauthRevocationLookupFailsClosedWhenRedisStops() {
+        try (GenericContainer<?> isolatedRedis = new GenericContainer<>(DockerImageName.parse(
+                "redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"))
+                .withExposedPorts(6379)) {
+            isolatedRedis.start();
+            @SuppressWarnings("null")
+            RedisStandaloneConfiguration configuration = new RedisStandaloneConfiguration(
+                    isolatedRedis.getHost(), isolatedRedis.getMappedPort(6379));
+            LettuceClientConfiguration clientConfiguration = LettuceClientConfiguration.builder()
+                    .commandTimeout(Duration.ofSeconds(2))
+                    .shutdownTimeout(Duration.ZERO)
+                    .build();
+            LettuceConnectionFactory connectionFactory =
+                    new LettuceConnectionFactory(configuration, clientConfiguration);
+            connectionFactory.afterPropertiesSet();
+            try {
+                StringRedisTemplate template = new StringRedisTemplate(connectionFactory);
+                template.afterPropertiesSet();
+                String jti = "real-outage-" + UUID.randomUUID();
+                OAuthTokenRevocationService writer = oauthRevocationService(template);
+                writer.revoke(jti, Instant.now().plusSeconds(300));
+
+                isolatedRedis.stop();
+                OAuthTokenRevocationService reconstructed = oauthRevocationService(template);
+                assertThrows(TokenRevocationUnavailableException.class,
+                        () -> reconstructed.isRevoked(jti));
+            } finally {
+                connectionFactory.destroy();
+            }
+        }
+    }
+
+    private OAuthTokenRevocationService oauthRevocationService(StringRedisTemplate template) {
+        AuthProperties properties = new AuthProperties();
+        properties.getTokenStorage().setBackend("redis");
+        return new OAuthTokenRevocationService(
+                Optional.of(template), Optional.empty(), properties, new SimpleMeterRegistry());
     }
 
     private RedisTokenStorage storage(StringRedisTemplate template) {

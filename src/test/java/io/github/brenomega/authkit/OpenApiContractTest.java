@@ -10,6 +10,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.Optional;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +34,11 @@ import io.swagger.v3.oas.models.media.Schema;
 
 import io.swagger.v3.parser.OpenAPIV3Parser;
 import io.swagger.v3.parser.core.models.ParseOptions;
+import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
+import io.github.brenomega.authkit.domain.social.dto.SocialCallbackResponse;
+import io.github.brenomega.authkit.domain.user.dto.AdminUserPageResponse;
+import io.github.brenomega.authkit.domain.user.dto.LoginResponse;
+import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -66,6 +75,25 @@ class OpenApiContractTest {
                 assertTrue(operation.getResponses() != null && !operation.getResponses().isEmpty(),
                         () -> "Operation without documented responses: " + path)));
 
+        result.getOpenAPI().getPaths().forEach((path, item) -> item.readOperations().forEach(operation ->
+                operation.getResponses().forEach((status, response) -> {
+                    if (!status.startsWith("2")) {
+                        return;
+                    }
+                    if ("/oauth2/revoke".equals(path) && "200".equals(status)) {
+                        assertTrue(response.getContent() == null || response.getContent().isEmpty(),
+                                "OAuth revocation must remain an explicit no-body response");
+                        assertTrue(response.getDescription().contains("no response body"));
+                        return;
+                    }
+                    assertNotNull(response.getContent(), () -> "2xx response without content: " + path);
+                    var json = response.getContent().get("application/json");
+                    assertNotNull(json, () -> "2xx response without application/json: " + path);
+                    assertNotNull(json.getSchema(), () -> "2xx response without schema: " + path);
+                    assertTrue(isSemanticSchema(json.getSchema()),
+                            () -> "2xx response has a free-form schema: " + path);
+                })));
+
         var authorize = result.getOpenAPI().getPaths().get("/oauth2/authorize").getGet();
         assertTrue(authorize.getParameters().stream()
                 .filter(parameter -> Set.of(
@@ -89,6 +117,16 @@ class OpenApiContractTest {
         assertTrue(apiResponse.getRequired().contains("timestamp"));
         assertTrue(apiResponse.getRequired().contains("requestId"));
         assertTrue(apiResponse.getProperties().containsKey("code"));
+        assertEquals(Boolean.FALSE, ((Schema<?>) apiResponse.getProperties().get("data")).getAdditionalProperties());
+        assertRecordShape(result.getOpenAPI(), tokenResponse, OAuthTokenResponse.class);
+        assertRecordShape(result.getOpenAPI(), dataSchema(result.getOpenAPI(), "LoginApiResponse"),
+                LoginResponse.class);
+        assertRecordShape(result.getOpenAPI(), dataSchema(result.getOpenAPI(), "ProfileApiResponse"),
+                ProfileResponse.class);
+        assertRecordShape(result.getOpenAPI(), dataSchema(result.getOpenAPI(), "SocialCallbackApiResponse"),
+                SocialCallbackResponse.class);
+        assertRecordShape(result.getOpenAPI(), dataSchema(result.getOpenAPI(), "AdminUserPageApiResponse"),
+                AdminUserPageResponse.class);
 
         result.getOpenAPI().getComponents().getSchemas().forEach((name, schema) -> {
             if (name.endsWith("Request")) {
@@ -130,6 +168,72 @@ class OpenApiContractTest {
         });
 
         assertEquals(implemented, documented);
+    }
+
+    private boolean isSemanticSchema(Schema<?> schema) {
+        if (schema.get$ref() != null) {
+            return true;
+        }
+        if (schema.getAllOf() != null && !schema.getAllOf().isEmpty()) {
+            return schema.getAllOf().stream().allMatch(this::isSemanticSchema);
+        }
+        if (schema.getOneOf() != null && !schema.getOneOf().isEmpty()) {
+            return schema.getOneOf().stream().allMatch(this::isSemanticSchema);
+        }
+        if ("array".equals(schema.getType())) {
+            return schema.getItems() != null && isSemanticSchema(schema.getItems());
+        }
+        return schema.getType() != null
+                && (!"object".equals(schema.getType())
+                    || (schema.getProperties() != null && !schema.getProperties().isEmpty()));
+    }
+
+    private Schema<?> dataSchema(OpenAPI openApi, String wrapperName) {
+        Schema<?> wrapper = openApi.getComponents().getSchemas().get(wrapperName);
+        assertNotNull(wrapper, () -> "Missing response wrapper " + wrapperName);
+        Schema<?> data = propertySchema(openApi, wrapper, "data").orElse(null);
+        assertNotNull(data, () -> "Missing data schema in " + wrapperName);
+        return resolveSchema(openApi, data);
+    }
+
+    private Optional<Schema<?>> propertySchema(OpenAPI openApi, Schema<?> rawSchema, String property) {
+        Schema<?> schema = resolveSchema(openApi, rawSchema);
+        if (schema.getProperties() != null && schema.getProperties().get(property) instanceof Schema<?> value) {
+            return Optional.of(value);
+        }
+        if (schema.getAllOf() != null) {
+            return schema.getAllOf().stream()
+                    .map(part -> propertySchema(openApi, part, property))
+                    .flatMap(Optional::stream)
+                    .findFirst();
+        }
+        return Optional.empty();
+    }
+
+    private void assertRecordShape(OpenAPI openApi, Schema<?> rawSchema, Class<?> recordType) {
+        Schema<?> schema = resolveSchema(openApi, rawSchema);
+        assertNotNull(schema.getProperties(), () -> "Schema has no properties for " + recordType.getName());
+        Set<String> jsonFields = Arrays.stream(recordType.getRecordComponents())
+                .map(component -> {
+                    JsonProperty explicit = component.getAnnotation(JsonProperty.class);
+                    if (explicit == null) {
+                        explicit = component.getAccessor().getAnnotation(JsonProperty.class);
+                    }
+                    return explicit == null || explicit.value().isBlank()
+                            ? component.getName()
+                            : explicit.value();
+                })
+                .collect(Collectors.toSet());
+        assertEquals(jsonFields, schema.getProperties().keySet(),
+                () -> "OpenAPI fields drifted from " + recordType.getName());
+    }
+
+    private Schema<?> resolveSchema(OpenAPI openApi, Schema<?> schema) {
+        if (schema.get$ref() == null) {
+            return schema;
+        }
+        return openApi.getComponents().getSchemas().get(
+                schema.get$ref().substring(schema.get$ref().lastIndexOf('/') + 1));
     }
 
     private void assertControllerInputsDocumented(OpenAPI openApi, String path, Operation operation,

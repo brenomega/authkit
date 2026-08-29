@@ -2,25 +2,27 @@
 
 [English — normativo](RELEASE_GATES.md)
 
-Este é o registro vivo de evidências do candidato não publicado `0.1.0-rc.1`. `VERIFICADO LOCALMENTE` não aprova release. `NÃO COMPROVADO` significa exatamente isso: nenhum resultado é inferido de testes unitários, mocks, execuções históricas, revisão de configuração ou credencial indisponível. Nenhum gate é inaplicável ao golden path.
+Este é o espelho em português do ledger normativo de validação interna final. O candidato é o commit base `23a6ad66bec32ce247ce8505dd4035a4f9865014`, tree `7a895d2fe552e032f4bfc05293b939f94480cbfa`, mais o patch de remediação não commitado. `PASSOU` exige evidência executada; ausência de prova permanece `NÃO COMPROVADO`.
 
-| # | Gate obrigatório | Estado atual | Evidência atual | Ação restante exata |
-| --- | --- | --- | --- | --- |
-| 1 | Build limpo e suíte completa com PostgreSQL/Redis reais | VERIFICADO LOCALMENTE | `./mvnw clean verify` final do bundle concluiu em 3m11s: 289 testes, zero falhas/erros/skips; Testcontainers PostgreSQL 17.9 e Redis 7 passaram; JAR e SBOMs CycloneDX foram produzidos. | Preservar o log final e repetir somente se inputs da aplicação/testes mudarem. |
-| 2 | Instalação nova do golden path usando docs públicas de produção | VERIFICADO LOCALMENTE / OPERADOR INDEPENDENTE PENDENTE | Volumes novos aplicaram V1→V25; AuthKit/PostgreSQL 17.9/Redis 7.4/Caddy/Mailpit STARTTLS ficaram saudáveis; TLS, bootstrap one-shot/replay, registro/confirmação/login/perfil/refresh/replay/logout/introspecção e negativos passaram. | Repetir em host limpo por operador independente usando só docs públicas (Gate 15); substituir CA local/Mailpit por TLS público e providers reais nos respectivos gates. |
-| 3 | TLS/proxy nas topologias same-site e cross-site | NÃO COMPROVADO | Configuração local do proxy e testes de borda não provam topologia. | Usar DNS/certificados válidos nas duas topologias de browser e registrar traces, origin/cookie/CORS e bloqueio do backend direto. |
-| 4 | SMTP e Resend reais | NÃO COMPROVADO | Mailpit prova somente comportamento local do protocolo SMTP. | Fornecer credenciais SMTP/Resend, registrar IDs de aceitação separadamente e observar inbox/spam sem equiparar observação a aceitação. |
-| 5 | Google e OIDC genérico independente reais | NÃO COMPROVADO | Implementação GA e testes locais de protocolo estão verdes. | Fornecer clients e redirects exatos e executar login, recusa, issuer incorreto, linking, unlinking, social-only e step-up. |
-| 6 | Cliente OAuth/OIDC externo e conformidade aplicável | NÃO COMPROVADO | Testes locais de Authorization Code/PKCE e wire contract estão verdes. | Executar cliente independente e suíte aplicável contra TLS; preservar relatórios e desvios. |
-| 7 | Downstream JWKS com `kid` desconhecido, rotação e revogação | NÃO COMPROVADO | Sample testa classes e audience, não a operação externa. | Executar validator independente em rotação planejada/emergencial, refresh de cache, `kid` desconhecido, revogação e expiração offline limitada. |
-| 8 | Backup e restore limpo de PostgreSQL/Redis | VERIFICADO LOCALMENTE / OFF-HOST E HOST LIMPO PENDENTES | Scripts versionados criaram snapshots com checksum e restauraram em containers limpos isolados: Flyway 25, 2 usuários, guard de bootstrap 1, 2 e-mails aceitos, roles runtime/retenção válidos e 24 chaves Redis. | Criptografar/transferir off-host; restaurar em host limpo independente e registrar RPO/RTO reais mais reconciliação de login/sessão/audit/outbox. |
-| 9 | Falhas controladas de PostgreSQL, Redis e e-mail | VERIFICADO LOCALMENTE / ROTEAMENTO DE ALERTAS PENDENTE | Parar Redis fez login falhar fechado com 503 opaco e recuperar; parar PostgreSQL fez check autenticado responder 503 opaco com requestId e recuperar; parar SMTP preservou anti-enumeração, marcou tentativa durável FAILED e depois a mesma mensagem chegou a ACCEPTED. | Repetir no ambiente de referência e provar entrega de alertas, escalonamento e tempo de recuperação. |
-| 10 | Carga mista, burst hostil e soak de no mínimo quatro horas | NÃO COMPROVADO | Apenas contrato do harness: 16 requests/16 checks, zero falhas de transporte, p95 64,236 ms e 6 throttles de login contabilizados em 8 segundos. Isto não prova capacidade. | Executar harness por no mínimo quatro horas em 2 vCPU/4 GiB e capturar p50/p95/p99, throughput, erros, CPU, memória, GC, pools, Redis, Argon2 e backlog. |
-| 11 | Smoke, tokens negativos, concorrência e estado one-time | VERIFICADO LOCALMENTE | Suíte final inclui concorrência/one-time com dependências reais; HTTP manual rejeitou classe de token ausente/ambígua, JSON desconhecido/duplicado, query/form duplicados e replays de confirmação/família refresh. | Preservar evidências e repetir se a árvore candidata mudar. |
-| 12 | Zero DEAD, perda de auditoria, erro de integridade ou espera de pool sob carga | NÃO COMPROVADO | Fluxo funcional local registrou um `ACCEPTED`; não houve observação integrada de carga/chaos. | Consultar métricas/dados após gates 9–10 e preservar contagens com disposição explícita. |
-| 13 | Scans de dependência, container, estático, secrets, IaC e supply chain | NÃO COMPROVADO | Jobs pinados existem; scanners faltam localmente e não há CI do mesmo candidato. | Rodar scanners bloqueantes na árvore e digest imutável; arquivar relatórios legíveis por máquina e suppressions justificadas. |
-| 14 | SBOM, checksums, assinatura e provenance | PARCIAL / ASSINATURA PENDENTE | Pipeline local gerou CycloneDX JSON/XML, checksums, identidade da árvore, provenance in-toto/SLSA-shaped não assinada e índice OCI amd64/arm64 real e não publicado `sha256:704a9e…922a2d`. Não havia identidade do mantenedor e nenhuma mutação de registry foi autorizada. | O mantenedor assinar o digest imutável congelado e anexar provenance verificável no registry sob autorização explícita. |
-| 15 | Setup por operador novo usando apenas docs públicas | NÃO COMPROVADO | Guias bilíngues existem, mas o drill independente final não ocorreu. | Entregar somente docs/inputs públicos a pessoa/ambiente alheio à implementação, corrigir ambiguidades e repetir. |
-| 16 | Zero P0/P1 conhecido em GA | NÃO COMPROVADO | A matriz dispõe os achados conhecidos, mas a implementação não pode autocertificar ausência. | Concluir trabalho local e solicitar nova auditoria independente do candidato congelado, corrigindo novos P0/P1. |
+| # | Gate | Estado | Disposição |
+| --- | --- | --- | --- |
+| 1 | Clean build e suíte real PostgreSQL/Redis | PASSOU | 303 testes, zero falhas/erros/skips. |
+| 2 | Golden path novo | PASSOU | Stack Docker vazia, Flyway V25 e fluxos API/SMTP/bootstrap/failure reais passaram. |
+| 3 | TLS/proxy browser same-site/cross-site | NÃO COMPROVADO | DNS, certificado público e browsers externos pendentes. |
+| 4 | SMTP e Resend reais | NÃO COMPROVADO | Mailpit prova só SMTP local. |
+| 5 | Google e OIDC genérico reais | NÃO COMPROVADO | Credenciais/providers externos pendentes. |
+| 6 | Cliente OAuth/OIDC e conformidade externos | NÃO COMPROVADO | Execução externa pendente. |
+| 7 | Downstream JWKS/rotação/revogação | NÃO COMPROVADO | Drill downstream externo pendente. |
+| 8 | Backup e restore em host limpo | NÃO COMPROVADO | Restore em containers limpos passou; host/off-host independente pendente. |
+| 9 | Falhas e alert routing completos | NÃO COMPROVADO | Redis real passou; matriz completa/alertas pendentes. |
+| 10 | Burst e soak de quatro horas | NÃO COMPROVADO | Soak atual não executado. |
+| 11 | Smoke, negativos, concorrência e one-time | PASSOU | Suíte real e casos HTTP selecionados passaram. |
+| 12 | Zero perdas/DEAD/integridade/pool wait sob carga | NÃO COMPROVADO | Depende das provas de carga/falha. |
+| 13 | Scanners bloqueantes | NÃO COMPROVADO | Ferramentas indisponíveis localmente. |
+| 14 | Assinatura e provenance verificável | NÃO COMPROVADO | SBOM/checksums locais existem; assinatura/digest publicado pendentes. |
+| 15 | Operador novo usando apenas docs públicas | NÃO COMPROVADO | Operador independente não executado. |
+| 16 | Zero P0/P1 conhecido após validação final | PASSOU | AUD-001–AUD-010 foram revalidados; os cinco P1 e os P2/P3 requeridos estão resolvidos, sem novo P0/P1 GA conhecido. |
 
-Enquanto os gates não passarem com evidência ligada ao mesmo commit/árvore e digest imutável, o candidato permanece `NO-GO`. Somente o mantenedor pode autorizar publicação, promoção, tag ou aceitação de risco.
+Hashes locais: JAR `9869de06d5a0724993f0d27f93009e704065ee6df4b190a237c60b44e3de1882`, CycloneDX JSON `3f37f87d00e53bc38400b4aaea139059136aa990b87aeb8fcaf759b9133e3a58`, XML `6a13a3f9883d591868cfadad835419f5036c5a1768ba1c32d6478dd75ea47d3d` e imagem `sha256:97e7c8d6e999e5fedafaad87b75474e0fd4bd9fa518ba9aa6406b7f090877e3c`.
+
+O Gate 16 está fechado por validação interna. Gates externos sem execução permanecem `NÃO COMPROVADO`; nenhuma tag, publicação ou promoção foi realizada.

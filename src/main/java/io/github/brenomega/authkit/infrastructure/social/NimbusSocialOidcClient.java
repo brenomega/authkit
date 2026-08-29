@@ -112,11 +112,7 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
                     .build();
             decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(provider.getIssuer()));
             Jwt jwt = decoder.decode(idToken);
-            if (!jwt.getAudience().contains(provider.getClientId())
-                    || !expectedNonce.equals(jwt.getClaimAsString("nonce"))
-                    || jwt.getSubject() == null || jwt.getSubject().isBlank()) {
-                throw new InvalidSocialLoginException();
-            }
+            validateIdTokenClaims(jwt, provider.getClientId(), expectedNonce);
             String email = jwt.getClaimAsString("email");
             Boolean emailVerified = jwt.getClaim("email_verified");
             List<String> amr = jwt.getClaimAsStringList("amr");
@@ -127,6 +123,29 @@ public class NimbusSocialOidcClient implements SocialOidcClient {
             throw ex;
         } catch (Exception ex) {
             throw new InvalidSocialLoginException(ex);
+        }
+    }
+
+    /**
+     * Enforces the RP-side audience and authorized-party boundary from OIDC Core.
+     * AuthKit has no configuration for additional trusted audiences, so an ID token
+     * must be issued only to this client. When {@code azp} is present it must also
+     * identify this client.
+     */
+    static void validateIdTokenClaims(Jwt jwt, String clientId, String expectedNonce) {
+        List<String> audience = jwt.getAudience();
+        String authorizedParty = jwt.getClaimAsString("azp");
+        boolean exactAudience = audience != null
+                && audience.size() == 1
+                && clientId.equals(audience.get(0));
+        boolean validAuthorizedParty = authorizedParty == null || clientId.equals(authorizedParty);
+        if (!exactAudience
+                || !validAuthorizedParty
+                || expectedNonce == null
+                || !expectedNonce.equals(jwt.getClaimAsString("nonce"))
+                || jwt.getSubject() == null
+                || jwt.getSubject().isBlank()) {
+            throw new InvalidSocialLoginException();
         }
     }
 

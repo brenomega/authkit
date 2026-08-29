@@ -59,12 +59,12 @@ import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
- * Enforces the administrative plane for users, tenants, and OAuth clients.
+ * Enforces the instance-wide platform-administration plane for users and OAuth clients.
  *
  * <p>Every operation derives authorization from the supplied JWT and reloads the
- * administrator from persistence. Tenant administrators are restricted to their
- * own tenant; system administrators may cross tenant boundaries. Mutations also
- * require current-password step-up and MFA when enabled.</p>
+ * platform administrator from persistence. AuthKit has no tenant-administrator or
+ * system-administrator role. Mutations also require current-password step-up and
+ * MFA when enabled.</p>
  */
 @Service
 public class AdminService {
@@ -88,6 +88,7 @@ public class AdminService {
     private final SecurityEventRepository securityEventRepository;
     private final EmailOutboxRepository emailOutboxRepository;
     private final AdminCursorCodec adminCursorCodec;
+    private final OAuthLifecycleRevocationService oauthLifecycleRevocationService;
 
     public AdminService(UserRepository userRepository,
                         OAuthClientRepository oauthClientRepository,
@@ -104,7 +105,8 @@ public class AdminService {
                         SocialIdentityRepository socialIdentityRepository,
                         SecurityEventRepository securityEventRepository,
                         EmailOutboxRepository emailOutboxRepository,
-                        AdminCursorCodec adminCursorCodec) {
+                        AdminCursorCodec adminCursorCodec,
+                        OAuthLifecycleRevocationService oauthLifecycleRevocationService) {
         this.userRepository = userRepository;
         this.oauthClientRepository = oauthClientRepository;
         this.mfaService = mfaService;
@@ -121,6 +123,7 @@ public class AdminService {
         this.securityEventRepository = securityEventRepository;
         this.emailOutboxRepository = emailOutboxRepository;
         this.adminCursorCodec = adminCursorCodec;
+        this.oauthLifecycleRevocationService = oauthLifecycleRevocationService;
     }
 
     @Transactional(readOnly = true)
@@ -244,7 +247,7 @@ public class AdminService {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_user_suspend");
         @SuppressWarnings("null")
-        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        User target = userRepository.findByIdForUpdate(targetUserId).orElseThrow(UserNotFoundException::new);
         if (target.isDeleted()) {
             throw new UserNotFoundException();
         }
@@ -254,7 +257,8 @@ public class AdminService {
             throw new AccessDeniedException("Cannot suspend the last active platform administrator");
         }
 
-        target.suspend(request.reason(), Instant.now());
+        Instant suspendedAt = Instant.now();
+        target.suspend(request.reason(), suspendedAt);
         userRepository.save(target);
         securityEventService.record(
                 SecurityEventType.ACCOUNT_SUSPENDED,
@@ -266,6 +270,7 @@ public class AdminService {
                 target.getEmail(),
                 "account_suspended_by_platform_admin",
                 Map.of());
+        oauthLifecycleRevocationService.revokeAll(target.getId(), suspendedAt);
         tokenStorage.revokeAllSessions(target.getId().toString());
         userAuthoritiesFilter.evict(target.getId());
         return toUserResponse(target);

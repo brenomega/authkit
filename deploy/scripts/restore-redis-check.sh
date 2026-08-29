@@ -38,14 +38,14 @@ docker volume create "${volume_name}" >/dev/null
 docker run --rm --user root --entrypoint sh \
   --mount "type=volume,source=${volume_name},target=/data" \
   --mount "type=bind,source=${snapshot},target=/source/dump.rdb,readonly" \
-  redis:7.4-alpine -c \
+  redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 -c \
   'cp /source/dump.rdb /data/dump.rdb && chown redis:redis /data/dump.rdb && chmod 0600 /data/dump.rdb'
 
 docker run --detach --name "${container_name}" \
   --user redis:redis --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --mount "type=volume,source=${volume_name},target=/data" \
-  --entrypoint redis-server redis:7.4-alpine \
+  --entrypoint redis-server redis:7.4-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 \
   --dir /data --dbfilename dump.rdb --appendonly no --requirepass "${restore_password}" >/dev/null
 
 for _ in $(seq 1 30); do

@@ -24,7 +24,9 @@ trap cleanup EXIT
 
 # Begin with the same public CA set used by the candidate runtime. Importing
 # only the local SMTP CA would break HTTPS dependencies such as HIBP.
-docker create --name "${container_name}" eclipse-temurin:21-jre-alpine true >/dev/null
+docker create --name "${container_name}" \
+  eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699 \
+  true >/dev/null
 docker cp "${container_name}:/opt/java/openjdk/lib/security/cacerts" \
   "${temporary_directory}/combined-cacerts"
 

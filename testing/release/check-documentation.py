@@ -10,6 +10,7 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[2]
+NON_DISTRIBUTION_REPORTS = {ROOT / "pre-release-audit.md"}
 CANONICAL_PAIRS = (
     "CONFIGURATION",
     "EMAIL_TEMPLATES",
@@ -46,7 +47,9 @@ def main() -> int:
 
     markdown_files = sorted(
         path for path in ROOT.rglob("*.md")
-        if ".git" not in path.parts and "target" not in path.parts
+        if ".git" not in path.parts
+        and "target" not in path.parts
+        and path not in NON_DISTRIBUTION_REPORTS
     )
     for document in markdown_files:
         text = document.read_text(encoding="utf-8")

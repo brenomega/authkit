@@ -44,7 +44,7 @@ else
     -e K6_INSECURE_SKIP_TLS_VERIFY="${K6_INSECURE_SKIP_TLS_VERIFY:-false}" \
     -e K6_DURATION="${duration}" -e K6_VUS="${vus}" \
     -v "${repo_root}:/work:ro" -v "$(realpath "${report_dir}"):/evidence" \
-    -w /work grafana/k6:0.57.0 run \
+    -w /work grafana/k6:0.57.0@sha256:70af91f86cd8e142e0544a4edaf79835a80033f71974b92edd5ac36fd4442a7b run \
     --summary-export /evidence/mixed-auth-summary.json \
     --out json=/evidence/mixed-auth-points.json \
     testing/proof/k6/mixed-auth-workload.js

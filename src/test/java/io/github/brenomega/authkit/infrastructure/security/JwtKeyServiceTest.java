@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.infrastructure.security;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,5 +72,35 @@ class JwtKeyServiceTest {
                 .collect(Collectors.toSet());
 
         assertEquals(Set.of("active-key", "old-key"), keyIds);
+    }
+
+    @Test
+    void rejectsActiveRevokedAndDuplicateKeyIdentifiers() {
+        var active = RsaKeyGenerator.generateKeyPair();
+        var retiring = RsaKeyGenerator.generateKeyPair();
+
+        AuthProperties activeRevoked = new AuthProperties();
+        activeRevoked.getJwt().setKeyId("active-key");
+        activeRevoked.getJwt().setRevokedKeyIds("active-key");
+        assertThrows(IllegalStateException.class, () -> keyService(active, activeRevoked));
+
+        AuthProperties duplicateRevoked = new AuthProperties();
+        duplicateRevoked.getJwt().setKeyId("active-key");
+        duplicateRevoked.getJwt().setRevokedKeyIds("old-key,old-key");
+        assertThrows(IllegalStateException.class, () -> keyService(active, duplicateRevoked));
+
+        AuthProperties duplicatePublished = new AuthProperties();
+        duplicatePublished.getJwt().setKeyId("active-key");
+        duplicatePublished.getJwt().setRetiringPublicKeys(
+                "active-key=" + RsaKeyGenerator.toPublicPem(retiring.getPublic()));
+        assertThrows(IllegalStateException.class, () -> keyService(active, duplicatePublished));
+    }
+
+    private JwtKeyService keyService(java.security.KeyPair active, AuthProperties properties) {
+        return new JwtKeyService(
+                (RSAPublicKey) active.getPublic(),
+                (RSAPrivateKey) active.getPrivate(),
+                properties,
+                new DefaultResourceLoader());
     }
 }

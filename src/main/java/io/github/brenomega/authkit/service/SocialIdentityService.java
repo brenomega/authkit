@@ -37,6 +37,7 @@ import io.github.brenomega.authkit.exception.LastAuthenticatorException;
 import io.github.brenomega.authkit.exception.SocialLinkRequiredException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
@@ -75,16 +76,19 @@ public class SocialIdentityService {
     private final MfaService mfaService;
     private final TokenStorage tokenStorage;
     private final SecurityEventService audit;
+    private final ConsentEventService consentEventService;
 
     public SocialIdentityService(SocialIdentityProviderRepository providers, SocialIdentityRepository identities,
             SocialLoginTransactionRepository transactions, UserRepository users,
             PasskeyCredentialRepository passkeys, SocialOidcClient oidcClient, SocialSecretCipher cipher,
             AuthProperties properties, AuthService authService, StepUpService stepUpService,
-            MfaService mfaService, TokenStorage tokenStorage, SecurityEventService audit) {
+            MfaService mfaService, TokenStorage tokenStorage, SecurityEventService audit,
+            ConsentEventService consentEventService) {
         this.providers = providers; this.identities = identities; this.transactions = transactions;
         this.users = users; this.passkeys = passkeys; this.oidcClient = oidcClient; this.cipher = cipher;
         this.properties = properties; this.authService = authService; this.stepUpService = stepUpService;
         this.mfaService = mfaService; this.tokenStorage = tokenStorage; this.audit = audit;
+        this.consentEventService = consentEventService;
     }
 
     /** Starts a login ceremony and binds supplied consent to its transaction. */
@@ -189,8 +193,14 @@ public class SocialIdentityService {
 
         User user = new User(email, null, claimed.displayName(), true, true, null);
         user.setEmailConfirmed(true);
+        user.recordConsent(
+                properties.getCompliance().getTermsVersion(),
+                properties.getCompliance().getPrivacyPolicyVersion(),
+                properties.getCompliance().getLawfulBasis(),
+                now);
         try {
             user = users.saveAndFlush(user);
+            consentEventService.recordCurrentConsent(user);
             identities.saveAndFlush(new SocialIdentity(user.getId(), user.getTenantId(), provider.getId(),
                     claimed.issuer(), claimed.subject(), email, true, now));
         } catch (DataIntegrityViolationException ex) {

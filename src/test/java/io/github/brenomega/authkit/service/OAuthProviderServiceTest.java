@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +40,11 @@ import io.github.brenomega.authkit.repository.OAuthAuthorizationCodeRepository;
 import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
+import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
+import io.github.brenomega.authkit.domain.user.dto.AdminAccountStateRequest;
+import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
+import io.github.brenomega.authkit.domain.user.enums.Role;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,12 +56,16 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.github.brenomega.authkit.support.PostgresIntegrationTestSupport;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-class OAuthProviderServiceTest {
+@Testcontainers(disabledWithoutDocker = false)
+class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
 
     @Autowired
     private OAuthProviderService oauthProviderService;
@@ -81,6 +93,15 @@ class OAuthProviderServiceTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private AdminService adminService;
+
+    @Autowired
+    private AccountLifecycleService accountLifecycleService;
+
+    @Autowired
+    private PasskeyCredentialRepository passkeyCredentialRepository;
 
     @Test
     @DisplayName("Issues and consumes authorization-code + PKCE tokens for OIDC client")
@@ -521,6 +542,99 @@ class OAuthProviderServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("Suspension and deletion invalidate OAuth access/refresh without reactivation resurrection")
+    void lifecycleTransitionsInvalidateOAuthTokensDurably() throws Exception {
+        User target = confirmedUser("oauth-lifecycle-target@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                "client-lifecycle", passwordEncoder.encode("lifecycle-secret"), false, "Lifecycle Client",
+                Set.of("https://client.example/callback"), Set.of("openid", "offline_access"), true,
+                Instant.now()));
+        var tokens = issueOfflineTokens(target, client, "lifecycle-secret", "lifecycle-state");
+
+        User admin = new User("oauth-lifecycle-admin@example.com", passwordEncoder.encode("AdminPassword123!"),
+                "Admin", true, true, null);
+        admin.setEmailConfirmed(true);
+        admin.setRole(Role.PLATFORM_ADMIN);
+        admin = userRepository.saveAndFlush(admin);
+        passkeyCredentialRepository.saveAndFlush(new PasskeyCredential(
+                admin.getId(), admin.getTenantId(), "oauth-lifecycle-admin-key", "public-key", 0,
+                "internal", "Admin key", true, Instant.now()));
+        Jwt adminJwt = Jwt.withTokenValue("admin")
+                .header("alg", "RS256")
+                .subject(admin.getId().toString())
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", admin.getTenantId().toString())
+                .claim("amr", List.of("pwd", "webauthn"))
+                .build();
+
+        adminService.suspendUser(adminJwt, target.getId(),
+                new AdminAccountStateRequest("security response", "AdminPassword123!", null));
+        assertInactive(tokens, client, "lifecycle-secret");
+
+        adminService.reactivateUser(adminJwt, target.getId(),
+                new AdminAccountStateRequest("review complete", "AdminPassword123!", null));
+        assertInactive(tokens, client, "lifecycle-secret");
+
+        User deletionTarget = confirmedUserWithPassword(
+                "oauth-deletion-target@example.com", "DeletionPassword123!");
+        var deletionTokens = issueOfflineTokens(
+                deletionTarget, client, "lifecycle-secret", "deletion-state");
+        accountLifecycleService.requestDeletion(
+                deletionTarget.getId().toString(), new StepUpRequest("DeletionPassword123!"));
+        assertInactive(deletionTokens, client, "lifecycle-secret");
+    }
+
+    @Test
+    @DisplayName("Concurrent refresh and suspension cannot leave an OAuth lineage live")
+    void concurrentRefreshAndSuspensionEndRevoked() throws Exception {
+        User target = confirmedUser("oauth-lifecycle-race@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                "client-lifecycle-race", passwordEncoder.encode("race-secret"), false, "Lifecycle Race",
+                Set.of("https://client.example/callback"), Set.of("openid", "offline_access"), true,
+                Instant.now()));
+        var initial = issueOfflineTokens(target, client, "race-secret", "race-state");
+        User admin = platformAdmin("oauth-lifecycle-race-admin@example.com", "RaceAdminPassword123!");
+        Jwt adminJwt = freshAdminJwt(admin);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse> rotated =
+                new AtomicReference<>();
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var refresh = executor.submit(() -> {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                try {
+                    rotated.set(oauthProviderService.token("refresh_token", null, null,
+                            client.getClientId(), "race-secret", null, initial.refreshToken()));
+                } catch (OAuthProtocolException expected) {
+                    // Suspension won the user-row race.
+                }
+                return null;
+            });
+            var suspend = executor.submit(() -> {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                adminService.suspendUser(adminJwt, target.getId(),
+                        new AdminAccountStateRequest("concurrent response", "RaceAdminPassword123!", null));
+                return null;
+            });
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            refresh.get();
+            suspend.get();
+        }
+
+        assertEquals(io.github.brenomega.authkit.domain.user.enums.AccountState.SUSPENDED,
+                userRepository.findById(target.getId()).orElseThrow().getAccountState());
+        assertInactive(initial, client, "race-secret");
+        if (rotated.get() != null) {
+            assertInactive(rotated.get(), client, "race-secret");
+        }
+    }
+
     @SuppressWarnings("null")
 @Test
     @DisplayName("OAuth HTTP endpoints use conventional redirects and standard unwrapped errors")
@@ -558,6 +672,54 @@ class OAuthProviderServiceTest {
         User user = new User(email, "hash", "Test User", true, true, "token");
         user.setEmailConfirmed(true);
         return userRepository.save(user);
+    }
+
+    private User confirmedUserWithPassword(String email, String rawPassword) {
+        User user = new User(email, passwordEncoder.encode(rawPassword), "Test User", true, true, null);
+        user.setEmailConfirmed(true);
+        return userRepository.saveAndFlush(user);
+    }
+
+    private User platformAdmin(String email, String rawPassword) {
+        User admin = new User(email, passwordEncoder.encode(rawPassword), "Admin", true, true, null);
+        admin.setEmailConfirmed(true);
+        admin.setRole(Role.PLATFORM_ADMIN);
+        admin = userRepository.saveAndFlush(admin);
+        passkeyCredentialRepository.saveAndFlush(new PasskeyCredential(
+                admin.getId(), admin.getTenantId(), "admin-key-" + admin.getId(), "public-key", 0,
+                "internal", "Admin key", true, Instant.now()));
+        return admin;
+    }
+
+    private Jwt freshAdminJwt(User admin) {
+        return Jwt.withTokenValue("admin")
+                .header("alg", "RS256")
+                .subject(admin.getId().toString())
+                .issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", admin.getTenantId().toString())
+                .claim("amr", List.of("pwd", "webauthn"))
+                .build();
+    }
+
+    private io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse issueOfflineTokens(
+            User user, OAuthClient client, String clientSecret, String state) throws Exception {
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
+                "code", client.getClientId(), "https://client.example/callback", "openid offline_access",
+                state, pkceChallenge(verifier), "S256", state + "-nonce", true));
+        return oauthProviderService.token("authorization_code", codeFrom(authz.redirectUri()),
+                "https://client.example/callback", client.getClientId(), clientSecret, verifier);
+    }
+
+    private void assertInactive(io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse tokens,
+                                OAuthClient client,
+                                String clientSecret) {
+        assertEquals(false, oauthProviderService.introspect(
+                tokens.accessToken(), "access_token", client.getClientId(), clientSecret).get("active"));
+        assertEquals(false, oauthProviderService.introspect(
+                tokens.refreshToken(), "refresh_token", client.getClientId(), clientSecret).get("active"));
+        assertThrows(InvalidOAuthRequestException.class, () -> oauthProviderService.userInfo(tokens.accessToken()));
     }
 
     private Jwt jwt(User user) {

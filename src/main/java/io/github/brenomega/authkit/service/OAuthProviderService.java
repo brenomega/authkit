@@ -116,6 +116,7 @@ public class OAuthProviderService {
     private final OAuthRefreshTokenFamilyRepository refreshFamilyRepository;
     private final OAuthRefreshTokenRepository refreshTokenRepository;
     private final OAuthTransactionCodec transactionCodec;
+    private final OAuthAccountTokenStateService accountTokenStateService;
 
     public OAuthProviderService(OAuthClientRepository clientRepository,
                                 OAuthAuthorizationCodeRepository authorizationCodeRepository,
@@ -132,7 +133,8 @@ public class OAuthProviderService {
                                 OAuthAuthorizationTransactionRepository authorizationTransactionRepository,
                                 OAuthRefreshTokenFamilyRepository refreshFamilyRepository,
                                 OAuthRefreshTokenRepository refreshTokenRepository,
-                                OAuthTransactionCodec transactionCodec) {
+                                OAuthTransactionCodec transactionCodec,
+                                OAuthAccountTokenStateService accountTokenStateService) {
         this.clientRepository = clientRepository;
         this.authorizationCodeRepository = authorizationCodeRepository;
         this.consentRepository = consentRepository;
@@ -148,7 +150,8 @@ public class OAuthProviderService {
         this.refreshFamilyRepository = refreshFamilyRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.transactionCodec = transactionCodec;
-        this.oauthJwtDecoder = oauthJwtDecoder(jwtKeyService, tokenRevocationService);
+        this.accountTokenStateService = accountTokenStateService;
+        this.oauthJwtDecoder = oauthJwtDecoder(jwtKeyService, tokenRevocationService, accountTokenStateService);
     }
 
     /**
@@ -403,7 +406,7 @@ public class OAuthProviderService {
         }
 
         @SuppressWarnings("null")
-        User user = userRepository.findById(authorizationCode.getUserId())
+        User user = userRepository.findByIdForUpdate(authorizationCode.getUserId())
                 .filter(User::isActive)
                 .orElseThrow(InvalidOAuthRequestException::new);
         user.requireEmailConfirmed();
@@ -441,6 +444,12 @@ public class OAuthProviderService {
         }
         Instant now = Instant.now();
         String tokenHash = TokenHasher.sha256Hex(rawRefreshToken);
+        UUID resourceOwnerId = refreshTokenRepository.findUserIdByTokenHash(tokenHash)
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Refresh token is invalid"));
+        User user = userRepository.findByIdForUpdate(resourceOwnerId)
+                .filter(User::isActive)
+                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Resource owner is not active"));
+        user.requireEmailConfirmed();
         OAuthRefreshToken token = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Refresh token is invalid"));
         OAuthRefreshTokenFamily family = refreshFamilyRepository.findByIdForUpdate(token.getFamilyId())
@@ -450,26 +459,21 @@ public class OAuthProviderService {
         }
         if (!token.isActive(now) || !family.isActive(now)
                 || !MessageDigest.isEqual(tokenHash.getBytes(StandardCharsets.US_ASCII),
-                        family.getActiveTokenHash().getBytes(StandardCharsets.US_ASCII))) {
+                        family.getActiveTokenHash().getBytes(StandardCharsets.US_ASCII))
+                || !accountTokenStateService.isRefreshFamilyLive(family.getUserId(), family.getCreatedAt())) {
             family.revoke(now, true);
             refreshTokenRepository.findByFamilyId(family.getId()).forEach(existing -> existing.revoke(now));
-            userRepository.findById(family.getUserId()).ifPresent(user -> securityEventService.recordForTargetUser(
+            userRepository.findById(family.getUserId()).ifPresent(replayUser -> securityEventService.recordForTargetUser(
                     SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED,
                     SecurityEventOutcome.DENIED,
                     SecurityEventSeverity.CRITICAL,
-                    user,
+                    replayUser,
                     "oauth_refresh_token_reuse_detected",
                     Map.of("client_id", client.getClientId(), "family_id", family.getId().toString())));
             refreshTokenRepository.flush();
             refreshFamilyRepository.flush();
             throw new OAuthRefreshReplayException();
         }
-        @SuppressWarnings("null")
-        User user = userRepository.findById(family.getUserId())
-                .filter(User::isActive)
-                .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Resource owner is not active"));
-        user.requireEmailConfirmed();
-
         String replacement = SecureTokenGenerator.randomUrlSafeToken(48);
         String replacementHash = TokenHasher.sha256Hex(replacement);
         token.consume(now, replacementHash);
@@ -549,6 +553,8 @@ public class OAuthProviderService {
                 OAuthRefreshTokenFamily activeFamily = family.get();
                 if (activeFamily.getClientId().equals(client.getClientId())
                         && refresh.isActive(Instant.now()) && activeFamily.isActive(Instant.now())
+                        && accountTokenStateService.isRefreshFamilyLive(
+                                activeFamily.getUserId(), activeFamily.getCreatedAt())
                         && MessageDigest.isEqual(refreshHash.getBytes(StandardCharsets.US_ASCII),
                                 activeFamily.getActiveTokenHash().getBytes(StandardCharsets.US_ASCII))) {
                     return Map.of("active", true, "client_id", activeFamily.getClientId(),
@@ -701,7 +707,8 @@ public class OAuthProviderService {
     }
 
     private JwtDecoder oauthJwtDecoder(JwtKeyService jwtKeyService,
-                                       OAuthTokenRevocationService tokenRevocationService) {
+                                       OAuthTokenRevocationService tokenRevocationService,
+                                       OAuthAccountTokenStateService accountTokenStateService) {
         DefaultJWTProcessor<SecurityContext> jwtProcessor = new DefaultJWTProcessor<>();
         JWSKeySelector<SecurityContext> keySelector = new JWSVerificationKeySelector<>(
                 JWSAlgorithm.RS256,
@@ -712,11 +719,10 @@ public class OAuthProviderService {
                 JwtValidators.createDefaultWithIssuer(authProperties.getJwt().getIssuer());
         OAuth2TokenValidator<Jwt> keyRevocationValidator = jwt -> {
             Object kid = jwt.getHeaders().get("kid");
-            if (kid instanceof String keyId && jwtKeyService.isRevokedKid(keyId)) {
+            if (!(kid instanceof String keyId) || keyId.isBlank() || !jwtKeyService.isPublishedKid(keyId)) {
                 return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.failure(
                         new org.springframework.security.oauth2.core.OAuth2Error(
-                            "invalid_token",
-                            "JWT signing key has been revoked",
+                            "invalid_token", "JWT signing key ID is missing or not published",
                             null));
             }
             return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success();
@@ -728,6 +734,14 @@ public class OAuthProviderService {
                             "invalid_token",
                             "JWT has been revoked",
                             null));
+            }
+            return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success();
+        };
+        OAuth2TokenValidator<Jwt> accountStateValidator = jwt -> {
+            if (!accountTokenStateService.isAccessTokenLive(jwt)) {
+                return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.failure(
+                        new org.springframework.security.oauth2.core.OAuth2Error(
+                                "invalid_token", "Resource owner or token epoch is not active", null));
             }
             return org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success();
         };
@@ -759,7 +773,8 @@ public class OAuthProviderService {
                                         "invalid_token", "Token is not an OAuth access token", null)),
                 keyRevocationValidator,
                 tokenRevocationValidator,
-                refreshFamilyValidator));
+                refreshFamilyValidator,
+                accountStateValidator));
         return decoder;
     }
 
@@ -776,6 +791,8 @@ public class OAuthProviderService {
                 .claim("tenant_id", user.getTenantId().toString())
                 .claim(JwtTokenUse.CLAIM, JwtTokenUse.OAUTH_ACCESS)
                 .claim("client_id", client.getClientId())
+                .claim(OAuthAccountTokenStateService.EPOCH_CLAIM,
+                        accountTokenStateService.currentEpoch(user.getId()))
                 .claim("scope", String.join(" ", scopes))
                 .claim("amr", List.copyOf(amr));
         if (refreshFamilyId != null) {

@@ -56,8 +56,32 @@ testing/release/inspect-release-artifacts.sh --image "${candidate_tag}" \
   2>&1 | tee "${evidence_dir}/image-inspection.log"
 
 cp target/bom.json target/bom.xml "${evidence_dir}/sbom/"
+
+resolved_images_file="${task_tmp_dir}/resolved-images.txt"
+grep -RhoE '[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}' \
+  Dockerfile deploy testing src/test \
+  | sort -u >"${resolved_images_file}"
+maven_distribution_url="$(sed -n 's/^distributionUrl=//p' .mvn/wrapper/maven-wrapper.properties)"
+maven_distribution_sha256="$(sed -n 's/^distributionSha256Sum=//p' .mvn/wrapper/maven-wrapper.properties)"
+jq -Rn \
+  --arg mavenDistributionUrl "${maven_distribution_url}" \
+  --arg mavenDistributionSha256 "${maven_distribution_sha256}" \
+  --arg mavenWrapperJarSha256 "$(sha256sum .mvn/wrapper/maven-wrapper.jar | cut -d' ' -f1)" \
+  --arg pomSha256 "$(sha256sum pom.xml | cut -d' ' -f1)" \
+  --arg sbomSha256 "$(sha256sum target/bom.json | cut -d' ' -f1)" \
+  '{
+    mavenDistribution: {uri: $mavenDistributionUrl, digest: {sha256: $mavenDistributionSha256}},
+    mavenWrapperJar: {uri: ".mvn/wrapper/maven-wrapper.jar", digest: {sha256: $mavenWrapperJarSha256}},
+    projectModel: {uri: "pom.xml", digest: {sha256: $pomSha256}},
+    resolvedDependencySbom: {uri: "target/bom.json", digest: {sha256: $sbomSha256}},
+    externalImages: [inputs
+      | select(length > 0)
+      | capture("^(?<uri>.+)@sha256:(?<digest>[a-f0-9]{64})$")
+      | {uri: .uri, digest: {sha256: .digest}}]
+  }' <"${resolved_images_file}" >"${evidence_dir}/resolved-build-inputs.json"
+
 git diff --binary >"${evidence_dir}/tracked.patch"
-git ls-files --others --exclude-standard -z \
+git ls-files --others --exclude-standard -z -- . ':(exclude)pre-release-audit.md' \
   | sort -z \
   | xargs -0 -r sha256sum >"${evidence_dir}/untracked-files.sha256"
 git status --short >"${evidence_dir}/git-status.txt"
@@ -77,6 +101,7 @@ jq -n \
   --arg localImageReference "${candidate_tag}" \
   --arg localImageId "${image_id}" \
   --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --slurpfile resolvedBuildInputs "${evidence_dir}/resolved-build-inputs.json" \
   '{
     schema: "authkit-release-evidence/v1",
     candidateVersion: $candidateVersion,
@@ -92,6 +117,7 @@ jq -n \
       immutableLocalId: $localImageId,
       publishedDigest: null
     },
+    resolvedBuildInputs: $resolvedBuildInputs[0],
     generatedAt: $generatedAt,
     releaseAuthorization: false
   }' >"${evidence_dir}/manifest.json"
@@ -102,6 +128,7 @@ jq -n \
   --arg headCommit "${head_commit}" \
   --arg localImageId "${image_id#sha256:}" \
   --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --slurpfile resolvedBuildInputs "${evidence_dir}/resolved-build-inputs.json" \
   '{
     _type: "https://in-toto.io/Statement/v1",
     subject: [{name: $subjectName, digest: {sha256: $subjectDigest}}],
@@ -111,7 +138,13 @@ jq -n \
         buildType: "https://github.com/brenomega/authkit/local-candidate-build/v1",
         externalParameters: {publicationAuthorized: false},
         internalParameters: {headCommit: $headCommit},
-        resolvedDependencies: [{uri: ("git+https://github.com/brenomega/authkit@" + $headCommit), digest: {gitCommit: $headCommit}}]
+        resolvedDependencies: ([
+          {uri: ("git+https://github.com/brenomega/authkit@" + $headCommit), digest: {gitCommit: $headCommit}},
+          $resolvedBuildInputs[0].mavenDistribution,
+          $resolvedBuildInputs[0].mavenWrapperJar,
+          $resolvedBuildInputs[0].projectModel,
+          $resolvedBuildInputs[0].resolvedDependencySbom
+        ] + $resolvedBuildInputs[0].externalImages)
       },
       runDetails: {
         builder: {id: "https://github.com/brenomega/authkit/testing/release/build-candidate-evidence.sh"},
