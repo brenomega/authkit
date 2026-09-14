@@ -86,6 +86,19 @@ public class EmailOutboxMessage {
         return new EmailOutboxMessage(payload, now);
     }
 
+    public static EmailOutboxMessage awaitingActivation(EmailPayload payload, Instant now) {
+        EmailOutboxMessage message = pending(payload, now);
+        message.status = EmailOutboxStatus.WAITING_ACTIVATION;
+        return message;
+    }
+
+    public void finishActivation(boolean usable) {
+        if (status == EmailOutboxStatus.WAITING_ACTIVATION) {
+            status = usable ? EmailOutboxStatus.PENDING : EmailOutboxStatus.CANCELLED;
+            lastError = usable ? null : "Recovery activation expired or superseded";
+        }
+    }
+
     @PrePersist
     void prePersist() {
         Instant now = Instant.now();

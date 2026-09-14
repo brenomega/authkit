@@ -1,6 +1,8 @@
 # AuthKit
 
-[Português (Brasil)](README-ptBR.md)
+[English](README.md) | [Português (Brasil)](README-ptBR.md)
+
+English is authoritative when translations differ.
 
 AuthKit is a headless, standalone authentication and identity service for greenfield SaaS applications. It provides first-party sessions, MFA and passkeys, Google and allowlisted generic OIDC federation, and an OAuth 2.0/OIDC authorization server.
 

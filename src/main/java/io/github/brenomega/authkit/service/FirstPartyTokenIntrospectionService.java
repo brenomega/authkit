@@ -18,9 +18,10 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
  *
  * <p>Cryptographic JWT validation alone is insufficient: the token must carry
  * the first-party token-use marker and configured audience, its account must
- * remain active and confirmed, and its {@code jti}-bound server-side session must
- * still exist. Every malformed, foreign, revoked or inactive token collapses to
- * the same inactive response.</p>
+ * remain active and confirmed, its {@code jti}-bound server-side session must
+ * still exist, and its durable PostgreSQL security version must still be accepted.
+ * Every malformed, foreign, revoked or inactive token collapses to the same
+ * inactive response.</p>
  */
 @Service
 public class FirstPartyTokenIntrospectionService {
@@ -55,8 +56,13 @@ public class FirstPartyTokenIntrospectionService {
                 return FirstPartyIntrospectionResponse.inactive();
             }
             UUID userId = UUID.fromString(jwt.getSubject());
+            Object rawSessionVersion = jwt.getClaim("session_version");
+            if (!(rawSessionVersion instanceof Number sessionVersion)) {
+                return FirstPartyIntrospectionResponse.inactive();
+            }
             boolean activeUser = userRepository.findById(userId)
-                    .map(user -> user.isActive() && user.isEmailConfirmed())
+                    .map(user -> user.isActive() && user.isEmailConfirmed()
+                            && user.acceptsSession(jwt.getId(), sessionVersion.longValue()))
                     .orElse(false);
             if (!activeUser || !tokenStorage.isSessionActive(jwt.getSubject(), jwt.getId())) {
                 return FirstPartyIntrospectionResponse.inactive();

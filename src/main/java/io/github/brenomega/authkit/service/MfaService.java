@@ -46,6 +46,8 @@ import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
 import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 /**
@@ -79,6 +81,7 @@ public class MfaService {
     private final MfaStatusCache mfaStatusCache;
     private final StepUpService stepUpService;
     private final AbuseThrottleService abuseThrottleService;
+    private final SecurityEffectService securityEffectService;
     private final TotpGenerator totpGenerator = new TotpGenerator();
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -92,7 +95,8 @@ public class MfaService {
                       TokenStorage tokenStorage,
                       MfaStatusCache mfaStatusCache,
                       StepUpService stepUpService,
-                      AbuseThrottleService abuseThrottleService) {
+                      AbuseThrottleService abuseThrottleService,
+                      SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.totpRepository = totpRepository;
         this.backupCodeRepository = backupCodeRepository;
@@ -104,6 +108,7 @@ public class MfaService {
         this.mfaStatusCache = mfaStatusCache;
         this.stepUpService = stepUpService;
         this.abuseThrottleService = abuseThrottleService;
+        this.securityEffectService = securityEffectService;
     }
 
     /** Returns enrollment state without exposing authenticator material. */
@@ -171,7 +176,7 @@ public class MfaService {
      */
     @Transactional
     public MfaBackupCodesResponse confirmTotp(String userId, MfaTotpConfirmRequest request) {
-        User user = loadActiveUser(userId);
+        User user = loadActiveUserForUpdate(userId);
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request.currentPassword(),
                 SecurityEventType.MFA_CHANGED, "mfa_confirmation_step_up_failed");
@@ -180,8 +185,8 @@ public class MfaService {
             throw new MfaAlreadyEnabledException();
         }
 
-        MfaTotpCredential credential = totpRepository.findByIdAndUserId(request.credentialId(), user.getId())
-                .filter(existing -> existing.getDisabledAt() == null)
+        MfaTotpCredential credential = totpRepository.findByIdAndUserIdForUpdate(request.credentialId(), user.getId())
+                .filter(existing -> existing.getDisabledAt() == null && !existing.isConfirmed())
                 .orElseThrow(InvalidMfaCodeException::new);
         String secret = mfaSecretCipher.decrypt(credential.getEncryptedSecret());
         var result = totpGenerator.verify(secret, request.code(), null);
@@ -198,8 +203,8 @@ public class MfaService {
         credential.confirm(Instant.now());
         credential.markTimeStepUsed(result.timeStep());
         List<String> backupCodes = regenerateBackupCodes(user);
-        mfaStatusCache.evict(user.getId());
-        tokenStorage.revokeAllSessions(user.getId().toString());
+        securityEffectService.invalidateSessions(user, null);
+        AfterCommitActions.run(() -> mfaStatusCache.evict(user.getId()));
 
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.MFA_CHANGED,
@@ -214,7 +219,7 @@ public class MfaService {
     /** Disables active TOTP credentials after password and MFA step-up, then revokes all sessions. */
     @Transactional
     public void disableTotp(String userId, MfaVerificationRequest request) {
-        User user = loadActiveUser(userId);
+        User user = loadActiveUserForUpdate(userId);
         abuseThrottleService.checkUser(AbuseRateLimitPolicy.MFA_CHANGE_USER, user);
         verifyPasswordStepUp(user, request.currentPassword(),
                 SecurityEventType.MFA_CHANGED, "mfa_disable_password_step_up_failed");
@@ -224,8 +229,8 @@ public class MfaService {
         totpRepository.findByUserIdAndConfirmedTrueAndDisabledAtIsNull(user.getId())
                 .forEach(credential -> credential.disable(now));
         backupCodeRepository.deleteByUserIdAndUsedAtIsNull(user.getId());
-        mfaStatusCache.evict(user.getId());
-        tokenStorage.revokeAllSessions(user.getId().toString());
+        securityEffectService.invalidateSessions(user, null);
+        AfterCommitActions.run(() -> mfaStatusCache.evict(user.getId()));
 
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.MFA_CHANGED,
@@ -376,6 +381,18 @@ public class MfaService {
     private User loadActiveUser(String userId) {
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId))
+                .orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
+        if (!user.isActive()) {
+            throw new UserNotFoundException();
+        }
+        user.requireEmailConfirmed();
+        return user;
+    }
+
+    private User loadActiveUserForUpdate(String userId) {
+        @SuppressWarnings("null")
+        User user = userRepository.findByIdForUpdate(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
         requireTenantAccess(user);
         if (!user.isActive()) {

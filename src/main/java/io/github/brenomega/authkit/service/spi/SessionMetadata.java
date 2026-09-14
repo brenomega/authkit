@@ -17,6 +17,7 @@ public record SessionMetadata(
         Instant createdAt,
         Instant lastSeenAt,
         Instant expiresAt,
+        long securityVersion,
         List<String> initialAmr,
         String userAgentSummary,
         String deviceLabel,
@@ -24,6 +25,9 @@ public record SessionMetadata(
         String lastIpMasked) {
 
     public SessionMetadata {
+        if (securityVersion < 0) {
+            throw new IllegalArgumentException("securityVersion must not be negative");
+        }
         initialAmr = initialAmr == null ? List.of() : List.copyOf(initialAmr);
     }
 }

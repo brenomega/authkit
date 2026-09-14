@@ -4,7 +4,7 @@ All notable changes are documented here. AuthKit uses Semantic Versioning; compa
 
 ## [0.1.0-rc.1] - Unreleased
 
-This is an unpublished implementation candidate for independent audit. It is not a release, tag, production approval, or risk acceptance.
+This is an unpublished implementation candidate for objective release-gate validation. It is not a release, tag, production approval, or risk acceptance.
 
 ### Added
 

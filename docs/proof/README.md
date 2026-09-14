@@ -1,6 +1,8 @@
 # Candidate proof harnesses
 
-[Português (Brasil)](README-ptBR.md) | English is normative.
+[English](README.md) | [Português (Brasil)](README-ptBR.md)
+
+English is authoritative when translations differ.
 
 The proof harnesses exercise the v0.1 golden path but never self-approve a release. Bind each report to HEAD, the tracked patch checksum, untracked-file manifest, candidate version, and immutable OCI digest. Do not record raw passwords, tokens, reset/action URLs, provider secrets, private keys, or full environment files.
 

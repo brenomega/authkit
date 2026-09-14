@@ -115,7 +115,7 @@ public class RegistrationService {
                 Instant.now());
 
         try {
-            user = userRepository.save(user);
+            user = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
             throw new UserAlreadyExistsException("Email already in use");
         }
@@ -171,7 +171,7 @@ public class RegistrationService {
         String email = EmailNormalizer.normalize(emailInput);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_COOLDOWN, email);
         abuseThrottleService.checkEmail(AbuseRateLimitPolicy.EMAIL_CONFIRMATION_RESEND_EMAIL_DAILY, email);
-        userRepository.findByEmail(email)
+        userRepository.findByEmailForUpdate(email)
                 .filter(User::isActive)
                 .filter(user -> !user.isEmailConfirmed())
                 .ifPresent(user -> {

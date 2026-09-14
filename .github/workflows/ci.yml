@@ -82,7 +82,7 @@ jobs:
           scan-ref: .
           format: table
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
+          ignore-unfixed: false
           exit-code: '1'
 
       - name: Build container image for scanning
@@ -97,7 +97,7 @@ jobs:
           image-ref: authkit:${{ github.sha }}
           format: table
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
+          ignore-unfixed: false
           exit-code: '1'
 
   postgres-migration:

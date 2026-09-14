@@ -75,6 +75,7 @@ public class DataRetentionService {
     private final OAuthAuthorizationTransactionRepository oauthAuthorizationTransactionRepository;
     private final OAuthRefreshTokenFamilyRepository oauthRefreshTokenFamilyRepository;
     private final OAuthRefreshTokenRepository oauthRefreshTokenRepository;
+    private final io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectRepository securityEffects;
 
     public DataRetentionService(SecurityEventRepository securityEventRepository,
                                 UserRepository userRepository,
@@ -94,7 +95,8 @@ public class DataRetentionService {
                                 SocialLoginTransactionRepository socialLoginTransactionRepository,
                                 OAuthAuthorizationTransactionRepository oauthAuthorizationTransactionRepository,
                                 OAuthRefreshTokenFamilyRepository oauthRefreshTokenFamilyRepository,
-                                OAuthRefreshTokenRepository oauthRefreshTokenRepository) {
+                                OAuthRefreshTokenRepository oauthRefreshTokenRepository,
+                                io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectRepository securityEffects) {
         this.securityEventRepository = securityEventRepository;
         this.userRepository = userRepository;
         this.passkeyChallengeRepository = passkeyChallengeRepository;
@@ -114,6 +116,7 @@ public class DataRetentionService {
         this.oauthAuthorizationTransactionRepository = oauthAuthorizationTransactionRepository;
         this.oauthRefreshTokenFamilyRepository = oauthRefreshTokenFamilyRepository;
         this.oauthRefreshTokenRepository = oauthRefreshTokenRepository;
+        this.securityEffects = securityEffects;
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
@@ -138,6 +141,16 @@ public class DataRetentionService {
     private void purgeExpiredSecurityEventsInternal() {
         Instant now = Instant.now();
         int batchSize = authProperties.getCompliance().getRetentionBatchSize();
+        Instant completedCutoff = now.minus(Duration.ofDays(
+                authProperties.getCompliance().getSecurityEventRetentionDays()));
+        int purged;
+        do {
+            purged = transactionTemplate.execute(status -> securityEffects.purgeCompletedBatch(completedCutoff, batchSize));
+            meterRegistry.counter("security.retention.deleted", "dataset", "security_effect_outbox").increment(purged);
+        } while (purged == batchSize);
+        do {
+            purged = transactionTemplate.execute(status -> securityEffects.purgeExpiredActivationsBatch(now, batchSize));
+        } while (purged == batchSize);
         long deletedEvents = purgeSecurityEventsInBatches(
                 now.minus(Duration.ofDays(authProperties.getCompliance().getSecurityEventRetentionDays())),
                 batchSize);

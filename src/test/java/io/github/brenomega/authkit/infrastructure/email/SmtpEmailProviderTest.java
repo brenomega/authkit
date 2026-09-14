@@ -37,6 +37,24 @@ class SmtpEmailProviderTest {
         assertEquals("2000", transport.lastMessage.getSession().getProperty("mail.smtp.connectiontimeout"));
         assertEquals("5000", transport.lastMessage.getSession().getProperty("mail.smtp.timeout"));
         assertEquals("authkit-email-" + messageId, transport.lastMessage.getHeader("X-AuthKit-Message-Id", null));
+        assertEquals("<authkit-email-" + messageId + "@authkit.invalid>", transport.lastMessage.getMessageID());
+    }
+
+    @Test
+    void reclaimResubmissionPreservesTheExactMessageIdentity() throws Exception {
+        CapturingTransport transport = new CapturingTransport(0);
+        SmtpEmailProvider provider = new SmtpEmailProvider(properties(), transport);
+        UUID messageId = UUID.randomUUID();
+        EmailPayload payload = new EmailPayload(messageId, "user@example.com", "Subject", "<p>Body</p>");
+
+        EmailDeliveryResult first = provider.send(payload);
+        String firstMessageId = transport.lastMessage.getMessageID();
+        String firstHeader = transport.lastMessage.getHeader("X-AuthKit-Message-Id", null);
+        EmailDeliveryResult reclaimed = provider.send(payload);
+
+        assertEquals(first.providerMessageId(), reclaimed.providerMessageId());
+        assertEquals(firstMessageId, transport.lastMessage.getMessageID());
+        assertEquals(firstHeader, transport.lastMessage.getHeader("X-AuthKit-Message-Id", null));
     }
 
     @Test
@@ -97,6 +115,9 @@ class SmtpEmailProviderTest {
         @Override
         public void send(MimeMessage message) throws MessagingException {
             attempts++;
+            // Jakarta Mail's real Transport.send() saves the message again before
+            // transmission; the stable identity must survive that second pass.
+            message.saveChanges();
             lastMessage = message;
             if (attempts <= failuresBeforeSuccess) {
                 throw new MessagingException("smtp unavailable");

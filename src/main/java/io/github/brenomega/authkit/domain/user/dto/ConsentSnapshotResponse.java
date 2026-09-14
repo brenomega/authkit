@@ -6,8 +6,11 @@ import java.time.Instant;
 public record ConsentSnapshotResponse(
         boolean termsAccepted,
         boolean privacyPolicyAccepted,
-        String termsVersion,
-        String privacyPolicyVersion,
+        String acceptedTermsVersion,
+        String acceptedPrivacyPolicyVersion,
+        String requiredTermsVersion,
+        String requiredPrivacyPolicyVersion,
+        boolean consentRequired,
         Instant consentAcceptedAt,
         String lawfulBasis
 ) {

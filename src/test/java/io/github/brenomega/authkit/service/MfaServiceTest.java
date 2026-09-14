@@ -55,6 +55,7 @@ import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.MfaSecretCipher;
 import io.github.brenomega.authkit.infrastructure.security.MfaStatusCache;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.brenomega.authkit.repository.MfaBackupCodeRepository;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
@@ -78,6 +79,7 @@ class MfaServiceTest {
     private MfaSecretCipher mfaSecretCipher;
     private AbuseThrottleService abuseThrottleService;
     private MfaService service;
+    private SecurityEffectService securityEffects;
     private User user;
 
     @SuppressWarnings("null")
@@ -95,6 +97,7 @@ class MfaServiceTest {
         auditDigestService = new AuditDigestService(authProperties);
         mfaSecretCipher = new MfaSecretCipher(authProperties);
         abuseThrottleService = mock(AbuseThrottleService.class);
+        securityEffects = mock(SecurityEffectService.class);
         service = new MfaService(
                 userRepository,
                 totpRepository,
@@ -111,13 +114,15 @@ class MfaServiceTest {
                         lockoutService,
                         securityEventService,
                         abuseThrottleService),
-                abuseThrottleService);
+                abuseThrottleService,
+                securityEffects);
 
         user = new User("mfa@example.com", "hashed-pass", "Mfa User", true, true, null);
         user.setEmailConfirmed(true);
         ReflectionTestUtils.setField(user, "id", USER_ID);
         ReflectionTestUtils.setField(user, "tenantId", TENANT_ID);
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("mfa@example.com")).thenReturn(false);
         when(passwordEncoder.matches("current-pass", "hashed-pass")).thenReturn(true);
     }
@@ -162,7 +167,7 @@ class MfaServiceTest {
         ReflectionTestUtils.setField(credential, "id", credentialId);
         String code = new TotpGenerator().currentCode(secret);
 
-        when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.of(credential));
+        when(totpRepository.findByIdAndUserIdForUpdate(credentialId, USER_ID)).thenReturn(Optional.of(credential));
         when(backupCodeRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = service.confirmTotp(
@@ -179,7 +184,7 @@ class MfaServiceTest {
             return StreamSupport.stream(codes.spliterator(), false).count()
                     == authProperties.getMfa().getBackupCodeCount();
         }));
-        verify(tokenStorage).revokeAllSessions(USER_ID.toString());
+        verify(securityEffects).invalidateSessions(user, null);
         verify(securityEventService).recordForAuthenticatedUser(
                 SecurityEventType.MFA_CHANGED,
                 SecurityEventOutcome.SUCCESS,
@@ -286,7 +291,7 @@ class MfaServiceTest {
                 USER_ID, TENANT_ID, mfaSecretCipher.encrypt(secret), Instant.now());
         ReflectionTestUtils.setField(credential, "id", credentialId);
 
-        when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.of(credential));
+        when(totpRepository.findByIdAndUserIdForUpdate(credentialId, USER_ID)).thenReturn(Optional.of(credential));
 
         assertThrows(InvalidMfaCodeException.class, () ->
                 service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(
@@ -295,7 +300,7 @@ class MfaServiceTest {
                     "000000")));
 
         verify(backupCodeRepository, never()).saveAll(any());
-        verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
+        verify(securityEffects, never()).invalidateSessions(any(), any());
     }
 
     @SuppressWarnings("null")
@@ -303,7 +308,7 @@ class MfaServiceTest {
     @DisplayName("TOTP confirmation rejects credentials not owned by the caller")
     void confirmTotp_credentialOwnedByAnotherUser_Throws() {
         UUID credentialId = UUID.fromString("00000000-0000-0000-0000-000000000208");
-        when(totpRepository.findByIdAndUserId(credentialId, USER_ID)).thenReturn(Optional.empty());
+        when(totpRepository.findByIdAndUserIdForUpdate(credentialId, USER_ID)).thenReturn(Optional.empty());
 
         assertThrows(InvalidMfaCodeException.class, () ->
                 service.confirmTotp(USER_ID.toString(), new MfaTotpConfirmRequest(
@@ -312,7 +317,7 @@ class MfaServiceTest {
                     "123456")));
 
         verify(backupCodeRepository, never()).saveAll(any());
-        verify(tokenStorage, never()).revokeAllSessions(USER_ID.toString());
+        verify(securityEffects, never()).invalidateSessions(any(), any());
     }
 
     @Test

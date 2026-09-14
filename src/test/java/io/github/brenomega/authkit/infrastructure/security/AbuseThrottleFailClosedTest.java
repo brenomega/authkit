@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.infrastructure.security;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Optional;
 import java.time.Duration;
@@ -23,10 +24,17 @@ class AbuseThrottleFailClosedTest {
         SimpleMeterRegistry meters = new SimpleMeterRegistry();
         AbuseThrottleService strictService = new AbuseThrottleService(
                 Optional.empty(), new AuditDigestService(strict), meters, strict);
-        assertThrows(AbuseProtectionUnavailableException.class,
-                () -> strictService.check(AbuseRateLimitPolicy.LOGIN_ENDPOINT_IP, "203.0.113.1"));
-        assertEquals(1.0, meters.find("security.abuse_control.fail_closed").counter().count());
-        assertDoesNotThrow(() -> strictService.check(AbuseRateLimitPolicy.SESSION_LIST_USER, "user"));
+        for (AbuseRateLimitPolicy policy : AbuseRateLimitPolicy.values()) {
+            if (policy.highRisk()) {
+                assertTrue(policy.failClosedEligible(), policy.key());
+                assertThrows(AbuseProtectionUnavailableException.class,
+                        () -> strictService.check(policy, "dimension-" + policy.key()), policy.key());
+                assertEquals(1.0, meters.find("security.abuse_control.fail_closed")
+                        .tag("policy", policy.key()).counter().count(), policy.key());
+            } else {
+                assertDoesNotThrow(() -> strictService.check(policy, "dimension-" + policy.key()), policy.key());
+            }
+        }
 
         AuthProperties available = properties(false);
         AbuseThrottleService fallbackService = new AbuseThrottleService(

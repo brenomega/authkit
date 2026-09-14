@@ -27,8 +27,7 @@ import jakarta.servlet.http.HttpServletResponse;
  * Enforces the configured byte limit while buffering supported request bodies.
  *
  * <p>The filter checks declared length for every request and streams POST, PUT,
- * and PATCH bodies through a hard byte bound when length is absent or inaccurate.
- * Other methods, including DELETE, are not buffered by this component.</p>
+ * PATCH, and DELETE bodies through a hard byte bound when length is absent or inaccurate.</p>
  */
 @Component
 public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
@@ -92,7 +91,8 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
     private boolean mayHaveRequestBody(HttpServletRequest request) {
         return "POST".equals(request.getMethod())
                 || "PUT".equals(request.getMethod())
-                || "PATCH".equals(request.getMethod());
+                || "PATCH".equals(request.getMethod())
+                || "DELETE".equals(request.getMethod());
     }
 
     private void writePayloadTooLarge(HttpServletResponse response) throws IOException {

@@ -107,6 +107,9 @@ paths:
   /api/v1/users/me/consent:
     get:
       responses: {'200': {$ref: '#/components/responses/ConsentSnapshot'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+    post:
+      requestBody: {$ref: '#/components/requestBodies/ConsentAcceptance'}
+      responses: {'200': {$ref: '#/components/responses/ConsentSnapshot'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/export:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
@@ -134,11 +137,12 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/SessionPageApiResponse'}
         '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
   /api/v1/users/me/sessions/{sessionId}:
     delete:
       parameters: [{$ref: '#/components/parameters/SessionId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
-      responses: {'200': {$ref: '#/components/responses/Message'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/internal/tokens/introspect:
     post:
       description: Authenticated live introspection for first-party access tokens. Requires the trusted-origin worker credential.
@@ -152,40 +156,41 @@ paths:
         '200':
           description: Live first-party token state
           content: {application/json: {schema: {$ref: '#/components/schemas/FirstPartyIntrospectionApiResponse'}}}
+        '401': {$ref: '#/components/responses/Error'}
   /api/v1/users/me/mfa:
     get:
       responses: {'200': {$ref: '#/components/responses/MfaStatus'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp/enroll:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUp'}
-      responses: {'200': {$ref: '#/components/responses/MfaTotpEnrollment'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaTotpEnrollment'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp/confirm:
     post:
       requestBody: {$ref: '#/components/requestBodies/MfaTotpConfirm'}
-      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/totp:
     delete:
       requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
-      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/mfa/backup-codes:
     post:
       requestBody: {$ref: '#/components/requestBodies/MfaVerification'}
-      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/MfaBackupCodes'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys:
     get:
       responses: {'200': {$ref: '#/components/responses/PasskeyCredentialList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
     post:
       requestBody: {$ref: '#/components/requestBodies/PasskeyRegistrationFinish'}
-      responses: {'200': {$ref: '#/components/responses/PasskeyCredential'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/PasskeyCredential'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/options:
     post:
       requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
-      responses: {'200': {$ref: '#/components/responses/PasskeyRegistrationOptions'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/PasskeyRegistrationOptions'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/passkeys/{credentialId}:
     delete:
       parameters: [{$ref: '#/components/parameters/CredentialId'}]
       requestBody: {$ref: '#/components/requestBodies/StepUpOptional'}
-      responses: {'200': {$ref: '#/components/responses/Message'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}}
   /api/v1/users/me/social-identities:
     get:
       responses: {'200': {$ref: '#/components/responses/SocialIdentityList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
@@ -198,12 +203,7 @@ paths:
     delete:
       parameters: [{$ref: '#/components/parameters/IdentityId'}]
       requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
-      responses: {'200': {$ref: '#/components/responses/Message'}, '409': {$ref: '#/components/responses/Error'}}
-  /api/v1/oauth2/authorize:
-    description: Deprecated JSON compatibility endpoint. New clients use the conventional browser endpoint below.
-    post:
-      requestBody: {$ref: '#/components/requestBodies/OAuthAuthorize'}
-      responses: {'200': {$ref: '#/components/responses/OAuthAuthorize'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
   /oauth2/authorize:
     get:
       security: []
@@ -220,6 +220,7 @@ paths:
       responses:
         '302': {description: 'Redirect to the operator UI, or a validated client redirect carrying a standard OAuth error', headers: {Location: {schema: {type: string, format: uri}}}}
         '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/Error'}
   /api/v1/oauth2/authorize/transactions/{transaction}:
     parameters:
       - {name: transaction, in: path, required: true, schema: {type: string, minLength: 32, maxLength: 512}}
@@ -227,6 +228,7 @@ paths:
       responses:
         '200': {description: Login and consent transaction details, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizationTransactionApiResponse'}}}}
         '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/Error'}
     post:
       requestBody:
         required: true
@@ -234,9 +236,11 @@ paths:
       responses:
         '302': {description: Exact registered client redirect with code/state or access_denied/state, headers: {Location: {schema: {type: string, format: uri}}}}
         '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/Error'}
   /oauth2/token:
     post:
-      security: [{oauthClientBasic: []}]
+      description: Public clients authenticate with client_id and PKCE; confidential clients use HTTP Basic or client_secret_post.
+      security: [{oauthClientBasic: []}, {}]
       requestBody:
         required: true
         content:
@@ -249,7 +253,8 @@ paths:
         '503': {$ref: '#/components/responses/OAuthError'}
   /oauth2/revoke:
     post:
-      security: [{oauthClientBasic: []}]
+      description: Public clients identify themselves with client_id; confidential clients use HTTP Basic or client_secret_post.
+      security: [{oauthClientBasic: []}, {}]
       requestBody: {$ref: '#/components/requestBodies/OAuthRevocation'}
       responses: {'200': {description: Token revoked or already inactive; intentionally no response body}, '400': {$ref: '#/components/responses/OAuthError'}, '401': {$ref: '#/components/responses/OAuthError'}, '503': {$ref: '#/components/responses/OAuthError'}}
   /oauth2/introspect:
@@ -268,69 +273,79 @@ paths:
         - {name: search, in: query, required: false, schema: {type: string, maxLength: 255}, description: Case-insensitive email or display-name search}
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 100}}
         - {name: cursor, in: query, required: false, schema: {type: string, maxLength: 1024}, description: Signed short-lived cursor bound to search and limit}
-      responses: {'200': {$ref: '#/components/responses/AdminUserPage'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUserPage'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}:
     get:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       description: Safe account and authenticator status; no password hashes, provider subjects, credential IDs, public keys, or MFA secrets are returned.
-      responses: {'200': {$ref: '#/components/responses/AdminUserDetail'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUserDetail'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/sessions/revoke:
     post:
       parameters: [{$ref: '#/components/parameters/UserId'}]
       description: Revokes every AuthKit session for the target after recent local administrator step-up.
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
-      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/role:
     patch:
+      description: 'Role change. Errors: 400 validation_failed or malformed_json (invalid body); 401 unauthorized (absent/invalid bearer), invalid_credentials (missing/wrong password proof or invalid session), invalid_mfa_code (rejected factor); 403 forbidden (wrong role or last-active-admin invariant), mfa_required (missing/stale second factor); 404 user_not_found (administrator/target no longer exists).'
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminUpdateRole'}
-      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/suspension:
     post:
+      description: 'Suspend an account. Errors: 400 validation_failed or malformed_json; 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role or last-active-admin invariant), mfa_required (missing/stale second factor); 404 user_not_found.'
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
     delete:
+      description: 'Reactivate an account. Errors: 400 validation_failed or malformed_json; 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role or disallowed account state), mfa_required (missing/stale second factor); 404 user_not_found.'
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/users/{userId}/deletion:
     delete:
+      description: 'Cancel deletion within its grace period. Errors: 400 validation_failed or malformed_json; 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role, non-pending state or expired grace period), mfa_required (missing/stale second factor); 404 user_not_found.'
       parameters: [{$ref: '#/components/parameters/UserId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminAccountState'}
-      responses: {'200': {$ref: '#/components/responses/AdminUser'}}
+      responses: {'200': {$ref: '#/components/responses/AdminUser'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/oauth-clients:
     get:
-      responses: {'200': {$ref: '#/components/responses/AdminOAuthClientList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClientList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
     post:
+      description: 'Create a client. Errors: 400 validation_failed or malformed_json or invalid_oauth_request (redirect/scope policy); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientCreate'}
-      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/oauth-clients/{clientId}:
     patch:
+      description: 'Update a client. Errors: 400 validation_failed or malformed_json or invalid_oauth_request (unknown client, invalid redirect/scope or public-client secret rotation); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       parameters: [{$ref: '#/components/parameters/ClientId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminOAuthClientUpdate'}
-      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}}
+      responses: {'200': {$ref: '#/components/responses/AdminOAuthClient'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
     delete:
+      description: 'Disable a client. Errors: 400 validation_failed or malformed_json or invalid_oauth_request (unknown client); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       parameters: [{$ref: '#/components/parameters/ClientId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerification'}
-      responses: {'200': {$ref: '#/components/responses/Message'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/social-providers:
     get:
-      responses: {'200': {$ref: '#/components/responses/AdminSocialProviderList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProviderList'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
     post:
+      description: 'Create a provider. Errors: 400 validation_failed or malformed_json or invalid_social_login (issuer/scope/discovery policy or duplicate provider); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/AdminSocialProviderCreateRequest'}}}
-      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}, '400': {$ref: '#/components/responses/Error'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}, '400': {$ref: '#/components/responses/Error'}, '401': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/social-providers/{providerId}:
     patch:
+      description: 'Update a provider. Errors: 400 validation_failed or malformed_json or invalid_social_login (unknown provider or rejected scope/discovery); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       parameters: [{$ref: '#/components/parameters/ProviderId'}]
       requestBody: {$ref: '#/components/requestBodies/AdminSocialProviderUpdate'}
-      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}}
+      responses: {'200': {$ref: '#/components/responses/AdminSocialProvider'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
     delete:
+      description: 'Disable a provider. Errors: 400 validation_failed or malformed_json or invalid_social_login (unknown provider); 401 unauthorized (absent/invalid bearer), invalid_credentials or invalid_mfa_code; 403 forbidden (wrong role), mfa_required (missing/stale second factor); 404 user_not_found (administrator no longer exists).'
       parameters: [{$ref: '#/components/parameters/ProviderId'}]
       requestBody: {$ref: '#/components/requestBodies/MfaOptionalVerificationRequired'}
-      responses: {'200': {$ref: '#/components/responses/Message'}}
+      responses: {'200': {$ref: '#/components/responses/Message'}, '401': {$ref: '#/components/responses/Error'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '404': {$ref: '#/components/responses/Error'}}
   /api/v1/admin/security-events:
     get:
       parameters:
@@ -349,7 +364,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: First-party AuthKit access token with `token_use=first_party_access`, configured API audience, non-revoked key, and active server-side session. OAuth access tokens and ID tokens are rejected.
+      description: First-party AuthKit access token with `token_use=first_party_access`, numeric `session_version`, configured API audience, non-revoked key, active server-side session, and accepted PostgreSQL security version. OAuth access tokens and ID tokens are rejected.
     oauthAccessBearer:
       type: http
       scheme: bearer
@@ -366,7 +381,8 @@ components:
       name: X-XSRF-TOKEN
       description: CSRF header that must echo the readable CSRF cookie on refresh and logout.
     oauthClientBasic:
-      type: http
+      type: http # nosemgrep: yaml.openapi.security.use-of-basic-authentication.use-of-basic-authentication -- RFC 6749 confidential-client authentication
+      # OAuth 2.0 confidential-client authentication; Basic is protocol-required here.
       scheme: basic
       description: OAuth client authentication for token, introspection, and revocation endpoints. Public clients may use approved body credentials where supported.
     workerToken:
@@ -393,6 +409,7 @@ components:
     PasswordRecovery: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordRecoveryRequest'}}}}
     PasswordReset: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordResetRequest'}}}}
     ProfileUpdate: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProfileUpdateRequest'}}}}
+    ConsentAcceptance: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ConsentAcceptanceRequest'}}}}
     StepUp: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
     StepUpOptional: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/StepUpRequest'}}}}
     MfaOptionalVerification: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/MfaOptionalVerificationRequest'}}}}
@@ -402,7 +419,6 @@ components:
     MfaTotpConfirm: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaTotpConfirmRequest'}}}}
     MfaVerification: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/MfaVerificationRequest'}}}}
     PasskeyRegistrationFinish: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyRegistrationFinishRequest'}}}}
-    OAuthAuthorize: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizeRequest'}}}}
     OAuthIntrospection: {required: true, content: {application/x-www-form-urlencoded: {schema: {$ref: '#/components/schemas/OAuthIntrospectionRequest'}}}}
     OAuthRevocation: {required: true, content: {application/x-www-form-urlencoded: {schema: {$ref: '#/components/schemas/OAuthRevocationRequest'}}}}
     AdminUpdateRole: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUpdateRoleRequest'}}}}
@@ -455,7 +471,6 @@ components:
     PasskeyCredentialList: {description: Passkey credential metadata list, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyCredentialListApiResponse'}}}}
     PasskeyRegistrationOptions: {description: Passkey registration ceremony options, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/PasskeyRegistrationOptionsApiResponse'}}}}
     SocialIdentityList: {description: Linked social identities, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/SocialIdentityListApiResponse'}}}}
-    OAuthAuthorize: {description: Deprecated JSON authorization-code response, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/OAuthAuthorizeApiResponse'}}}}
     AdminUser: {description: Administrative user state, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserApiResponse'}}}}
     AdminUserPage: {description: Bounded administrative user page, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserPageApiResponse'}}}}
     AdminUserDetail: {description: Safe administrative user and authenticator detail, headers: {X-Request-ID: {$ref: '#/components/headers/XRequestId'}}, content: {application/json: {schema: {$ref: '#/components/schemas/AdminUserDetailApiResponse'}}}}
@@ -526,6 +541,15 @@ components:
       type: object
       additionalProperties: false
       properties: {name: {type: string, maxLength: 100, nullable: true}}
+    ConsentAcceptanceRequest:
+      type: object
+      additionalProperties: false
+      required: [termsAccepted, privacyPolicyAccepted, termsVersion, privacyPolicyVersion]
+      properties:
+        termsAccepted: {type: boolean, enum: [true]}
+        privacyPolicyAccepted: {type: boolean, enum: [true]}
+        termsVersion: {type: string, minLength: 1}
+        privacyPolicyVersion: {type: string, minLength: 1}
     PasswordChangeRequest:
       type: object
       additionalProperties: false
@@ -537,25 +561,25 @@ components:
     EmailChangeRequest:
       type: object
       additionalProperties: false
-      required: [newEmail, currentPassword]
+      required: [newEmail]
       properties:
         newEmail: {type: string, format: email, maxLength: 255}
-        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true, description: Required for password accounts; omit for a passwordless account with a fresh local passkey proof}
         mfaCode: {type: string, minLength: 6, maxLength: 32, nullable: true, writeOnly: true}
     MfaTotpConfirmRequest:
       type: object
       additionalProperties: false
-      required: [credentialId, currentPassword, code]
+      required: [credentialId, code]
       properties:
         credentialId: {type: string, format: uuid}
-        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true, description: Required for password accounts; omit for a passwordless account with a fresh local passkey proof}
         code: {type: string, minLength: 6, maxLength: 8, writeOnly: true}
     MfaVerificationRequest:
       type: object
       additionalProperties: false
-      required: [currentPassword, code]
+      required: [code]
       properties:
-        currentPassword: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true, description: Required for password accounts; omit for a passwordless account with a fresh local passkey proof}
         code: {type: string, minLength: 6, maxLength: 32, writeOnly: true}
     PasskeyRegistrationFinishRequest:
       type: object
@@ -565,20 +589,6 @@ components:
         challengeId: {type: string, format: uuid}
         label: {type: string, minLength: 1, maxLength: 100}
         credentialJson: {type: string, minLength: 1, maxLength: 20000, writeOnly: true}
-    OAuthAuthorizeRequest:
-      type: object
-      additionalProperties: false
-      required: [responseType, clientId, redirectUri, scope, codeChallenge, codeChallengeMethod]
-      properties:
-        responseType: {type: string, enum: [code]}
-        clientId: {type: string, minLength: 1, maxLength: 128}
-        redirectUri: {type: string, format: uri, maxLength: 512}
-        scope: {type: string, minLength: 1, maxLength: 512}
-        state: {type: string, maxLength: 255, nullable: true}
-        codeChallenge: {type: string, pattern: '^[A-Za-z0-9_-]{43,128}$'}
-        codeChallengeMethod: {type: string, enum: [S256]}
-        nonce: {type: string, maxLength: 255, nullable: true}
-        consentAccepted: {type: boolean, nullable: true}
     OAuthIntrospectionRequest:
       type: object
       additionalProperties: false
@@ -638,7 +648,7 @@ components:
         publicClient: {type: boolean}
         redirectUris: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, format: uri, maxLength: 512}}
         scopes: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, maxLength: 80}}
-        requirePkce: {type: boolean}
+        requirePkce: {type: boolean, enum: [true], description: PKCE S256 is mandatory and cannot be disabled.}
         currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
         mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
     AdminOAuthClientUpdateRequest:
@@ -649,7 +659,7 @@ components:
         displayName: {type: string, minLength: 1, maxLength: 120}
         redirectUris: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, format: uri, maxLength: 512}}
         scopes: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string, maxLength: 80}}
-        requirePkce: {type: boolean}
+        requirePkce: {type: boolean, enum: [true], description: PKCE S256 is mandatory and cannot be disabled.}
         rotateSecret: {type: boolean, description: Returns a new secret exactly once for confidential clients}
         currentPassword: {type: string, maxLength: 128, nullable: true, writeOnly: true}
         mfaCode: {type: string, maxLength: 32, nullable: true, writeOnly: true}
@@ -967,7 +977,6 @@ components:
     PasskeyCredentialListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/PasskeyCredentialResponse'}}}}]}
     PasskeyRegistrationOptionsApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/PasskeyRegistrationOptionsResponse'}}}]}
     SocialIdentityListApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/SocialIdentityResponse'}}}}]}
-    OAuthAuthorizeApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/OAuthAuthorizeResponse'}}}]}
     AdminUserApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserResponse'}}}]}
     AdminUserPageApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserPageResponse'}}}]}
     AdminUserDetailApiResponse: {allOf: [{$ref: '#/components/schemas/ApiResponseMetadata'}, {type: object, required: [data], properties: {data: {$ref: '#/components/schemas/AdminUserDetailResponse'}}}]}
@@ -990,7 +999,7 @@ components:
     RegistrationAcceptedResponse: {type: object, additionalProperties: false, required: [message], properties: {message: {type: string}}}
     ProfileResponse: {type: object, additionalProperties: false, required: [id, email], properties: {id: {type: string, format: uuid}, email: {type: string, format: email}, name: {type: string, nullable: true}}}
     AccountDeletionResponse: {type: object, additionalProperties: false, required: [status, deletionRequestedAt, graceExpiresAt], properties: {status: {type: string, enum: [deletion_pending, anonymized]}, deletionRequestedAt: {type: string, format: date-time}, graceExpiresAt: {type: string, format: date-time}, deletedAt: {type: string, format: date-time, nullable: true}, anonymizedAt: {type: string, format: date-time, nullable: true}}}
-    ConsentSnapshotResponse: {type: object, additionalProperties: false, required: [termsAccepted, privacyPolicyAccepted], properties: {termsAccepted: {type: boolean}, privacyPolicyAccepted: {type: boolean}, termsVersion: {type: string, nullable: true}, privacyPolicyVersion: {type: string, nullable: true}, consentAcceptedAt: {type: string, format: date-time, nullable: true}, lawfulBasis: {type: string, nullable: true}}}
+    ConsentSnapshotResponse: {type: object, additionalProperties: false, required: [termsAccepted, privacyPolicyAccepted, requiredTermsVersion, requiredPrivacyPolicyVersion, consentRequired], properties: {termsAccepted: {type: boolean}, privacyPolicyAccepted: {type: boolean}, acceptedTermsVersion: {type: string, nullable: true}, acceptedPrivacyPolicyVersion: {type: string, nullable: true}, requiredTermsVersion: {type: string}, requiredPrivacyPolicyVersion: {type: string}, consentRequired: {type: boolean}, consentAcceptedAt: {type: string, format: date-time, nullable: true}, lawfulBasis: {type: string, nullable: true}}}
     EmailChangeStatusResponse: {type: object, additionalProperties: false, required: [status], properties: {status: {type: string}, pendingEmail: {type: string, format: email, nullable: true}, requestedAt: {type: string, format: date-time, nullable: true}, expiresAt: {type: string, format: date-time, nullable: true}}}
     MfaStatusResponse: {type: object, additionalProperties: false, required: [totpEnabled, backupCodesRemaining], properties: {totpEnabled: {type: boolean}, backupCodesRemaining: {type: integer, minimum: 0}, enrolledAt: {type: string, format: date-time, nullable: true}}}
     MfaTotpEnrollmentResponse: {type: object, additionalProperties: false, required: [credentialId, secret, otpauthUri], properties: {credentialId: {type: string, format: uuid}, secret: {type: string, writeOnly: true}, otpauthUri: {type: string, format: uri, writeOnly: true}}}
@@ -1001,12 +1010,11 @@ components:
     SocialAuthorizationResponse: {type: object, additionalProperties: false, required: [authorizationUrl, expiresIn], properties: {authorizationUrl: {type: string, format: uri}, expiresIn: {type: integer, format: int64, minimum: 1}}}
     SocialCallbackResponse: {type: object, additionalProperties: false, required: [status], properties: {status: {type: string, enum: [authenticated, linked]}, login: {$ref: '#/components/schemas/LoginResponse'}}}
     SocialIdentityResponse: {type: object, additionalProperties: false, required: [id, providerKey, issuer, createdAt], properties: {id: {type: string, format: uuid}, providerKey: {type: string}, issuer: {type: string, format: uri}, emailAtLink: {type: string, format: email, nullable: true}, createdAt: {type: string, format: date-time}, lastLoginAt: {type: string, format: date-time, nullable: true}}}
-    OAuthAuthorizeResponse: {type: object, additionalProperties: false, required: [redirectUri, expiresIn], properties: {redirectUri: {type: string, format: uri}, state: {type: string, nullable: true}, expiresIn: {type: integer, format: int64, minimum: 1}}}
     AdminUserResponse: {type: object, additionalProperties: false, required: [id, tenantId, email, role, accountState, emailConfirmed], properties: {id: {type: string, format: uuid}, tenantId: {type: string, format: uuid}, email: {type: string, format: email}, name: {type: string, nullable: true}, role: {type: string, enum: [USER, PLATFORM_ADMIN]}, accountState: {type: string, enum: [ACTIVE, SUSPENDED, DELETION_PENDING, ANONYMIZED]}, emailConfirmed: {type: boolean}, suspendedAt: {type: string, format: date-time, nullable: true}, suspensionReason: {type: string, nullable: true}, deletionRequestedAt: {type: string, format: date-time, nullable: true}, deletedAt: {type: string, format: date-time, nullable: true}, anonymizedAt: {type: string, format: date-time, nullable: true}}}
     AdminUserPageResponse: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AdminUserResponse'}}, nextCursor: {type: string, nullable: true}}}
     AdminAuthenticatorStatus: {type: object, additionalProperties: false, required: [password, activeTotpCredentials, activePasskeys, linkedSocialIdentities], properties: {password: {type: boolean}, activeTotpCredentials: {type: integer, format: int64, minimum: 0}, activePasskeys: {type: integer, format: int64, minimum: 0}, linkedSocialIdentities: {type: integer, format: int64, minimum: 0}}}
     AdminUserDetailResponse: {type: object, additionalProperties: false, required: [user, authenticators], properties: {user: {$ref: '#/components/schemas/AdminUserResponse'}, authenticators: {$ref: '#/components/schemas/AdminAuthenticatorStatus'}}}
-    AdminOAuthClientResponse: {type: object, additionalProperties: false, required: [id, clientId, publicClient, displayName, redirectUris, scopes, requirePkce, enabled, createdAt, updatedAt], properties: {id: {type: string, format: uuid}, clientId: {type: string}, clientSecret: {type: string, nullable: true, writeOnly: true}, publicClient: {type: boolean}, displayName: {type: string}, redirectUris: {type: array, items: {type: string, format: uri}}, scopes: {type: array, items: {type: string}}, requirePkce: {type: boolean}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}, disabledAt: {type: string, format: date-time, nullable: true}}}
+    AdminOAuthClientResponse: {type: object, additionalProperties: false, required: [id, clientId, publicClient, displayName, redirectUris, scopes, requirePkce, enabled, createdAt, updatedAt], properties: {id: {type: string, format: uuid}, clientId: {type: string}, clientSecret: {type: string, nullable: true, writeOnly: true}, publicClient: {type: boolean}, displayName: {type: string}, redirectUris: {type: array, items: {type: string, format: uri}}, scopes: {type: array, items: {type: string}}, requirePkce: {type: boolean, readOnly: true, enum: [true]}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}, disabledAt: {type: string, format: date-time, nullable: true}}}
     AdminSocialProviderResponse: {type: object, additionalProperties: false, required: [id, providerKey, displayName, providerType, issuer, clientId, scopes, clientAuthMethod, enabled, createdAt, updatedAt], properties: {id: {type: string, format: uuid}, providerKey: {type: string}, displayName: {type: string}, providerType: {type: string, enum: [GOOGLE, GENERIC_OIDC, GOVBR_EXPERIMENTAL]}, issuer: {type: string, format: uri}, clientId: {type: string}, scopes: {type: array, items: {type: string}}, clientAuthMethod: {type: string, enum: [CLIENT_SECRET_BASIC, CLIENT_SECRET_POST]}, enabled: {type: boolean}, createdAt: {type: string, format: date-time}, updatedAt: {type: string, format: date-time}, disabledAt: {type: string, format: date-time, nullable: true}}}
     AdminSecurityEventResponse: {type: object, additionalProperties: false, required: [id, occurredAt, type, outcome, severity], properties: {id: {type: string, format: uuid}, occurredAt: {type: string, format: date-time}, type: {type: string}, outcome: {type: string}, severity: {type: string}, actorUserId: {type: string, format: uuid, nullable: true}, targetUserId: {type: string, format: uuid, nullable: true}, emailMasked: {type: string, nullable: true}, clientIpMasked: {type: string, nullable: true}, reason: {type: string, nullable: true}, metadataJson: {type: string, nullable: true}}}
     AdminSecurityEventPageResponse: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AdminSecurityEventResponse'}}, nextCursor: {type: string, nullable: true}}}

@@ -5,6 +5,9 @@ services:
       AUTH_EMAIL_SMTP_PORT: "1025"
       AUTH_EMAIL_SMTP_AUTH: "false"
       AUTH_EMAIL_SMTP_USERNAME: ""
+      # Mailpit below is explicitly configured to deduplicate the stable RFC 5322
+      # Message-ID, so this test-only relay satisfies the production assertion.
+      AUTH_EMAIL_SMTP_DEDUPLICATION_GUARANTEED: "true"
       JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/run/secrets/smtp_truststore -Djavax.net.ssl.trustStorePassword=changeit
     secrets:
       - smtp_truststore
@@ -21,6 +24,7 @@ services:
       - /run/secrets/tls_private_key
       - --smtp-require-starttls
       - --smtp-auth-accept-any
+      - --ignore-duplicate-ids
     secrets:
       - tls_certificate
       - tls_private_key

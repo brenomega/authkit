@@ -1,6 +1,8 @@
 # Release-candidate procedure
 
-[Português (Brasil)](RELEASING-ptBR.md) | English is normative. The repository currently identifies an unpublished `0.1.0-rc.1` implementation candidate. A candidate build is evidence for audit; it is not authorization to tag, publish, promote, deploy, or accept risk.
+[English](RELEASING.md) | [Português (Brasil)](RELEASING-ptBR.md)
+
+English is authoritative when translations differ. The repository currently identifies an unpublished `0.1.0-rc.1` implementation candidate. A candidate build is evidence for audit; it is not authorization to tag, publish, promote, deploy, or accept risk.
 
 ## Candidate freeze
 
@@ -11,6 +13,6 @@
 5. Execute blocking dependency, static-code, secret, IaC, container, and supply-chain scans against the exact candidate tree and image digest.
 6. Produce an OCI manifest for both `linux/amd64` and `linux/arm64`, bind CycloneDX SBOMs and checksums to it, sign the immutable digest, and create verifiable SLSA-style provenance/attestation. Local preparation must not push or publish anything.
 7. Re-evaluate all 16 gates in `docs/release/RELEASE_GATES.md`. Every unavailable external action remains `NOT PROVEN`, with the required credential/environment/operator action recorded.
-8. Request a new independent audit. Only the maintainer may later authorize a final `0.1.0` version, tag, publication, promotion, or release.
+8. Close Gate 16 directly when the frozen candidate has zero active GA P0/P1 and all corresponding acceptance criteria are proved. Only the maintainer may later authorize a final `0.1.0` version, tag, publication, promotion, or release.
 
 CI is supporting evidence only when it ran against the same frozen commit/tree. Historical green runs, uploaded artifacts from another commit, mock providers, and a locally built mutable tag do not satisfy release gates.

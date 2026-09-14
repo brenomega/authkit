@@ -1,0 +1,8 @@
+misconfigurations:
+  - id: AVD-KSV-0109
+    paths:
+      - "k8s/01-configmap.yaml"
+    statement: >-
+      False positive: the flagged values are public TTL, URL, identifier, and
+      boolean settings whose environment-variable names contain words such as
+      token or secret. Actual credentials remain in Kubernetes Secret examples.

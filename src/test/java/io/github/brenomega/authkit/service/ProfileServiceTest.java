@@ -33,6 +33,7 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -48,6 +49,7 @@ class ProfileServiceTest {
     private AbuseThrottleService abuseThrottleService;
     private PasswordPolicyService passwordPolicyService;
     private ProfileService profileService;
+    private SecurityEffectService securityEffects;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +61,7 @@ class ProfileServiceTest {
         mfaService = mock(MfaService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
+        securityEffects = mock(SecurityEffectService.class);
         var argon2Limiter = new Argon2ConcurrencyLimiter();
         profileService = new ProfileService(
                 userRepository,
@@ -75,7 +78,8 @@ class ProfileServiceTest {
                     securityEventService,
                     abuseThrottleService),
                 abuseThrottleService,
-                passwordPolicyService);
+                passwordPolicyService,
+                securityEffects);
     }
 
     @AfterEach
@@ -94,7 +98,7 @@ class ProfileServiceTest {
         when(user.getEmail()).thenReturn("test@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
 
-        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("old-pass", "old-hashed")).thenReturn(true);
         when(passwordEncoder.encode("new-pass")).thenReturn("new-hashed");
@@ -103,7 +107,7 @@ class ProfileServiceTest {
 
         verify(user).setPassword("new-hashed");
         verify(userRepository).save(user);
-        verify(tokenStorage).revokeOtherSessions(userId, currentJti);
+        verify(securityEffects).invalidateSessions(user, currentJti);
         verify(securityEventService).recordForAuthenticatedUser(
                 SecurityEventType.PASSWORD_CHANGED,
                 SecurityEventOutcome.SUCCESS,
@@ -122,7 +126,7 @@ class ProfileServiceTest {
         when(user.getEmail()).thenReturn("test@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
 
-        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("test@example.com")).thenReturn(false);
         when(passwordEncoder.matches("wrong", "hashed")).thenReturn(false);
 
@@ -138,7 +142,7 @@ class ProfileServiceTest {
         User user = mock(User.class);
         when(user.getEmail()).thenReturn("locked@example.com");
 
-        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(userRepository.findByIdForUpdate(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(lockoutService.isLocked("locked@example.com")).thenReturn(true);
 
         assertThrows(AccountLockedException.class, () ->

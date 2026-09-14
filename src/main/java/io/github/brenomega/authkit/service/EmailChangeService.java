@@ -25,6 +25,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
 import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
 import io.github.brenomega.authkit.infrastructure.email.EmailTemplateId;
@@ -55,6 +57,8 @@ public class EmailChangeService {
     private final UserAuthoritiesFilter userAuthoritiesFilter;
     private final AuthProperties authProperties;
     private final EmailTemplateRenderer emailTemplateRenderer;
+    private final OAuthLifecycleRevocationService oauthLifecycleRevocationService;
+    private final SecurityEffectService securityEffectService;
 
     public EmailChangeService(UserRepository userRepository,
                               StepUpService stepUpService,
@@ -64,7 +68,9 @@ public class EmailChangeService {
                               TokenStorage tokenStorage,
                               UserAuthoritiesFilter userAuthoritiesFilter,
                               AuthProperties authProperties,
-                              EmailTemplateRenderer emailTemplateRenderer) {
+                              EmailTemplateRenderer emailTemplateRenderer,
+                              OAuthLifecycleRevocationService oauthLifecycleRevocationService,
+                              SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.stepUpService = stepUpService;
         this.mfaService = mfaService;
@@ -74,6 +80,8 @@ public class EmailChangeService {
         this.userAuthoritiesFilter = userAuthoritiesFilter;
         this.authProperties = authProperties;
         this.emailTemplateRenderer = emailTemplateRenderer;
+        this.oauthLifecycleRevocationService = oauthLifecycleRevocationService;
+        this.securityEffectService = securityEffectService;
     }
 
     /**
@@ -84,7 +92,7 @@ public class EmailChangeService {
      */
     @Transactional
     public EmailChangeStatusResponse request(String userId, EmailChangeRequest request) {
-        User user = loadActiveUser(userId);
+        User user = loadActiveUserForUpdate(userId);
         String newEmail = EmailNormalizer.normalize(request.newEmail());
         stepUpService.verifyCurrentPassword(
                 user, request.currentPassword(), SecurityEventType.EMAIL_CHANGE_FAILED, "email_change_step_up_failed");
@@ -165,22 +173,23 @@ public class EmailChangeService {
             throw new UserAlreadyExistsException("Email already in use");
         }
 
-        tokenStorage.revokeAllSessions(user.getId().toString());
-        tokenStorage.revokeRecoveryToken(oldEmail);
-        tokenStorage.revokeRecoveryToken(newEmail);
-        userAuthoritiesFilter.evict(user.getId());
+        oauthLifecycleRevocationService.revokeAll(user.getId(), Instant.now());
         emailOutboxService.enqueue(emailTemplateRenderer.render(
                 EmailTemplateId.EMAIL_CHANGED, oldEmail, Map.of()));
         securityEventService.record(
                 SecurityEventType.EMAIL_CHANGE_COMPLETED, SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.HIGH, user.getId(), user.getId(), user.getTenantId(),
                 newEmail, "email_change_completed", Map.of());
+        securityEffectService.invalidateSessions(user, null);
+        securityEffectService.revokeRecoveryToken(oldEmail);
+        securityEffectService.revokeRecoveryToken(newEmail);
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(user.getId()));
     }
 
     /** Cancels a pending ceremony after the same strong step-up used to create it. */
     @Transactional
     public EmailChangeStatusResponse cancel(String userId, StepUpRequest request) {
-        User user = loadActiveUser(userId);
+        User user = loadActiveUserForUpdate(userId);
         stepUpService.verifyCurrentPassword(
                 user,
                 request.currentPassword(),
@@ -200,6 +209,13 @@ public class EmailChangeService {
     private User loadActiveUser(String userId) {
         @SuppressWarnings("null")
         User user = userRepository.findById(UUID.fromString(userId)).orElseThrow(UserNotFoundException::new);
+        user.requireEmailConfirmed();
+        return user;
+    }
+
+    private User loadActiveUserForUpdate(String userId) {
+        @SuppressWarnings("null")
+        User user = userRepository.findByIdForUpdate(UUID.fromString(userId)).orElseThrow(UserNotFoundException::new);
         user.requireEmailConfirmed();
         return user;
     }

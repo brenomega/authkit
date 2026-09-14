@@ -38,7 +38,7 @@ public class TenantFilterAspect {
     /** Enables the tenant parameter for the outermost applicable service invocation. */
     @Around("execution(* io.github.brenomega.authkit.service..*(..))")
     public Object enforceTenantFilter(ProceedingJoinPoint joinPoint) throws Throwable {
-        String tenantId = currentTenantId();
+        UUID tenantId = currentTenantId();
         int depth = FILTER_DEPTH.get();
         boolean enabledHere = tenantId != null && depth == 0;
 
@@ -63,7 +63,7 @@ public class TenantFilterAspect {
         }
     }
 
-    private String currentTenantId() {
+    private UUID currentTenantId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getAuthorities().stream()
                 .anyMatch(authority -> "ROLE_PLATFORM_ADMIN".equals(authority.getAuthority()))) {
@@ -71,19 +71,15 @@ public class TenantFilterAspect {
         }
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
             String tenantId = JwtTenantResolver.extractTenantId(jwt);
-            if (tenantId != null && isUuid(tenantId)) {
-                return tenantId;
+            if (tenantId != null) {
+                try {
+                    return UUID.fromString(tenantId);
+                } catch (IllegalArgumentException ignored) {
+                    return null;
+                }
             }
         }
         return null;
     }
 
-    private boolean isUuid(String tenantId) {
-        try {
-            UUID.fromString(tenantId);
-            return true;
-        } catch (IllegalArgumentException ex) {
-            return false;
-        }
-    }
 }

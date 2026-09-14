@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.RedisCallback;
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 @Configuration
 @Profile("test")
+@ConditionalOnProperty(name = "authkit.test.mock-redis", havingValue = "true", matchIfMissing = true)
 public class TestCacheConfig {
 
     @SuppressWarnings("null")
@@ -39,6 +41,7 @@ public class TestCacheConfig {
         Map<String, Map<Object, Object>> hashCache = new HashMap<>();
         Map<String, String> valueCache = new HashMap<>();
         Map<String, Set<String>> setCache = new HashMap<>();
+
 
         RedisConnection redisConnection = Mockito.mock(RedisConnection.class);
         Mockito.when(redisConnection.getNativeConnection()).thenReturn(null);
@@ -257,6 +260,7 @@ public class TestCacheConfig {
                             String[] parts = value.split("\\|", -1);
                             parts[2] = invocation.getArgument(8).toString();
                             parts[3] = invocation.getArgument(9).toString();
+                            parts[4] = invocation.getArgument(10).toString();
                             String updated = String.join("|", parts);
                             metadata.put(nextJti, updated);
                             hashCache.computeIfAbsent((String) keys.get(4), ignored -> new HashMap<>())
@@ -310,6 +314,7 @@ public class TestCacheConfig {
         }).when(template).execute(
                 Mockito.<RedisScript<?>>any(),
                 Mockito.anyList(),
+                Mockito.any(),
                 Mockito.any(),
                 Mockito.any(),
                 Mockito.any(),
@@ -371,6 +376,15 @@ public class TestCacheConfig {
         Mockito.doAnswer(invocation -> {
             List<?> keys = invocation.getArgument(1);
             String key = (String) keys.get(0);
+            RedisScript<?> activationScript = invocation.getArgument(0);
+            if (activationScript.getScriptAsString().contains("'PXAT'")) {
+                long expiry = Long.parseLong(invocation.getArgument(3).toString());
+                if (expiry <= System.currentTimeMillis() || valueCache.containsKey(keys.get(2))) return 0L;
+                valueCache.put(key, invocation.getArgument(2).toString());
+                valueCache.remove(keys.get(1));
+                valueCache.put((String) keys.get(2), "1");
+                return 1L;
+            }
             if (isRefreshTokenKey(key)) {
                 RedisScript<?> script = invocation.getArgument(0);
                 String requestedId = invocation.getArgument(2).toString();

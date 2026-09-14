@@ -1,4 +1,5 @@
 package io.github.brenomega.authkit.service;
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -44,6 +45,7 @@ import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.repository.OAuthConsentRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
@@ -54,6 +56,7 @@ import io.github.brenomega.authkit.domain.social.entity.SocialIdentity;
 import io.github.brenomega.authkit.domain.social.entity.SocialIdentityProvider;
 import io.github.brenomega.authkit.domain.user.entity.PasswordHistoryEntry;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEvent;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEvent;
 import io.github.brenomega.authkit.repository.MfaTotpCredentialRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
@@ -85,6 +88,7 @@ class AccountLifecycleServiceTest {
     private MfaTotpCredentialRepository mfaTotpCredentialRepository;
     private PasswordHistoryRepository passwordHistoryRepository;
     private OAuthLifecycleRevocationService oauthLifecycleRevocationService;
+    private SecurityEffectService securityEffectService;
     private AccountLifecycleService service;
 
     @BeforeEach
@@ -111,6 +115,7 @@ class AccountLifecycleServiceTest {
         mfaTotpCredentialRepository = mock(MfaTotpCredentialRepository.class);
         passwordHistoryRepository = mock(PasswordHistoryRepository.class);
         oauthLifecycleRevocationService = mock(OAuthLifecycleRevocationService.class);
+        securityEffectService = mock(SecurityEffectService.class);
         when(tokenStorage.listSessions(any(), eq(100), any())).thenReturn(
                 new SessionPage(List.of(), null));
         service = new AccountLifecycleService(
@@ -137,7 +142,9 @@ class AccountLifecycleServiceTest {
                 passkeyCredentialRepository,
                 mfaTotpCredentialRepository,
                 passwordHistoryRepository,
-                oauthLifecycleRevocationService);
+                oauthLifecycleRevocationService,
+                mock(ConsentEventService.class),
+                securityEffectService);
     }
 
 @SuppressWarnings("null")
@@ -165,7 +172,7 @@ class AccountLifecycleServiceTest {
         assertNull(user.getDeletedAt());
         assertNull(user.getAnonymizedAt());
         verify(userAuthoritiesFilter).evict(userId);
-        verify(tokenStorage).revokeAllSessions(userId.toString());
+        verify(securityEffectService).invalidateSessions(user, null);
         verify(oauthLifecycleRevocationService).revokeAll(eq(userId), any());
         verify(userRepository).save(user);
         verify(mfaService).requireMfaIfEnabled(user, null, "account_deletion");
@@ -202,7 +209,7 @@ class AccountLifecycleServiceTest {
 
         assertTrue(user.isActive());
         verify(userRepository, never()).save(any());
-        verify(tokenStorage, never()).revokeAllSessions(any());
+        verify(securityEffectService, never()).invalidateSessions(any(), any());
         verify(securityEventService, never()).record(
                 eq(SecurityEventType.ACCOUNT_DELETION_REQUESTED),
                 any(),
@@ -302,7 +309,7 @@ class AccountLifecycleServiceTest {
         when(provider.getProviderKey()).thenReturn("example-oidc");
         when(provider.getEncryptedClientSecret()).thenReturn("provider-client-secret-must-not-export");
 
-        when(securityEventRepository.findByTargetUserIdOrderByOccurredAtDesc(userId))
+        when(securityEventRepository.findByTargetUserIdOrderByOccurredAtDesc(eq(userId), any(org.springframework.data.domain.Pageable.class)))
                 .thenReturn(List.of(securityEvent));
         when(consentEventRepository.findByUserIdOrderByAcceptedAtDesc(userId)).thenReturn(List.of(consentEvent));
         when(oauthConsentRepository.findByUserIdOrderByGrantedAtDesc(userId)).thenReturn(List.of(oauthConsent));
@@ -316,7 +323,7 @@ class AccountLifecycleServiceTest {
                         new SessionMetadata(
                                 "00000000-0000-0000-0000-000000000216", "jwt-jti-must-not-export",
                                 Instant.parse("2026-02-06T00:00:00Z"), Instant.parse("2026-02-06T00:01:00Z"),
-                                Instant.parse("2026-02-13T00:00:00Z"), List.of("pwd"), "Firefox", "Laptop",
+                                Instant.parse("2026-02-13T00:00:00Z"), 0, List.of("pwd"), "Firefox", "Laptop",
                                 "192.0.2.0/24", "192.0.2.0/24")), null));
 
         var response = service.exportUserData(userId.toString(), new StepUpRequest("current-pass"));
@@ -357,6 +364,9 @@ class AccountLifecycleServiceTest {
                 user,
                 "user_data_export_requested");
         verify(mfaService).requireMfaIfEnabled(user, null, "data_export");
+        var pageCaptor = ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(securityEventRepository).findByTargetUserIdOrderByOccurredAtDesc(eq(userId), pageCaptor.capture());
+        assertEquals(authProperties.getCompliance().getDataExportSecurityEventLimit(), pageCaptor.getValue().getPageSize());
     }
 
 @SuppressWarnings("null")
@@ -374,7 +384,8 @@ class AccountLifecycleServiceTest {
         assertThrows(InvalidCredentialsException.class,
                 () -> service.exportUserData(userId.toString(), new StepUpRequest("wrong-pass")));
 
-        verify(securityEventRepository, never()).findByTargetUserIdOrderByOccurredAtDesc(any());
+        verify(securityEventRepository, never()).findByTargetUserIdOrderByOccurredAtDesc(
+                any(), any(org.springframework.data.domain.Pageable.class));
         verify(consentEventRepository, never()).findByUserIdOrderByAcceptedAtDesc(any());
         verify(oauthConsentRepository, never()).findByUserIdOrderByGrantedAtDesc(any());
         verify(mfaService, never()).requireMfaIfEnabled(any(), any(), any());

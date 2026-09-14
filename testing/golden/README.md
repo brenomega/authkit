@@ -1,6 +1,6 @@
 # Local golden-path proof overlay
 
-This test-only overlay adds Mailpit with mandatory STARTTLS to the production golden Compose. It does not weaken the AuthKit `prod` profile, TLS proxy, mounted-secret, database-role, Redis, HIBP, or email-template configuration.
+This test-only overlay adds Mailpit with mandatory STARTTLS and `--ignore-duplicate-ids` to the production golden Compose. Mailpit therefore rejects repeat storage by AuthKit's stable RFC 5322 `Message-ID`, and the overlay explicitly enables the production relay-deduplication assertion. It does not weaken the AuthKit `prod` profile, TLS proxy, mounted-secret, database-role, Redis, HIBP, or email-template configuration.
 
 Start from the production preparation in [`docs/INSTALL.md`](../../docs/INSTALL.md): copy `deploy/golden/.env.example` to the ignored `deploy/golden/.env`, create every secret listed in `deploy/golden/secrets/README.md`, and provide all 14 operator email-template files. For this local proof only, the non-production fixtures in `src/test/resources/email-templates` may be used as `AUTHKIT_EMAIL_TEMPLATES_DIRECTORY`; they are never copied into the release image. Set both `AUTHKIT_SECRETS_DIRECTORY` and `AUTHKIT_PROOF_SECRETS_DIRECTORY` to the proof secret directory, choose an unused localhost `AUTHKIT_HTTPS_PORT` and `AUTHKIT_PROOF_MAILPIT_PORT`, and set `AUTHKIT_PUBLIC_HOST` to the hostname used in the certificate below.
 
@@ -37,6 +37,6 @@ docker compose --env-file deploy/golden/.env \
   -f testing/golden/compose.local-proof.yml up -d
 ```
 
-Acceptance requires a healthy stack, successful HTTPS hostname validation, a registration or recovery request, one Mailpit message, and an AuthKit `email_outbox` row in `ACCEPTED`. Stop the proof with the same file list and `down`; add `-v` only when intentionally destroying the proof data.
+Acceptance requires a healthy stack, successful HTTPS hostname validation, a registration or recovery request, one Mailpit message, and an AuthKit `email_outbox` row in `ACCEPTED`. The SMTP crash/reclaim drill must then preserve that row's stable `Message-ID`, force the same outbox item through stale-claim recovery, and prove Mailpit still stores exactly one message. Stop the proof with the same file list and `down`; add `-v` only when intentionally destroying the proof data.
 
-Mailpit proves local SMTP protocol acceptance only. It is not evidence for a real SMTP provider, Resend, inbox delivery, spam placement, public TLS, or either browser topology. Never use this overlay in production or report it as Gate 3/4 proof.
+Mailpit proves local SMTP protocol acceptance and deterministic duplicate suppression only. It is not evidence for an external SMTP provider, Resend, inbox delivery, spam placement, public TLS, or either browser topology. Never use this overlay in production or report it as Gate 3/4 proof.

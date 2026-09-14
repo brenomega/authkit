@@ -36,6 +36,7 @@ import io.github.brenomega.authkit.exception.InvalidSocialLoginException;
 import io.github.brenomega.authkit.exception.LastAuthenticatorException;
 import io.github.brenomega.authkit.exception.SocialLinkRequiredException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
+import io.github.brenomega.authkit.exception.RegistrationRestrictedException;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
@@ -48,6 +49,8 @@ import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
 import io.github.brenomega.authkit.repository.SocialIdentityRepository;
 import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.service.spi.SocialOidcClient;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 
@@ -77,18 +80,20 @@ public class SocialIdentityService {
     private final TokenStorage tokenStorage;
     private final SecurityEventService audit;
     private final ConsentEventService consentEventService;
+    private final SecurityEffectService securityEffectService;
 
     public SocialIdentityService(SocialIdentityProviderRepository providers, SocialIdentityRepository identities,
             SocialLoginTransactionRepository transactions, UserRepository users,
             PasskeyCredentialRepository passkeys, SocialOidcClient oidcClient, SocialSecretCipher cipher,
             AuthProperties properties, AuthService authService, StepUpService stepUpService,
             MfaService mfaService, TokenStorage tokenStorage, SecurityEventService audit,
-            ConsentEventService consentEventService) {
+            ConsentEventService consentEventService, SecurityEffectService securityEffectService) {
         this.providers = providers; this.identities = identities; this.transactions = transactions;
         this.users = users; this.passkeys = passkeys; this.oidcClient = oidcClient; this.cipher = cipher;
         this.properties = properties; this.authService = authService; this.stepUpService = stepUpService;
         this.mfaService = mfaService; this.tokenStorage = tokenStorage; this.audit = audit;
         this.consentEventService = consentEventService;
+        this.securityEffectService = securityEffectService;
     }
 
     /** Starts a login ceremony and binds supplied consent to its transaction. */
@@ -118,7 +123,11 @@ public class SocialIdentityService {
         Instant now = Instant.now();
         long ttlSeconds = properties.getSocial().getTransactionTtlMinutes() * 60;
         transactions.save(new SocialLoginTransaction(TokenHasher.sha256Hex(state), provider.getId(), purpose,
-                userId, nonce, cipher.encrypt(verifier), terms, privacy, now, now.plusSeconds(ttlSeconds)));
+                userId, nonce, cipher.encrypt(verifier), terms, privacy,
+                properties.getCompliance().getTermsVersion(),
+                properties.getCompliance().getPrivacyPolicyVersion(),
+                properties.getCompliance().getLawfulBasis(),
+                now, now.plusSeconds(ttlSeconds)));
 
         @SuppressWarnings("null")
         String url = UriComponentsBuilder.fromUriString(metadata.authorizationEndpoint())
@@ -163,7 +172,7 @@ public class SocialIdentityService {
         if (transaction.getPurpose() == SocialLoginPurpose.LINK) {
             User user = activeUserForUpdate(transaction.getUserId());
             link(user, provider, identity, now);
-            tokenStorage.revokeAllSessions(user.getId().toString());
+            securityEffectService.invalidateSessions(user, null);
             audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_IDENTITY_LINKED,
                     SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, user,
                     "social_identity_linked", Map.of("provider", provider.getProviderKey()));
@@ -189,14 +198,17 @@ public class SocialIdentityService {
         }
         String email = EmailNormalizer.normalize(claimed.email());
         if (users.findByEmail(email).isPresent()) throw new SocialLinkRequiredException();
+        if (!"public".equalsIgnoreCase(properties.getRegistration().getMode())) {
+            throw new RegistrationRestrictedException();
+        }
         if (!transaction.isTermsAccepted() || !transaction.isPrivacyAccepted()) throw new InvalidSocialLoginException();
 
         User user = new User(email, null, claimed.displayName(), true, true, null);
         user.setEmailConfirmed(true);
         user.recordConsent(
-                properties.getCompliance().getTermsVersion(),
-                properties.getCompliance().getPrivacyPolicyVersion(),
-                properties.getCompliance().getLawfulBasis(),
+                transaction.getTermsVersion(),
+                transaction.getPrivacyPolicyVersion(),
+                transaction.getLawfulBasis(),
                 now);
         try {
             user = users.saveAndFlush(user);
@@ -256,13 +268,13 @@ public class SocialIdentityService {
         SocialIdentity identity = identities.findByIdAndUserId(
             identityId,
             userId).orElseThrow(UserNotFoundException::new);
-        long authenticators = (user.getPassword() == null ? 0 : 1)
+        long authenticatorsAfterUnlink = (user.getPassword() == null ? 0 : 1)
                 + passkeys.countByUserIdAndDisabledAtIsNull(userId)
-                + identities.countByUserId(userId);
-        if (authenticators <= 1) throw new LastAuthenticatorException();
+                + identities.countEnabledByUserIdExcluding(userId, identityId);
+        if (authenticatorsAfterUnlink == 0) throw new LastAuthenticatorException();
         identities.delete(identity);
         identities.flush();
-        tokenStorage.revokeAllSessions(userId.toString());
+        securityEffectService.invalidateSessions(user, null);
         audit.recordForAuthenticatedUser(SecurityEventType.SOCIAL_IDENTITY_UNLINKED,
                 SecurityEventOutcome.SUCCESS, SecurityEventSeverity.HIGH, user,
                 "social_identity_unlinked", Map.of("issuer", identity.getIssuer()));

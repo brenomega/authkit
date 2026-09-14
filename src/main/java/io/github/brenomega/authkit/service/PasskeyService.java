@@ -370,7 +370,7 @@ public class PasskeyService {
                 .orElseThrow(UserNotFoundException::new);
         long authenticators = (user.getPassword() == null ? 0 : 1)
                 + credentialRepository.countByUserIdAndDisabledAtIsNull(user.getId())
-                + socialIdentityRepository.countByUserId(user.getId());
+                + socialIdentityRepository.countEnabledByUserId(user.getId());
         if (authenticators <= 1) {
             throw new LastAuthenticatorException();
         }

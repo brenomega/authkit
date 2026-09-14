@@ -8,11 +8,12 @@
     "iss": "authkit",
     "sub": "fixture-user-id",
     "jti": "fixture-session-jti",
+    "session_version": 0,
     "tenant_id": "fixture-tenant-id",
     "amr": ["pwd"]
   },
   "expectedAuthKitResult": "rejectedByOAuthUserinfo",
   "expectedIntegratorResult": "rejected",
-  "expectedStatus": 400,
+  "expectedStatus": 401,
   "reason": "OAuth userinfo accepts oauth_access tokens only"
 }

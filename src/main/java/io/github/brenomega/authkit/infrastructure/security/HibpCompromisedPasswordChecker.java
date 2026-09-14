@@ -98,6 +98,9 @@ public class HibpCompromisedPasswordChecker implements CompromisedPasswordChecke
 
     private String sha1Hex(String rawPassword) {
         try {
+            // HIBP Passwords' k-anonymity protocol requires the uppercase SHA-1
+            // prefix; this digest is never used for password storage or signing.
+            // nosemgrep: java.lang.security.audit.crypto.use-of-sha1.use-of-sha1
             byte[] digest = MessageDigest.getInstance("SHA-1")
                     .digest(rawPassword.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().withUpperCase().formatHex(digest);

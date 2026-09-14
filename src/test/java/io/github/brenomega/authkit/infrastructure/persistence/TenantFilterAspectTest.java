@@ -39,7 +39,7 @@ class TenantFilterAspectTest {
         Session session = mock(Session.class);
         Filter filter = mock(Filter.class);
         ProceedingJoinPoint joinPoint = mock(ProceedingJoinPoint.class);
-        String tenantId = UUID.randomUUID().toString();
+        UUID tenantId = UUID.randomUUID();
 
         when(entityManager.unwrap(Session.class)).thenReturn(session);
         when(session.enableFilter("tenantFilter")).thenReturn(filter);
@@ -47,7 +47,7 @@ class TenantFilterAspectTest {
         when(joinPoint.proceed()).thenReturn("done");
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt(Map.of(
             "tenant_id",
-            tenantId))));
+            tenantId.toString()))));
 
         Object result = new TenantFilterAspect(entityManager).enforceTenantFilter(joinPoint);
 

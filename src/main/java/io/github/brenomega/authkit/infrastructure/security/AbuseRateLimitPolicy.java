@@ -5,9 +5,8 @@ import java.time.Duration;
 /**
  * Defines per-use-case distributed and degraded-local abuse budgets.
  *
- * <p>High risk identifies operational sensitivity; only policies for which
- * {@link #failClosedEligible()} is true may deny requests solely because the
- * distributed limiter is unavailable.</p>
+ * <p>High-risk policies deny requests when the distributed limiter is unavailable
+ * and production fail-closed behavior is enabled.</p>
  */
 public enum AbuseRateLimitPolicy {
     LOGIN_ENDPOINT_IP("login_endpoint_ip", 30, 10, Duration.ofMinutes(1), true),
@@ -86,14 +85,6 @@ public enum AbuseRateLimitPolicy {
     }
 
     public boolean failClosedEligible() {
-        return switch (this) {
-            case LOGIN_ENDPOINT_IP, LOGIN_ENDPOINT_DEVICE, LOGIN_EMAIL,
-                    MFA_VERIFY_IP, MFA_VERIFY_USER,
-                    REGISTRATION_IP, REGISTRATION_EMAIL,
-                    PASSWORD_RECOVERY_IP, PASSWORD_RECOVERY_EMAIL_COOLDOWN,
-                    PASSWORD_RECOVERY_EMAIL_DAILY, PASSWORD_RESET_IP,
-                    PASSWORD_RESET_EMAIL, OAUTH_TOKEN_IP -> true;
-            default -> false;
-        };
+        return highRisk;
     }
 }

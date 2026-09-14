@@ -19,5 +19,5 @@ if [[ -n "${AUTHKIT_REVOKE_JTI:-}" ]]; then
     "${AUTHKIT_BASE_URL}/api/v1/users/me/sessions/${AUTHKIT_REVOKE_JTI}")"
   assert_status "200" "${revoke_status}" "session revoke"
 else
-  echo "SKIP: set AUTHKIT_REVOKE_JTI to exercise session revocation."
+  skip_if_missing AUTHKIT_REVOKE_JTI
 fi

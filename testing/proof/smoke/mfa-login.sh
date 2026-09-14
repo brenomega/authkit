@@ -16,8 +16,8 @@ assert_status_in "${login_status}" "MFA protected login challenge" 200 401 403
 
 mfa_token="$(json_value /tmp/authkit-mfa-login.json '.data.mfaToken // empty')"
 if [[ -z "${mfa_token}" ]]; then
-  echo "SKIP: login response did not expose an mfaToken for this configured account."
-  exit 0
+  echo "FAIL: login response did not expose an mfaToken for this configured account." >&2
+  exit 1
 fi
 
 verify_body="$(printf '{"mfaToken":"%s","code":"%s"}' "${mfa_token}" "${AUTHKIT_SMOKE_MFA_CODE}")"

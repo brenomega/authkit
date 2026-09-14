@@ -1,6 +1,8 @@
 # AuthKit v0.1 system design
 
-[Português (Brasil)](SYSTEM_DESIGN-ptBR.md) | English is normative.
+[English](SYSTEM_DESIGN.md) | [Português (Brasil)](SYSTEM_DESIGN-ptBR.md)
+
+English is authoritative when translations differ.
 
 ## Trust and data boundaries
 
@@ -17,6 +19,64 @@ flowchart LR
 ```
 
 The browser never receives provider tokens after federation. First-party refresh tokens are HttpOnly same-site cookies protected by double-submit CSRF; access tokens are short-lived and memory-only. Cross-site OAuth clients use Authorization Code with state, nonce, exact redirect URI, and PKCE S256. OAuth refresh tokens are opaque rotating credentials tied to a locked family. `tenant_id` partitions one person's records and carries no organization authority.
+
+## Internal dependency direction
+
+```mermaid
+flowchart LR
+  HTTP[Controllers and security filters] --> APP[Lifecycle/application services]
+  JOBS[Schedulers and offline commands] --> APP
+  APP --> DOMAIN[Entities, invariants and value objects]
+  APP --> PORTS[Repository, token-store, mail and audit ports]
+  PORTS --> SQL[JPA/JDBC adapters]
+  PORTS --> CACHE[Redis/JDBC token adapters]
+  PORTS --> PROVIDERS[SMTP, Resend and OIDC adapters]
+  SQL --> PG[(PostgreSQL)]
+  CACHE --> REDIS[(Redis)]
+```
+
+Transport code does not call persistence adapters directly. Services own transaction boundaries; critical audit and SQL business state share the same transaction, while non-transactional revocation/cache cleanup is registered only after commit. Domain code does not depend on Spring MVC, Redis, SMTP or provider wire formats.
+
+## Data ownership
+
+```mermaid
+erDiagram
+  USER ||--o{ CONSENT_EVENT : records
+  USER ||--o{ SECURITY_EVENT : subject
+  USER ||--o{ PASSKEY_CREDENTIAL : owns
+  USER ||--o{ MFA_CREDENTIAL : owns
+  USER ||--o{ SOCIAL_IDENTITY : links
+  USER ||--o{ OAUTH_CONSENT : grants
+  USER ||--o{ OAUTH_REFRESH_FAMILY : owns
+  USER ||--o{ ONE_TIME_STATE : binds
+  EMAIL_OUTBOX }o--|| USER : notifies
+```
+
+PostgreSQL is authoritative for users, lifecycle state, consents, OAuth families, WebAuthn counters, durable email, and audit. Redis owns expiring first-party sessions, distributed abuse/lockout state, and selected one-time claims; its keys carry user/tenant binding and TTL. Provider tokens are validated and discarded rather than persisted.
+
+## Deployment variants
+
+```mermaid
+flowchart TB
+  subgraph Golden[Golden GA deployment]
+    C[Caddy TLS/reverse proxy] --> A1[AuthKit]
+    A1 --> P1[(PostgreSQL 17)]
+    A1 --> R1[(Redis 7)]
+    A1 --> E1[SMTP TLS or Resend]
+  end
+  subgraph Scale[Unsupported scale-out planning topology]
+    LB[Trusted proxy/load balancer] --> A2[AuthKit replica A]
+    LB --> A3[AuthKit replica B]
+    A2 & A3 --> P2[(PostgreSQL 17)]
+    A2 & A3 --> R2[(Redis 7 required)]
+  end
+  subgraph Experimental[Explicitly experimental]
+    A4[Single AuthKit instance] --> P3[(PostgreSQL 17)]
+    A4 --> J[JDBC token storage]
+  end
+```
+
+The golden Compose topology is the fresh-install reference. Same-site browser and cross-site OAuth layouts differ in cookie/CORS behavior, not in trust of forwarded headers. JDBC token storage is restricted to one application instance and is never substituted when a gate requires real Redis.
 
 ## Identity lifecycle
 
@@ -39,11 +99,29 @@ Registration confirmation and email-change tokens lock the owning user row. Reco
 
 Email creation and business state commit with the durable outbox. Provider dispatch is outside that database transaction: SMTP performs one transport attempt per claim and the outbox owns retries; Resend adds bounded provider-idempotent retries. Provider acceptance and inbox delivery are distinct facts.
 
+```mermaid
+sequenceDiagram
+  participant S as Lifecycle service
+  participant PG as PostgreSQL
+  participant W as Outbox worker
+  participant M as SMTP/Resend
+  S->>PG: Commit business mutation + PENDING email
+  W->>PG: Claim due row with lease
+  W->>M: Send with stable outbox idempotency identity
+  alt Provider accepts
+    W->>PG: Record ACCEPTED + provider message ID
+  else Temporary failure
+    W->>PG: Release with bounded backoff
+  else Retry budget exhausted
+    W->>PG: Mark DEAD and fire critical alert
+  end
+```
+
 ## Token classes and revocation
 
 | Class | `token_use` | Audience | Revocation |
 | --- | --- | --- | --- |
-| First-party access | `first_party_access` | configured API | session/JTI checked inside AuthKit; external offline consumers bounded by ≤300 s expiry |
+| First-party access | `first_party_access` | configured API | live session/JTI plus uncached PostgreSQL `session_version`; external offline consumers bounded by ≤300 s expiry |
 | OAuth access | `oauth_access` | OAuth client | client/family/JTI revocation and authenticated introspection |
 | OIDC ID token | `id_token` | OAuth client | authentication statement only; never accepted as API bearer |
 
@@ -133,3 +211,22 @@ sequenceDiagram
 ```
 
 All administrative searches use short-lived signed cursors bound to the query. Bootstrap of the first administrator is an offline one-shot command; it is not exposed through HTTP.
+
+## Backup, restore and signing-key rotation
+
+```mermaid
+flowchart LR
+  Freeze[Record candidate and UTC cutoff] --> Dump[pg_dump + Redis RDB]
+  Dump --> Hash[SHA-256, encrypt and copy off-host]
+  Hash --> Clean[Clean PostgreSQL/Redis host]
+  Clean --> Restore[Restore PostgreSQL then Redis]
+  Restore --> Verify[Flyway, row counts, sessions, audit chain and smoke]
+
+  Current[Current signing key] --> Add[Configure new current + previous public key]
+  Add --> Publish[Publish both kids in JWKS]
+  Publish --> Issue[Issue only with new kid]
+  Issue --> Retire[Wait maximum token lifetime]
+  Retire --> Remove[Remove old private/public material]
+```
+
+Backup/restore is a clean-host exercise, not merely a dump command; checksums, encryption, Redis expiry behavior, Flyway state, audit integrity and application smoke are verified. Planned rotation publishes overlap before issuance changes. Emergency revocation removes the compromised `kid`, invalidates affected live state, and accepts the bounded availability impact; an unknown or revoked `kid` always fails closed. Procedures and evidence fields are in [Operations](../OPERATIONS.md) and the [proof playbook](../proof/README.md).

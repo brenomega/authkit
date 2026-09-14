@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: authkit-service
+  namespace: authkit
   labels:
     app: authkit
 spec:

@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 report_dir="${AUTHKIT_DIAGNOSTICS_DIR:-target/diagnostics/$(date -u +%Y%m%dT%H%M%SZ)}"
 base_url="${AUTHKIT_BASE_URL:-http://localhost:8080}"
 mkdir -p "${report_dir}"
+chmod 700 "${report_dir}"
 
 mask_env() {
-  env | sort | sed -E 's/(PASSWORD|SECRET|TOKEN|PRIVATE|PEPPER|KEY)=.*/\1=****/I'
+  env | sort | awk -F= '
+    {
+      key=$1
+      if (toupper(key) ~ /(PASSWORD|PASSWD|SECRET|TOKEN|PRIVATE|PEPPER|KEY|CREDENTIAL|AUTHORIZATION|COOKIE|DSN)/) {
+        print key "=****"
+      } else {
+        print $0
+      }
+    }'
 }
 
 {

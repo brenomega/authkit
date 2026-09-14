@@ -34,6 +34,7 @@ import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 class EmailChangeServiceTest {
@@ -46,6 +47,7 @@ class EmailChangeServiceTest {
     private TokenStorage tokens;
     private UserAuthoritiesFilter authorities;
     private EmailChangeService service;
+    private SecurityEffectService securityEffects;
 
     @BeforeEach
     void setUp() {
@@ -56,6 +58,7 @@ class EmailChangeServiceTest {
         events = mock(SecurityEventService.class);
         tokens = mock(TokenStorage.class);
         authorities = mock(UserAuthoritiesFilter.class);
+        securityEffects = mock(SecurityEffectService.class);
         AuthProperties properties = new AuthProperties();
         properties.getFrontend().setEmailChangeUrl("https://app.example/change-email");
         var renderer = mock(EmailTemplateRenderer.class);
@@ -65,14 +68,15 @@ class EmailChangeServiceTest {
                     invocation.getArgument(1), "subject",
                     variables.containsKey("action_url") ? String.valueOf(variables.get("action_url")) : "notice");
         });
-        service = new EmailChangeService(users, stepUp, mfa, outbox, events, tokens, authorities, properties, renderer);
+        service = new EmailChangeService(users, stepUp, mfa, outbox, events, tokens, authorities, properties, renderer,
+                mock(OAuthLifecycleRevocationService.class), securityEffects);
     }
 
 @SuppressWarnings("null")
 @Test
     void requestPreservesActiveAddressAndCreatesAuditedPendingState() {
         User user = user("old@example.com");
-        when(users.findById(user.getId())).thenReturn(Optional.of(user));
+        when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
         when(users.findByEmail("new@example.com")).thenReturn(Optional.empty());
 
         var response = service.request(user.getId().toString(),
@@ -104,9 +108,9 @@ class EmailChangeServiceTest {
 
         assertEquals("new@example.com", user.getEmail());
         assertNull(user.getPendingEmail());
-        verify(tokens).revokeAllSessions(user.getId().toString());
-        verify(tokens).revokeRecoveryToken("old@example.com");
-        verify(tokens).revokeRecoveryToken("new@example.com");
+        verify(securityEffects).invalidateSessions(user, null);
+        verify(securityEffects).revokeRecoveryToken("old@example.com");
+        verify(securityEffects).revokeRecoveryToken("new@example.com");
         verify(authorities).evict(user.getId());
         verify(events).record(eq(SecurityEventType.EMAIL_CHANGE_COMPLETED),
                 eq(SecurityEventOutcome.SUCCESS), eq(SecurityEventSeverity.HIGH),
@@ -120,7 +124,7 @@ class EmailChangeServiceTest {
 
         assertThrows(InvalidTokenException.class, () -> service.confirm("wrong"));
 
-        verify(tokens, never()).revokeAllSessions(any());
+        verify(securityEffects, never()).invalidateSessions(any(), any());
         verify(events).record(eq(SecurityEventType.EMAIL_CHANGE_FAILED),
                 eq(SecurityEventOutcome.FAILURE), eq(SecurityEventSeverity.HIGH),
                 org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
@@ -134,7 +138,7 @@ class EmailChangeServiceTest {
         User user = user("old@example.com");
         user.requestEmailChange("new@example.com", TokenHasher.sha256Hex("token"),
                 Instant.now(), Instant.now().plusSeconds(3600));
-        when(users.findById(user.getId())).thenReturn(Optional.of(user));
+        when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
 
         var response = service.cancel(user.getId().toString(), new StepUpRequest("password", "123456"));
 

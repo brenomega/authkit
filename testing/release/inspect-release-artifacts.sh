@@ -2,12 +2,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--jar PATH] [--image IMAGE] [--context]" >&2
+  echo "Usage: $0 [--jar PATH] [--image IMAGE] [--context] [--context-dir PATH]" >&2
 }
 
 jar_path=""
 image_ref=""
 inspect_context=false
+context_source="."
 
 while (($# > 0)); do
   case "$1" in
@@ -22,6 +23,11 @@ while (($# > 0)); do
     --context)
       inspect_context=true
       shift
+      ;;
+    --context-dir)
+      inspect_context=true
+      context_source="${2:-}"
+      shift 2
       ;;
     *)
       usage
@@ -72,14 +78,20 @@ inspect_jar() {
 }
 
 if [[ "${inspect_context}" == true ]]; then
+  context_source="$(realpath "${context_source}")"
+  [[ -d "${context_source}" ]] || fail "Docker build context not found: ${context_source}"
   context_dir="${task_tmp_dir}/context-output"
   mkdir -p "${context_dir}"
-  docker build --target build-context --output "type=local,dest=${context_dir}" . >/dev/null
+  docker build --target build-context --output "type=local,dest=${context_dir}" "${context_source}" >/dev/null
   context_root="${context_dir}/context"
   [[ -d "${context_root}" ]] || fail "Docker build-context export was not produced"
   for forbidden in .git .env src/test src/main/resources/application-test.yml src/main/resources/test-keys; do
     [[ ! -e "${context_root}/${forbidden}" ]] || fail "forbidden build-context path present: ${forbidden}"
   done
+  if find "${context_root}/deploy/golden/secrets" -mindepth 1 -maxdepth 1 -type f \
+      ! -name README.md -print -quit 2>/dev/null | grep -q .; then
+    fail "local golden secret material is present in the Docker build context"
+  fi
   if find "${context_root}" -type f \( -name '*.key' -o -name '*.pem' -o -name 'application-test.yml' \) -print -quit | grep -q .; then
     fail "private-key or test-profile file is present in the Docker build context"
   fi

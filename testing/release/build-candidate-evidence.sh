@@ -20,6 +20,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
 
 task_tmp_dir="$(mktemp -d)"
+audit_report="authkit-v0.1-final-audit-v5-reviewed.md"
 cleanup() {
   rm -rf "${task_tmp_dir}"
 }
@@ -29,12 +30,33 @@ candidate_version="$(./mvnw help:evaluate -Dexpression=project.version -q -Dforc
 candidate_tag="authkit-local:${candidate_version}"
 verify_log="${task_tmp_dir}/maven-clean-verify.log"
 sample_log="${task_tmp_dir}/resource-server-test.log"
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Maven clean removes target. Preserve prior candidate evidence and remediation
+# transcripts outside that directory; never silently overwrite an earlier proof.
+if [[ -d target/release-evidence || -d target/remediation-v5 ]]; then
+  mkdir -p "${repo_root}/.release-evidence-history"
+  evidence_history="$(mktemp -d "${repo_root}/.release-evidence-history/candidate.XXXXXX")"
+  for previous in target/release-evidence target/remediation-v5 target/surefire-reports; do
+    if [[ -d "${previous}" ]]; then cp -a "${previous}" "${evidence_history}/"; fi
+  done
+  echo "previous_evidence_preserved_at=${evidence_history}"
+fi
 
 ./mvnw clean verify -Dspring.profiles.active=test -B 2>&1 | tee "${verify_log}"
 
 evidence_dir="${repo_root}/target/release-evidence"
 mkdir -p "${evidence_dir}/sbom" "${evidence_dir}/scans"
 cp "${verify_log}" "${evidence_dir}/maven-clean-verify.log"
+
+{
+  echo "captured_at_utc=${started_at}"
+  java -version
+  ./mvnw -version
+  docker version
+  docker buildx version
+  node --version
+} >"${evidence_dir}/tool-versions.txt" 2>&1
 
 (
   cd samples/resource-server-spring
@@ -49,9 +71,36 @@ jar_path="$(find target -maxdepth 1 -type f -name 'authkit-*.jar' ! -name '*.ori
 testing/release/inspect-release-artifacts.sh --jar "${jar_path}" --context \
   2>&1 | tee "${evidence_dir}/artifact-inspection.log"
 
+head_commit="$(git rev-parse HEAD)"
+branch="$(git branch --show-current)"
+source_date_epoch="$(git show -s --format=%ct "${head_commit}")"
+candidate_index="${task_tmp_dir}/candidate.index"
+GIT_INDEX_FILE="${candidate_index}" git read-tree HEAD
+GIT_INDEX_FILE="${candidate_index}" git add -A -- .
+GIT_INDEX_FILE="${candidate_index}" git rm --cached --ignore-unmatch -- "${audit_report}" >/dev/null
+candidate_tree="$(GIT_INDEX_FILE="${candidate_index}" git write-tree)"
+git ls-tree -r --full-tree "${candidate_tree}" >"${evidence_dir}/candidate-tree-files.txt"
+
+source_archive="${evidence_dir}/authkit-${candidate_version}-source.tar.gz"
+git archive --format=tar --mtime="@${source_date_epoch}" \
+  --prefix="authkit-${candidate_version}/" "${candidate_tree}" \
+  | gzip -n >"${source_archive}"
+source_archive_sha256="$(sha256sum "${source_archive}" | cut -d' ' -f1)"
+candidate_context_parent="${task_tmp_dir}/candidate-context"
+mkdir -p "${candidate_context_parent}"
+tar -xzf "${source_archive}" -C "${candidate_context_parent}"
+candidate_context="${candidate_context_parent}/authkit-${candidate_version}"
+(
+  cd "${candidate_context}"
+  find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+) >"${evidence_dir}/source-files.sha256"
+testing/release/inspect-release-artifacts.sh --context-dir "${candidate_context}" \
+  2>&1 | tee "${evidence_dir}/frozen-context-inspection.log"
+
 docker build --label "org.opencontainers.image.version=${candidate_version}" \
-  --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
-  --tag "${candidate_tag}" . 2>&1 | tee "${evidence_dir}/docker-build.log"
+  --label "org.opencontainers.image.revision=${candidate_tree}" \
+  --label "io.authkit.base-commit=${head_commit}" \
+  --tag "${candidate_tag}" "${candidate_context}" 2>&1 | tee "${evidence_dir}/docker-build.log"
 testing/release/inspect-release-artifacts.sh --image "${candidate_tag}" \
   2>&1 | tee "${evidence_dir}/image-inspection.log"
 
@@ -80,14 +129,13 @@ jq -Rn \
       | {uri: .uri, digest: {sha256: .digest}}]
   }' <"${resolved_images_file}" >"${evidence_dir}/resolved-build-inputs.json"
 
-git diff --binary >"${evidence_dir}/tracked.patch"
-git ls-files --others --exclude-standard -z -- . ':(exclude)pre-release-audit.md' \
+git diff --binary -- . ":(exclude)${audit_report}" >"${evidence_dir}/tracked.patch"
+git ls-files --others --exclude-standard -z -- . \
+  ":(exclude)${audit_report}" \
   | sort -z \
   | xargs -0 -r sha256sum >"${evidence_dir}/untracked-files.sha256"
 git status --short >"${evidence_dir}/git-status.txt"
 
-head_commit="$(git rev-parse HEAD)"
-branch="$(git branch --show-current)"
 tracked_patch_sha256="$(sha256sum "${evidence_dir}/tracked.patch" | cut -d' ' -f1)"
 untracked_manifest_sha256="$(sha256sum "${evidence_dir}/untracked-files.sha256" | cut -d' ' -f1)"
 image_id="$(docker image inspect --format '{{.Id}}' "${candidate_tag}")"
@@ -96,6 +144,11 @@ jq -n \
   --arg candidateVersion "${candidate_version}" \
   --arg branch "${branch}" \
   --arg headCommit "${head_commit}" \
+  --arg candidateTree "${candidate_tree}" \
+  --arg sourceArchive "$(basename "${source_archive}")" \
+  --arg sourceArchiveSha256 "${source_archive_sha256}" \
+  --argjson sourceDateEpoch "${source_date_epoch}" \
+  --arg auditReport "${audit_report}" \
   --arg trackedPatchSha256 "${tracked_patch_sha256}" \
   --arg untrackedManifestSha256 "${untracked_manifest_sha256}" \
   --arg localImageReference "${candidate_tag}" \
@@ -107,7 +160,12 @@ jq -n \
     candidateVersion: $candidateVersion,
     source: {
       branch: $branch,
-      headCommit: $headCommit,
+      baseCommit: $headCommit,
+      candidateTree: $candidateTree,
+      archive: $sourceArchive,
+      archiveSha256: $sourceArchiveSha256,
+      sourceDateEpoch: $sourceDateEpoch,
+      excludedEvidenceDocuments: [$auditReport],
       trackedPatchSha256: $trackedPatchSha256,
       untrackedManifestSha256: $untrackedManifestSha256
     },
@@ -124,8 +182,9 @@ jq -n \
 
 jq -n \
   --arg subjectName "authkit-${candidate_version}-source-tree" \
-  --arg subjectDigest "${tracked_patch_sha256}" \
+  --arg subjectDigest "${source_archive_sha256}" \
   --arg headCommit "${head_commit}" \
+  --arg candidateTree "${candidate_tree}" \
   --arg localImageId "${image_id#sha256:}" \
   --arg generatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --slurpfile resolvedBuildInputs "${evidence_dir}/resolved-build-inputs.json" \
@@ -137,7 +196,7 @@ jq -n \
       buildDefinition: {
         buildType: "https://github.com/brenomega/authkit/local-candidate-build/v1",
         externalParameters: {publicationAuthorized: false},
-        internalParameters: {headCommit: $headCommit},
+        internalParameters: {baseCommit: $headCommit, candidateTree: $candidateTree},
         resolvedDependencies: ([
           {uri: ("git+https://github.com/brenomega/authkit@" + $headCommit), digest: {gitCommit: $headCommit}},
           $resolvedBuildInputs[0].mavenDistribution,
@@ -158,9 +217,10 @@ if [[ "${build_multiarch}" == true ]]; then
   docker buildx build \
     --platform linux/amd64,linux/arm64 \
     --label "org.opencontainers.image.version=${candidate_version}" \
-    --label "org.opencontainers.image.revision=${head_commit}" \
+    --label "org.opencontainers.image.revision=${candidate_tree}" \
+    --label "io.authkit.base-commit=${head_commit}" \
     --output "type=oci,dest=${evidence_dir}/authkit-${candidate_version}.oci.tar" \
-    --metadata-file "${evidence_dir}/multiarch-metadata.json" . \
+    --metadata-file "${evidence_dir}/multiarch-metadata.json" "${candidate_context}" \
     2>&1 | tee "${evidence_dir}/multiarch-build.log"
 
   multiarch_digest="$(jq -r '."containerimage.digest"' "${evidence_dir}/multiarch-metadata.json")"
@@ -177,9 +237,16 @@ if [[ "${build_multiarch}" == true ]]; then
        }' \
     "${evidence_dir}/manifest.json" >"${manifest_update}"
   mv "${manifest_update}" "${evidence_dir}/manifest.json"
+
+  provenance_update="${task_tmp_dir}/provenance-multiarch.json"
+  jq --arg digest "${multiarch_digest#sha256:}" \
+    '.subject += [{name: "authkit-multiarch-oci", digest: {sha256: $digest}}]
+     | .predicate.runDetails.byproducts += [{name: "multiarch-oci-manifest", digest: {sha256: $digest}}]' \
+    "${evidence_dir}/unsigned-provenance.json" >"${provenance_update}"
+  mv "${provenance_update}" "${evidence_dir}/unsigned-provenance.json"
 fi
 
-testing/release/scan-candidate.sh "${candidate_tag}" "${evidence_dir}/scans" "${require_scans}"
+testing/release/scan-candidate.sh "${candidate_tag}" "${evidence_dir}/scans" "${require_scans}" "${source_archive}"
 
 (
   cd "${evidence_dir}"
@@ -189,4 +256,7 @@ testing/release/scan-candidate.sh "${candidate_tag}" "${evidence_dir}/scans" "${
 )
 
 echo "Candidate evidence created at ${evidence_dir}"
+echo "Base commit: ${head_commit}"
+echo "Candidate tree: ${candidate_tree}"
+echo "Source archive SHA-256: ${source_archive_sha256}"
 echo "No image, artifact, tag, signature, or attestation was published."

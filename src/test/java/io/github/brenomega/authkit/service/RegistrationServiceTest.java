@@ -96,7 +96,7 @@ class RegistrationServiceTest {
 
         when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
         when(passwordEncoder.encode("Password123!")).thenReturn("hashedPwd");
-        when(userRepository.save(any(User.class))).thenAnswer(i -> i.getArgument(0));
+        when(userRepository.saveAndFlush(any(User.class))).thenAnswer(i -> i.getArgument(0));
 
         User user = service.registerUser(request);
 
@@ -168,7 +168,7 @@ class RegistrationServiceTest {
         stubEmailTemplateRenderer();
         User user = new User("resend@example.com", "pw", null, true, true, "old-token-hash");
         user.setEmailConfirmationExpiresAt(Instant.now().plusSeconds(60));
-        when(userRepository.findByEmail("resend@example.com")).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailForUpdate("resend@example.com")).thenReturn(Optional.of(user));
 
         service.resendEmailConfirmation("resend@example.com");
 

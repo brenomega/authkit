@@ -1,6 +1,8 @@
 # AuthKit integrator guide
 
-[Português (Brasil)](INTEGRATOR-ptBR.md) | English is normative.
+[English](INTEGRATOR.md) | [Português (Brasil)](INTEGRATOR-ptBR.md)
+
+English is authoritative when translations differ.
 
 ## Choose one browser topology
 
@@ -16,7 +18,7 @@ Every JWT must carry exactly one explicit `token_use`; missing or legacy values 
 
 | `token_use` | Exact audience | Intended consumer | Required boundary |
 | --- | --- | --- | --- |
-| `first_party_access` | Configured AuthKit/API audience | AuthKit first-party user/admin APIs | `sub`, `jti`, personal `tenant_id`, `amr`; live AuthKit session |
+| `first_party_access` | Configured AuthKit/API audience | AuthKit first-party user/admin APIs | `sub`, `jti`, numeric `session_version`, personal `tenant_id`, `amr`; live AuthKit session and accepted PostgreSQL security version |
 | `oauth_access` | OAuth client ID | Client resource API, userinfo, authenticated introspection/revocation | `sub`, `jti`, `client_id`, `scope`, personal `tenant_id`; live client/family state |
 | `id_token` | OAuth client ID | OIDC authentication result only | Never an API bearer; validate nonce when issued for an authorization request |
 
@@ -26,11 +28,16 @@ Consumers validate the configured algorithm, exact `iss`, expected `aud`, signat
 
 Cache `/.well-known/jwks.json` for a short bounded period. On unknown `kid`, refresh once and reject if still absent. Pin allowed algorithms independently of the token header. During planned rotation, keep retiring public keys until every issued token expires; exercise emergency removal separately.
 
-AuthKit immediately revokes first-party sessions and OAuth families within its own live checks/introspection. A downstream resource server validating JWTs offline observes revocation no later than the access-token expiry (the golden recommendation is at most 300 seconds). Use authenticated first-party introspection only from trusted peers when a downstream requires live first-party status; use standard authenticated OAuth introspection for OAuth access tokens.
+AuthKit immediately rejects invalidated first-party sessions through its PostgreSQL `session_version` boundary, even while external session cleanup is retrying, and revokes OAuth families within its own live checks/introspection. A downstream resource server validating JWTs offline observes revocation no later than the access-token expiry (the golden recommendation is at most 300 seconds). Use authenticated first-party introspection only from trusted peers when a downstream requires live first-party status; use standard authenticated OAuth introspection for OAuth access tokens.
 
 The Spring resource-server sample demonstrates issuer, audience, `token_use=oauth_access`, and scope validation. It deliberately does not convert `PLATFORM_ADMIN` into host-product authority or use `tenant_id` as an organization.
 
 ## Federation
+
+For email change and MFA management, `currentPassword` is required for accounts
+with a local password. Passwordless accounts omit it and present a fresh local
+WebAuthn-authenticated session within the configured step-up window. Missing or
+stale passkey proof is rejected; provider authentication is not local step-up.
 
 Only providers allowlisted by a platform administrator are usable. AuthKit binds identities solely by exact `(issuer, subject)`. An equal email never auto-links accounts; the signed-in person must start an explicit link ceremony with local step-up. Unlinking cannot remove the final usable authenticator. Provider access, refresh, and ID tokens are discarded after the ceremony.
 

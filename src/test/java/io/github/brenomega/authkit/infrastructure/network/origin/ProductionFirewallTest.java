@@ -40,7 +40,10 @@ import java.security.KeyPair;
     "spring.rabbitmq.listener.direct.auto-startup=false",
     "authkit.auth.token-storage.backend=jdbc",
     "authkit.auth.token-storage.single-instance-mode=true",
+    "authkit.auth.scheduler.enabled=false",
+    "authkit.auth.scheduler.distributed-lock-enabled=false",
     "authkit.auth.abuse-control.fail-closed-high-risk=false",
+    "network.security.worker-trusted-origins.ranges=172.30.0.20/32",
     "app.security.worker-token=prod-firewall-worker-token-32-chars",
     "authkit.auth.jwt.issuer=https://auth.example.test",
     "authkit.auth.jwt.audience=https://api.example.test",
@@ -115,6 +118,20 @@ public class ProductionFirewallTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/actuator/health")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        }))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/actuator/health/liveness")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        }))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/actuator/info")
                         .with(request -> {
                             request.setRemoteAddr("127.0.0.1");
                             return request;

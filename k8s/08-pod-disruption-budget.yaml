@@ -2,6 +2,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: authkit-pdb
+  namespace: authkit
 spec:
   minAvailable: 1
   selector:

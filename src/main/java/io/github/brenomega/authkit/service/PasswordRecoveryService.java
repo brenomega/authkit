@@ -21,6 +21,8 @@ import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimi
 import io.github.brenomega.authkit.exception.InvalidTokenException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
@@ -41,8 +43,9 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
  *
  * <p>Recovery requests expose the same outward result for absent accounts and do
  * not create a password authenticator for social-only accounts. Raw recovery
- * secrets are held by {@link TokenStorage}; email is enqueued transactionally, and
- * a transaction rollback removes only the token created by that request.</p>
+ * secrets are represented only by digests in {@link TokenStorage}. Activation
+ * intent and an email waiting for activation commit together; rollback publishes
+ * neither. Failed activation is reconciled durably before dispatch.</p>
  *
  * <p>A reset first claims the token so concurrent attempts cannot both change the
  * password. Commit permanently consumes the claim, while rollback releases it for
@@ -65,6 +68,7 @@ public class PasswordRecoveryService {
     private final AbuseThrottleService abuseThrottleService;
     private final PasswordPolicyService passwordPolicyService;
     private final EmailTemplateRenderer emailTemplateRenderer;
+    private final SecurityEffectService securityEffectService;
 
     public PasswordRecoveryService(
             UserRepository userRepository,
@@ -77,7 +81,8 @@ public class PasswordRecoveryService {
             SecurityEventService securityEventService,
             AbuseThrottleService abuseThrottleService,
             PasswordPolicyService passwordPolicyService,
-            EmailTemplateRenderer emailTemplateRenderer) {
+            EmailTemplateRenderer emailTemplateRenderer,
+            SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.tokenStorage = tokenStorage;
         this.emailOutboxService = emailOutboxService;
@@ -89,13 +94,14 @@ public class PasswordRecoveryService {
         this.abuseThrottleService = abuseThrottleService;
         this.passwordPolicyService = passwordPolicyService;
         this.emailTemplateRenderer = emailTemplateRenderer;
+        this.securityEffectService = securityEffectService;
     }
 
     /**
      * Requests recovery without disclosing whether the normalized email can recover a password.
      *
-     * <p>For an eligible account, token storage and the notification outbox are
-    * coordinated with the database transaction by rollback compensation.</p>
+     * <p>For an eligible account, the durable notification is committed first;
+     * the recovery token cannot become usable until that SQL commit succeeds.</p>
      */
     @LogExecutionTime
     @Transactional
@@ -123,15 +129,13 @@ public class PasswordRecoveryService {
                             "password_reset_requested");
                     String token = SecureTokenGenerator.randomUrlSafeToken(32);
                     long ttlMinutes = authProperties.getToken().getRecoveryTokenTtlMinutes();
-                    tokenStorage.storeRecoveryToken(normalizedEmail, token, ttlMinutes);
-                    registerRecoveryRequestCompensation(normalizedEmail, token);
-
                     String resetLink = authProperties.getFrontend().getPasswordResetUrl()
                             + "#token=" + URLEncoder.encode(token, StandardCharsets.UTF_8)
                             + "&email=" + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8);
                     EmailPayload emailPayload = emailTemplateRenderer.render(
                             EmailTemplateId.PASSWORD_RECOVERY, normalizedEmail, Map.of("action_url", resetLink));
-                    emailOutboxService.enqueue(emailPayload);
+                    UUID messageId = emailOutboxService.enqueueAwaitingActivation(emailPayload);
+                    securityEffectService.activateRecoveryToken(user, token, ttlMinutes, messageId);
                     log.info("Password recovery requested for existing user. Token generated and event published.");
                 },
                 () -> {
@@ -177,7 +181,7 @@ public class PasswordRecoveryService {
         }
         registerRecoveryClaimCompletion(normalizedEmail, claimId);
 
-        User user = userRepository.findByEmail(normalizedEmail)
+        User user = userRepository.findByEmailForUpdate(normalizedEmail)
                 .orElseThrow(() -> {
                     securityEventService.recordForEmail(
                             SecurityEventType.PASSWORD_RESET_FAILED,
@@ -213,10 +217,6 @@ public class PasswordRecoveryService {
         user.setPassword(encodeWithCapacity(newPassword));
         userRepository.save(user);
 
-        lockoutService.clearLockout(normalizedEmail);
-
-        tokenStorage.revokeAllSessions(user.getId().toString());
-
         EmailPayload confirmation = emailTemplateRenderer.render(
                 EmailTemplateId.PASSWORD_CHANGED, normalizedEmail, Map.of());
         emailOutboxService.enqueue(confirmation);
@@ -227,6 +227,13 @@ public class PasswordRecoveryService {
                 SecurityEventSeverity.HIGH,
                 user,
                 "password_reset_completed");
+
+        securityEffectService.invalidateSessions(user, null);
+        // The claim-completion callback is the fast path. This committed outbox
+        // intent guarantees the recovery token and claim cannot become usable
+        // again after their Redis claim TTL when Redis is unavailable at commit.
+        securityEffectService.revokeRecoveryToken(normalizedEmail);
+        AfterCommitActions.run(() -> lockoutService.clearLockout(normalizedEmail));
 
         log.info("Password successfully reset for user: {}", user.getId());
     }
@@ -265,22 +272,4 @@ public class PasswordRecoveryService {
         });
     }
 
-    private void registerRecoveryRequestCompensation(String email, String rawToken) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            tokenStorage.revokeRecoveryTokenIfMatches(email, rawToken);
-            throw new IllegalStateException("Password recovery request requires an active transaction");
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCompletion(int status) {
-                if (status != STATUS_COMMITTED) {
-                    try {
-                        tokenStorage.revokeRecoveryTokenIfMatches(email, rawToken);
-                    } catch (RuntimeException ex) {
-                        log.error("Recovery-token rollback compensation failed.", ex);
-                    }
-                }
-            }
-        });
-    }
 }

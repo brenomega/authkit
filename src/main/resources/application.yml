@@ -101,6 +101,7 @@ jwt:
 authkit:
   auth:
     scheduler:
+      enabled: ${AUTH_SCHEDULER_ENABLED:true}
       distributed-lock-enabled: ${AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED:true}
       email-poll-lock-at-most: ${AUTH_EMAIL_POLL_LOCK_AT_MOST:PT10M}
       retention-lock-at-most: ${AUTH_RETENTION_LOCK_AT_MOST:PT2H}
@@ -190,6 +191,7 @@ authkit:
         start-tls-enabled: ${AUTH_EMAIL_SMTP_STARTTLS_ENABLED:true}
         start-tls-required: ${AUTH_EMAIL_SMTP_STARTTLS_REQUIRED:true}
         ssl-enabled: ${AUTH_EMAIL_SMTP_SSL_ENABLED:false}
+        deduplication-guaranteed: ${AUTH_EMAIL_SMTP_DEDUPLICATION_GUARANTEED:false}
     email-templates:
       directory: ${AUTH_EMAIL_TEMPLATE_DIRECTORY:}
       max-body-bytes: ${AUTH_EMAIL_TEMPLATE_MAX_BODY_BYTES:65536}
@@ -289,6 +291,8 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+      probes:
+        enabled: true
   metrics:
     enable:
       hikaricp: true
@@ -322,6 +326,10 @@ network:
     # Empty = falls back to Cloudflare defaults. Override for AWS/Nginx/etc.
     trusted-origins:
       ranges: ${NETWORK_SECURITY_TRUSTED_ORIGINS:127.0.0.1/32}
+    # Independent network factor for internal worker endpoints. Never reuse the
+    # public reverse-proxy range in production.
+    worker-trusted-origins:
+      ranges: ${NETWORK_SECURITY_WORKER_TRUSTED_ORIGINS:127.0.0.1/32}
     rate-limit:
       local-capacity: 60       # Layer 1 per-IP per-minute (Caffeine). Kept as a fraction of global (e.g. 1/5 for 5 nodes) to mitigate Outage Limit Amplification during Redis failure.
       global-capacity: 300     # Layer 2 distributed per-minute (Redis)

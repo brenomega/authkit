@@ -19,6 +19,7 @@ import io.github.brenomega.authkit.domain.user.enums.AccountState;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxService;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.UserAuthoritiesFilter;
 import io.github.brenomega.authkit.repository.UserRepository;
@@ -45,6 +46,7 @@ class AccountAnonymizationServiceTest {
         EmailOutboxService outbox = mock(EmailOutboxService.class);
         TokenStorage tokens = mock(TokenStorage.class);
         UserAuthoritiesFilter authorities = mock(UserAuthoritiesFilter.class);
+        SecurityEffectService securityEffects = mock(SecurityEffectService.class);
         TransactionTemplate transactions = mock(TransactionTemplate.class);
         when(transactions.execute(ArgumentMatchers.<TransactionCallback<Object>>any())).thenAnswer(invocation -> {
             TransactionCallback<Object> callback = invocation.getArgument(0);
@@ -60,7 +62,8 @@ class AccountAnonymizationServiceTest {
                 mock(SocialIdentityRepository.class),
                 mock(SocialLoginTransactionRepository.class),
                 mock(OAuthRefreshTokenFamilyRepository.class),
-                mock(OAuthRefreshTokenRepository.class));
+                mock(OAuthRefreshTokenRepository.class),
+                securityEffects);
 
         UUID id = UUID.randomUUID();
         User user = new User("pending@example.test", "hash", "Pending", true, true, null);
@@ -79,7 +82,7 @@ class AccountAnonymizationServiceTest {
                 eq(id), eq(id), eq(user.getTenantId()), eq("pending@example.test"),
                 eq("account_anonymized_after_grace"), any());
         verify(outbox).deleteByRecipients(List.of("pending@example.test"));
-        verify(tokens).revokeAllSessions(id.toString());
+        verify(securityEffects).invalidateSessions(user, null);
         verify(authorities).evict(id);
     }
 }

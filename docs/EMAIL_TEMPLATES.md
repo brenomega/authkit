@@ -1,6 +1,8 @@
 # Operator email-template contract
 
-[Português (Brasil)](EMAIL_TEMPLATES-ptBR.md) | English is normative.
+[English](EMAIL_TEMPLATES.md) | [Português (Brasil)](EMAIL_TEMPLATES-ptBR.md)
+
+English is authoritative when translations differ.
 
 The integrating application owns all production copy, HTML, localization, legal text, and branding. AuthKit does not generate those assets. It loads a read-only operator directory at startup, rejects a missing or invalid template, and performs only non-executable escaped substitution.
 
@@ -20,4 +22,4 @@ Subjects must be one non-empty line of at most 255 characters. Bodies must be no
 
 `action_url` carries the one-time secret in the URL fragment, not its query string. The frontend must read the fragment into memory, immediately remove it with `history.replaceState`, submit it in the JSON request body over TLS, and never place it in logs, analytics, referrers, persistence, or third-party error reports.
 
-SMTP receives one transport attempt for each durable outbox claim because portable SMTP idempotency does not exist. The outbox performs bounded retry/backoff and may produce a duplicate if a connection fails after remote acceptance; operators must reconcile provider logs and support reports. Resend uses its provider idempotency facility with bounded internal retries. `ACCEPTED` and `accepted_at` mean provider acceptance only, never inbox delivery, reading, or spam-folder placement.
+SMTP receives one transport attempt for each durable outbox claim and preserves the exact outbox UUID in both `Message-ID` and `X-AuthKit-Message-Id` across reclaim. Because SMTP itself has no portable idempotency command, the production relay must demonstrably deduplicate that stable identity through an acceptance→crash→reclaim drill; production startup requires the operator's explicit `AUTH_EMAIL_SMTP_DEDUPLICATION_GUARANTEED=true` assertion. A relay that cannot satisfy the drill is not a supported v0.1 production SMTP configuration. Resend uses its provider idempotency facility with bounded internal retries. `ACCEPTED` and `accepted_at` mean provider acceptance only, never inbox delivery, reading, or spam-folder placement.

@@ -8,6 +8,8 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 import io.github.brenomega.authkit.domain.mfa.entity.MfaTotpCredential;
 
@@ -21,6 +23,11 @@ public interface MfaTotpCredentialRepository extends JpaRepository<MfaTotpCreden
     List<MfaTotpCredential> findByUserIdOrderByCreatedAtDesc(UUID userId);
 
     Optional<MfaTotpCredential> findByIdAndUserId(UUID id, UUID userId);
+
+    /** Locks pending enrollment state so confirmation has exactly one winner. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select credential from MfaTotpCredential credential where credential.id = :id and credential.userId = :userId")
+    Optional<MfaTotpCredential> findByIdAndUserIdForUpdate(UUID id, UUID userId);
 
     @Modifying
     void deleteByUserIdAndConfirmedFalse(UUID userId);

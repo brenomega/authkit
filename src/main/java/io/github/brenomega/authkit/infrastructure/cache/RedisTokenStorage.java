@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.UUID;
 
@@ -87,6 +88,7 @@ public class RedisTokenStorage implements TokenStorage {
                     local current_family_id = ARGV[6]
                     local seen_at = ARGV[7]
                     local expires_at = ARGV[8]
+                    local security_version = ARGV[9]
 
                     -- 1. Check if the current JTI exists
                     local stored = redis.call('HGET', key, current_jti)
@@ -105,9 +107,20 @@ public class RedisTokenStorage implements TokenStorage {
                             redis.call('HSET', key, next_jti, next_hash .. ":" .. stored_family)
                             local metadata = redis.call('HGET', KEYS[4], current_jti)
                             if metadata then
-                                local updated_metadata = string.gsub(metadata,
-                                    '^([^|]+)|([^|]+)|[^|]+|[^|]+|',
-                                    '%1|%2|' .. seen_at .. '|' .. expires_at .. '|', 1)
+                                local _, separator_count = string.gsub(metadata, '|', '')
+                                local updated_metadata
+                                if separator_count == 8 then
+                                    -- Metadata issued before security_version was introduced.
+                                    updated_metadata = string.gsub(metadata,
+                                        '^([^|]+)|([^|]+)|[^|]+|[^|]+|',
+                                        '%1|%2|' .. seen_at .. '|' .. expires_at .. '|'
+                                            .. security_version .. '|', 1)
+                                else
+                                    updated_metadata = string.gsub(metadata,
+                                        '^([^|]+)|([^|]+)|[^|]+|[^|]+|[^|]+|',
+                                        '%1|%2|' .. seen_at .. '|' .. expires_at .. '|'
+                                            .. security_version .. '|', 1)
+                                end
                                 redis.call('HDEL', KEYS[4], current_jti)
                                 redis.call('HSET', KEYS[4], next_jti, updated_metadata)
                                 local public_id = string.match(updated_metadata, '^([^|]+)|')
@@ -338,8 +351,17 @@ public class RedisTokenStorage implements TokenStorage {
     }
 
     @Override
+    public Optional<SessionMetadata> findSessionMetadata(String userId, String jti) {
+        if (!isSessionActive(userId, jti)) {
+            return Optional.empty();
+        }
+        return Optional.of(readOrBackfillMetadata(userId, jti));
+    }
+
+    @Override
     public boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
-                                      String nextJti, String nextRawToken, long durationDays) {
+                                      String nextJti, String nextRawToken, long durationDays,
+                                      long securityVersion) {
         String currentHash = hashToken(currentRawToken);
         String nextHash = hashToken(nextRawToken);
         long durationSeconds = Duration.ofDays(durationDays).getSeconds();
@@ -373,7 +395,8 @@ public class RedisTokenStorage implements TokenStorage {
                 String.valueOf(durationSeconds),
                 currentFamilyId,
                 Long.toString(Instant.now().getEpochSecond()),
-                Long.toString(Instant.now().plusSeconds(durationSeconds).getEpochSecond())
+                Long.toString(Instant.now().plusSeconds(durationSeconds).getEpochSecond()),
+                Long.toString(securityVersion)
         );
 
         if (result != null && result == -1L) {
@@ -649,7 +672,7 @@ public class RedisTokenStorage implements TokenStorage {
         }
         SessionMetadata updated = new SessionMetadata(
                 current.publicSessionId(), jti, current.createdAt(), seenAt, current.expiresAt(),
-                current.initialAmr(), current.userAgentSummary(), current.deviceLabel(),
+                current.securityVersion(), current.initialAmr(), current.userAgentSummary(), current.deviceLabel(),
                 current.creationIpMasked(), maskedIp);
         redisTemplate.execute(TOUCH_SESSION_SCRIPT, List.of(sessionMetadataKey(userId)),
                 jti, serialized, serializeMetadata(updated));
@@ -676,6 +699,21 @@ public class RedisTokenStorage implements TokenStorage {
                 familyKeyPrefix(userId));
     }
 
+    @Override
+    public void revokeSessionsBeforeVersion(String userId, long minimumVersion, String preservedJti) {
+        var metadataEntries = redisTemplate.opsForHash().entries(sessionMetadataKey(userId));
+        for (var entry : metadataEntries.entrySet()) {
+            String jti = String.valueOf(entry.getKey());
+            if (preservedJti != null && preservedJti.equals(jti)) {
+                continue;
+            }
+            SessionMetadata metadata = deserializeMetadata(jti, String.valueOf(entry.getValue()));
+            if (metadata.securityVersion() < minimumVersion) {
+                revokeSessionByJti(userId, jti);
+            }
+        }
+    }
+
     @SuppressWarnings("null")
     @Override
     public void storeRecoveryToken(String email, String rawToken, long durationMinutes) {
@@ -700,6 +738,23 @@ public class RedisTokenStorage implements TokenStorage {
                 storedHash.getBytes(StandardCharsets.UTF_8),
                 inputHash.getBytes(StandardCharsets.UTF_8)
         );
+    }
+
+    @Override
+    public void activateRecoveryToken(String activationId, String emailDigest, String tokenDigest, Instant expiresAt) {
+        var script = new DefaultRedisScript<Long>("""
+                local now = redis.call('TIME')
+                local millis = now[1] * 1000 + math.floor(now[2] / 1000)
+                local expiry = tonumber(ARGV[2])
+                if expiry <= millis or redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
+                redis.call('SET', KEYS[1], ARGV[1], 'PXAT', expiry)
+                redis.call('DEL', KEYS[2])
+                redis.call('SET', KEYS[3], '1', 'PXAT', expiry)
+                return 1
+                """, Long.class);
+        redisTemplate.execute(script, List.of("recovery:token:" + emailDigest,
+                "recovery:claim:" + emailDigest, "recovery:activation:" + activationId),
+                tokenDigest, Long.toString(expiresAt.toEpochMilli()));
     }
 
     @Override
@@ -746,6 +801,12 @@ public class RedisTokenStorage implements TokenStorage {
         String key = recoveryTokenKey(email);
         redisTemplate.delete(key);
         redisTemplate.delete(recoveryClaimKey(email));
+    }
+
+    @Override
+    public void revokeRecoveryTokenByDigest(String emailDigest) {
+        redisTemplate.delete("recovery:token:" + emailDigest);
+        redisTemplate.delete("recovery:claim:" + emailDigest);
     }
 
     @SuppressWarnings("null")
@@ -816,7 +877,7 @@ public class RedisTokenStorage implements TokenStorage {
         long seconds = ttl == null || ttl < 1 ? 1 : ttl;
         SessionMetadata metadata = new SessionMetadata(
                 UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(seconds),
-                List.of(), "Unknown client", null, "unknown", "unknown");
+                0, List.of(), "Unknown client", null, "unknown", "unknown");
         redisTemplate.opsForHash().put(sessionMetadataKey(userId), jti, serializeMetadata(metadata));
         redisTemplate.opsForHash().put(sessionPublicIndexKey(userId), metadata.publicSessionId(), jti);
         redisTemplate.expire(sessionMetadataKey(userId), Duration.ofSeconds(seconds));
@@ -830,6 +891,7 @@ public class RedisTokenStorage implements TokenStorage {
                 Long.toString(metadata.createdAt().getEpochSecond()),
                 Long.toString(metadata.lastSeenAt().getEpochSecond()),
                 Long.toString(metadata.expiresAt().getEpochSecond()),
+                Long.toString(metadata.securityVersion()),
                 encode(String.join(" ", metadata.initialAmr())),
                 encode(metadata.userAgentSummary()),
                 encode(metadata.deviceLabel()),
@@ -839,16 +901,25 @@ public class RedisTokenStorage implements TokenStorage {
 
     private SessionMetadata deserializeMetadata(String jti, String serialized) {
         String[] parts = serialized.split("\\|", -1);
-        if (parts.length != 9) {
+        if (parts.length == 9) {
+            String legacyAmr = decodeMetadata(parts[4]);
+            return new SessionMetadata(
+                    parts[0], jti, Instant.ofEpochSecond(Long.parseLong(parts[1])),
+                    Instant.ofEpochSecond(Long.parseLong(parts[2])), Instant.ofEpochSecond(Long.parseLong(parts[3])),
+                    0, legacyAmr.isBlank() ? List.of() : List.of(legacyAmr.split(" ")),
+                    decodeMetadata(parts[5]), nullableDecode(parts[6]),
+                    decodeMetadata(parts[7]), decodeMetadata(parts[8]));
+        }
+        if (parts.length != 10) {
             throw new IllegalStateException("Malformed session metadata");
         }
-        String amr = decodeMetadata(parts[4]);
+        String amr = decodeMetadata(parts[5]);
         return new SessionMetadata(
                 parts[0], jti, Instant.ofEpochSecond(Long.parseLong(parts[1])),
                 Instant.ofEpochSecond(Long.parseLong(parts[2])), Instant.ofEpochSecond(Long.parseLong(parts[3])),
-                amr.isBlank() ? List.of() : List.of(amr.split(" ")),
-                decodeMetadata(parts[5]), nullableDecode(parts[6]),
-                decodeMetadata(parts[7]), decodeMetadata(parts[8]));
+                Long.parseLong(parts[4]), amr.isBlank() ? List.of() : List.of(amr.split(" ")),
+                decodeMetadata(parts[6]), nullableDecode(parts[7]),
+                decodeMetadata(parts[8]), decodeMetadata(parts[9]));
     }
 
     private String encode(String value) {

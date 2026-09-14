@@ -3,18 +3,26 @@ package io.github.brenomega.authkit.support;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
 
 /** Supplies an actual PostgreSQL 17 database to service-level integration tests. */
 public abstract class PostgresIntegrationTestSupport {
 
     @SuppressWarnings("resource")
-    @Container
     protected static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>(DockerImageName.parse(
                     "postgres:17-alpine@sha256:778d0b486d6daa02b77434d0358ec57a1b21fd8b6d22ac2eef56a33e816928f6")
                     .asCompatibleSubstituteFor("postgres"));
+
+    /*
+     * A single JVM-scoped container is intentional. Spring caches application
+     * contexts between subclasses; a JUnit-managed @Container is stopped at the
+     * end of the first subclass while a later cached context still points at its
+     * old mapped port.
+     */
+    static {
+        POSTGRES.start();
+    }
 
     @DynamicPropertySource
     static void postgresProperties(DynamicPropertyRegistry registry) {

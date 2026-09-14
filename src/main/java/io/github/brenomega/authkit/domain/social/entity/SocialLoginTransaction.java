@@ -40,6 +40,12 @@ public class SocialLoginTransaction {
     private boolean termsAccepted;
     @Column(name = "privacy_accepted", nullable = false, updatable = false)
     private boolean privacyAccepted;
+    @Column(name = "terms_version", nullable = false, length = 64, updatable = false)
+    private String termsVersion;
+    @Column(name = "privacy_policy_version", nullable = false, length = 64, updatable = false)
+    private String privacyPolicyVersion;
+    @Column(name = "lawful_basis", nullable = false, length = 64, updatable = false)
+    private String lawfulBasis;
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
     @Column(name = "expires_at", nullable = false, updatable = false)
@@ -50,10 +56,13 @@ public class SocialLoginTransaction {
     protected SocialLoginTransaction() {}
     public SocialLoginTransaction(String stateHash, UUID providerId, SocialLoginPurpose purpose, UUID userId,
                                   String nonce, String encryptedVerifier, boolean termsAccepted,
-                                  boolean privacyAccepted, Instant now, Instant expiresAt) {
+                                  boolean privacyAccepted, String termsVersion, String privacyPolicyVersion,
+                                  String lawfulBasis, Instant now, Instant expiresAt) {
         this.stateHash = stateHash; this.providerId = providerId; this.purpose = purpose; this.userId = userId;
         this.nonce = nonce; this.encryptedVerifier = encryptedVerifier; this.termsAccepted = termsAccepted;
-        this.privacyAccepted = privacyAccepted; this.createdAt = now; this.expiresAt = expiresAt;
+        this.privacyAccepted = privacyAccepted; this.termsVersion = termsVersion;
+        this.privacyPolicyVersion = privacyPolicyVersion; this.lawfulBasis = lawfulBasis;
+        this.createdAt = now; this.expiresAt = expiresAt;
     }
     public UUID getId() { return id; }
     public String getStateHash() { return stateHash; }
@@ -64,6 +73,9 @@ public class SocialLoginTransaction {
     public String getEncryptedVerifier() { return encryptedVerifier; }
     public boolean isTermsAccepted() { return termsAccepted; }
     public boolean isPrivacyAccepted() { return privacyAccepted; }
+    public String getTermsVersion() { return termsVersion; }
+    public String getPrivacyPolicyVersion() { return privacyPolicyVersion; }
+    public String getLawfulBasis() { return lawfulBasis; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public Instant getConsumedAt() { return consumedAt; }

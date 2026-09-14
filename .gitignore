@@ -4,6 +4,7 @@
 
 ### Build artifacts ###
 target/
+.release-evidence-history/
 deploy/golden/.env
 deploy/golden/secrets/*
 !deploy/golden/secrets/README.md

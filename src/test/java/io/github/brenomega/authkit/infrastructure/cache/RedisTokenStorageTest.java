@@ -68,7 +68,8 @@ public class RedisTokenStorageTest {
                 currentToken,
                 nextJti,
                 nextToken,
-                7
+                7,
+                0
         ));
         assertFalse(redisTokenStorage.validateToken(userId, currentJti, currentToken));
         assertTrue(redisTokenStorage.validateToken(userId, nextJti, nextToken));
@@ -82,7 +83,8 @@ public class RedisTokenStorageTest {
                 currentToken,
                 replayReplacementJti,
                 replayReplacementToken,
-                7
+                7,
+                0
             )
         );
     }

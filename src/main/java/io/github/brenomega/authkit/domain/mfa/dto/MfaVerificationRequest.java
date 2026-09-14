@@ -5,7 +5,6 @@ import jakarta.validation.constraints.Size;
 
 /** Carries password and MFA evidence for an authenticator-policy change. */
 public record MfaVerificationRequest(
-        @NotBlank
         @Size(max = 128)
         String currentPassword,
 

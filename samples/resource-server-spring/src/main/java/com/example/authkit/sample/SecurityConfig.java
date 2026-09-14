@@ -63,9 +63,20 @@ public class SecurityConfig {
             String acceptedTokenUse) {
         return new DelegatingOAuth2TokenValidator<>(
                 JwtValidators.createDefaultWithIssuer(issuer),
+                new JwtClaimValidator<java.time.Instant>("exp", java.util.Objects::nonNull),
                 new JwtClaimValidator<List<String>>("aud", audience ->
-                        audience != null && audience.contains(acceptedAudience)),
-                new JwtClaimValidator<String>("token_use", acceptedTokenUse::equals));
+                        audience != null && audience.equals(List.of(acceptedAudience))),
+                new JwtClaimValidator<String>("token_use", acceptedTokenUse::equals),
+                requiredStringClaim("sub"),
+                requiredStringClaim("jti"),
+                requiredStringClaim("tenant_id"),
+                requiredStringClaim("client_id"),
+                requiredStringClaim("scope"),
+                new JwtClaimValidator<List<String>>("amr", amr -> amr != null && !amr.isEmpty()));
+    }
+
+    private static JwtClaimValidator<String> requiredStringClaim(String claim) {
+        return new JwtClaimValidator<>(claim, value -> value != null && !value.isBlank());
     }
 
     private static Collection<GrantedAuthority> authorities(Jwt jwt) {

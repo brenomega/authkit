@@ -10,7 +10,7 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[2]
-NON_DISTRIBUTION_REPORTS = {ROOT / "pre-release-audit.md"}
+NON_DISTRIBUTION_REPORTS: set[Path] = set()
 CANONICAL_PAIRS = (
     "CONFIGURATION",
     "EMAIL_TEMPLATES",
@@ -49,6 +49,9 @@ def main() -> int:
         path for path in ROOT.rglob("*.md")
         if ".git" not in path.parts
         and "target" not in path.parts
+        # Generated evidence backups (including third-party tool installations)
+        # are excluded from Git/source/OCI, not part of the public doc corpus.
+        and ".release-evidence-history" not in path.parts
         and path not in NON_DISTRIBUTION_REPORTS
     )
     for document in markdown_files:

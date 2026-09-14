@@ -105,7 +105,11 @@ json_value() {
 skip_if_missing() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
-    echo "SKIP: ${name} is not set."
-    exit 0
+    if [[ "${AUTHKIT_PROOF_MODE:-release}" == "development" ]]; then
+      echo "SKIP (development mode only): ${name} is not set."
+      exit 0
+    fi
+    echo "FAIL: ${name} is required for release proof." >&2
+    exit 1
   fi
 }

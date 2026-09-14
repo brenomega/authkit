@@ -28,6 +28,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import io.github.brenomega.authkit.exception.TokenRevocationUnavailableException;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -43,11 +48,33 @@ class SecurityIntegrationTest {
     @Autowired
     private JwtEncoder jwtEncoder;
 
+    @MockitoSpyBean
+    private OAuthTokenRevocationService tokenRevocationService;
+
+    @Test
+    @DisplayName("Token-store outage during Bearer decoding returns 503 before MVC, never 401 or access")
+    void bearerRevocationStoreOutageReturnsServiceUnavailable() throws Exception {
+        Instant now = Instant.now();
+        String token = jwtEncoder.encode(JwtEncoderParameters.from(
+                firstPartyClaims(now, now.plusSeconds(300)))).getTokenValue();
+        doThrow(new TokenRevocationUnavailableException()).when(tokenRevocationService).isRevoked(anyString());
+        try {
+            mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + token))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("token_revocation_unavailable"))
+                    .andExpect(jsonPath("$.data").doesNotExist())
+                    .andExpect(header().doesNotExist("WWW-Authenticate"));
+        } finally {
+            reset(tokenRevocationService);
+        }
+    }
+
     @Test
     @DisplayName("GET to protected endpoint without token returns 401 in ApiResponse envelope")
     void requestWithoutToken_returns401() throws Exception {
         mockMvc.perform(get("/api/v1/protected"))
                 .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Bearer")))
                 .andExpect(jsonPath("$.errors").isArray())
                 .andExpect(jsonPath("$.errors[0]").value("Unauthorized"))
                 .andExpect(jsonPath("$.timestamp").exists());
@@ -103,6 +130,27 @@ class SecurityIntegrationTest {
     }
 
     @Test
+    @DisplayName("Malformed, expired and live-session-revoked Bearer tokens return an RFC 6750 challenge")
+    void invalidBearerCorpusReturnsChallenge() throws Exception {
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer malformed"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Bearer")));
+
+        Instant now = Instant.now();
+        JwtClaimsSet expired = firstPartyClaims(now.minusSeconds(600), now.minusSeconds(300));
+        String expiredToken = jwtEncoder.encode(JwtEncoderParameters.from(expired)).getTokenValue();
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + expiredToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Bearer")));
+
+        JwtClaimsSet revoked = firstPartyClaims(now, now.plusSeconds(300));
+        String revokedToken = jwtEncoder.encode(JwtEncoderParameters.from(revoked)).getTokenValue();
+        mockMvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + revokedToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", containsString("Bearer")));
+    }
+
+    @Test
     @DisplayName("Bearer JWT without required audience is rejected")
     void bearerJwtWithoutAudience_returns401() throws Exception {
         Instant now = Instant.now();
@@ -118,6 +166,20 @@ class SecurityIntegrationTest {
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.errors[0]").value("Unauthorized"));
+    }
+
+    private JwtClaimsSet firstPartyClaims(Instant issuedAt, Instant expiresAt) {
+        return JwtClaimsSet.builder()
+                .issuer("authkit")
+                .audience(List.of("authkit-api"))
+                .issuedAt(issuedAt)
+                .expiresAt(expiresAt)
+                .subject(UUID.randomUUID().toString())
+                .id(UUID.randomUUID().toString())
+                .claim(JwtTokenUse.CLAIM, JwtTokenUse.FIRST_PARTY_ACCESS)
+                .claim("tenant_id", UUID.randomUUID().toString())
+                .claim("amr", List.of("pwd"))
+                .build();
     }
 
     @Test

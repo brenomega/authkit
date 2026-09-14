@@ -103,10 +103,10 @@ public class JwtConfig {
 
     /** Returns an encoder backed only by the currently active private signing key. */
     @Bean
-    public JwtEncoder jwtEncoder() {
+    public JwtEncoder jwtEncoder(KeyLifecycleFailureMetrics keyMetrics) {
         RSAKey rsaKey = jwtKeyService.activePrivateJwk();
         JWKSource<SecurityContext> jwkSource = new ImmutableJWKSet<>(new JWKSet(rsaKey));
-        return new NimbusJwtEncoder(jwkSource);
+        return keyMetrics.signingEncoder(new NimbusJwtEncoder(jwkSource));
     }
 
     private static class AudienceValidator implements OAuth2TokenValidator<Jwt> {
@@ -118,7 +118,8 @@ public class JwtConfig {
 
         @Override
         public OAuth2TokenValidatorResult validate(Jwt jwt) {
-            if (jwt.getAudience() != null && jwt.getAudience().contains(audience)) {
+            if (jwt.getAudience() != null && jwt.getAudience().size() == 1
+                    && audience.equals(jwt.getAudience().getFirst())) {
                 return OAuth2TokenValidatorResult.success();
             }
             OAuth2Error error = new OAuth2Error("invalid_token", "The required audience is missing", null);

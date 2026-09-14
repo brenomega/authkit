@@ -1,0 +1,6 @@
+{
+  "name": "extra-audience",
+  "tokenFile": "target/contract-fixtures/extra-audience.jwt",
+  "expected": "rejected",
+  "reason": "Every token class requires one exact audience; audience supersets are invalid."
+}

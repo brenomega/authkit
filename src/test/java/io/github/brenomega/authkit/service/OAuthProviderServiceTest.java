@@ -33,6 +33,7 @@ import io.github.brenomega.authkit.domain.oauth.entity.OAuthAuthorizationCode;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthClient;
 import io.github.brenomega.authkit.domain.user.entity.User;
 import io.github.brenomega.authkit.domain.user.util.TokenHasher;
+import io.github.brenomega.authkit.domain.user.util.RefreshTokenCodec;
 import io.github.brenomega.authkit.exception.InvalidOAuthRequestException;
 import io.github.brenomega.authkit.exception.OAuthProtocolException;
 import io.github.brenomega.authkit.exception.OAuthRefreshReplayException;
@@ -60,6 +61,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.brenomega.authkit.support.PostgresIntegrationTestSupport;
+import io.github.brenomega.authkit.service.spi.TokenStorage;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -69,6 +71,9 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
 
     @Autowired
     private OAuthProviderService oauthProviderService;
+
+    @Autowired
+    private AuthService authService;
 
     @Autowired
     private OAuthClientRepository oauthClientRepository;
@@ -102,6 +107,12 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
 
     @Autowired
     private PasskeyCredentialRepository passkeyCredentialRepository;
+
+    @Autowired
+    private EmailChangeService emailChangeService;
+
+    @Autowired
+    private TokenStorage tokenStorage;
 
     @Test
     @DisplayName("Issues and consumes authorization-code + PKCE tokens for OIDC client")
@@ -433,6 +444,20 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
                 .introspect(tokens.accessToken(), "access_token", otherClient.getClientId(), "other-secret")
                 .get("active"));
         assertEquals(user.getEmail(), oauthProviderService.userInfo(tokens.accessToken()).get("email"));
+        mockMvc.perform(get("/oauth2/userinfo")
+                        .header("Authorization", "bEaReR " + tokens.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(user.getEmail()));
+        mockMvc.perform(get("/oauth2/userinfo")
+                        .header("Authorization", "Bearer " + tokens.idToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate",
+                        org.hamcrest.Matchers.containsString("Bearer")));
+        String firstParty = authService.issueLoginForVerifiedUser(user, List.of("pwd"), "userinfo_cross_token")
+                .response().accessToken();
+        mockMvc.perform(get("/oauth2/userinfo")
+                        .header("Authorization", "Bearer " + firstParty))
+                .andExpect(status().isUnauthorized());
 
         oauthProviderService.revoke(tokens.accessToken(), "access_token", client.getClientId(), "userinfo-secret");
 
@@ -465,6 +490,25 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
         assertNotNull(queryParameter(callback, "code"));
         assertThrows(OAuthProtocolException.class,
                 () -> oauthProviderService.resumeAuthorization(transaction, jwt(user), true));
+    }
+
+    @Test
+    void registeredRedirectWithExistingQueryReceivesOauthParametersInItsQuery() throws Exception {
+        User user = confirmedUser("oidc-query-redirect@example.com");
+        String redirect = "https://client.example/callback?channel=mobile";
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                "client-query-redirect", null, true, "Query Redirect Client",
+                Set.of(redirect), Set.of("openid"), true, Instant.now()));
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+
+        var result = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest(
+                "code", client.getClientId(), redirect, "openid", "bound-state",
+                pkceChallenge(verifier), "S256", "bound-nonce", true));
+
+        assertEquals("mobile", queryParameter(result.redirectUri(), "channel"));
+        assertEquals("bound-state", queryParameter(result.redirectUri(), "state"));
+        assertFalse(queryParameter(result.redirectUri(), "code").isBlank());
+        assertEquals(null, URI.create(result.redirectUri()).getFragment());
     }
 
     @Test
@@ -587,6 +631,35 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("Confirmed email replacement revokes first-party and OAuth renewable lineages")
+    void emailChangeInvalidatesEveryOldRefreshLineage() throws Exception {
+        User target = confirmedUser("email-lineage-old@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient(
+                "client-email-lineage", passwordEncoder.encode("email-secret"), false, "Email Client",
+                Set.of("https://client.example/callback"), Set.of("openid", "offline_access"), true,
+                Instant.now()));
+        var oauthTokens = issueOfflineTokens(target, client, "email-secret", "email-lineage-state");
+        var firstParty = authService.issueLoginForVerifiedUser(target, List.of("pwd"), "email_lineage_proof");
+        var firstPartyParsed = RefreshTokenCodec.parse(firstParty.refreshToken()).orElseThrow();
+        long issuedSecurityVersion = tokenStorage.findSessionMetadata(
+                target.getId().toString(), firstPartyParsed.jti()).orElseThrow().securityVersion();
+        assertTrue(tokenStorage.validateToken(
+                target.getId().toString(), firstPartyParsed.jti(), firstParty.refreshToken()));
+
+        String rawEmailToken = "email-change-" + UUID.randomUUID();
+        target.requestEmailChange("email-lineage-new@example.com", TokenHasher.sha256Hex(rawEmailToken),
+                Instant.now(), Instant.now().plusSeconds(300));
+        userRepository.saveAndFlush(target);
+        emailChangeService.confirm(rawEmailToken);
+
+        assertTrue(userRepository.findById(target.getId()).orElseThrow().getSecurityVersion()
+                > issuedSecurityVersion);
+        assertThrows(io.github.brenomega.authkit.exception.InvalidRefreshTokenException.class,
+                () -> authService.refresh(firstParty.refreshToken()));
+        assertInactive(oauthTokens, client, "email-secret");
+    }
+
+    @Test
     @DisplayName("Concurrent refresh and suspension cannot leave an OAuth lineage live")
     void concurrentRefreshAndSuspensionEndRevoked() throws Exception {
         User target = confirmedUser("oauth-lifecycle-race@example.com");
@@ -666,12 +739,97 @@ class OAuthProviderServiceTest extends PostgresIntegrationTestSupport {
                 .andExpect(jsonPath("$.error").value("unsupported_grant_type"))
                 .andExpect(jsonPath("$.error_description").isString())
                 .andExpect(jsonPath("$.data").doesNotExist());
+
+        OAuthClient confidential = oauthClientRepository.save(new OAuthClient(
+                "client-http-confidential", passwordEncoder.encode("wire-secret"), false,
+                "HTTP Confidential", Set.of("https://client.example/callback"), Set.of("openid"), true,
+                Instant.now()));
+        String basic = Base64.getEncoder().encodeToString(
+                (confidential.getClientId() + ":wire-secret").getBytes(StandardCharsets.UTF_8));
+        mockMvc.perform(post("/oauth2/token")
+                        .header("Authorization", "bAsIc " + basic)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "authorization_code")
+                        .param("code", "not-a-code")
+                        .param("redirect_uri", "https://client.example/callback")
+                        .param("code_verifier", verifier))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_grant"));
+        mockMvc.perform(post("/oauth2/token")
+                        .header("Authorization", "Basic !!!not-base64!!!")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED)
+                        .param("grant_type", "authorization_code"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_client"))
+                .andExpect(header().string("WWW-Authenticate",
+                        org.hamcrest.Matchers.startsWith("Basic")));
+        mockMvc.perform(get("/oauth2/userinfo"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_token"));
+        mockMvc.perform(get("/oauth2/userinfo").header("Authorization", "Bearer malformed"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("invalid_token"));
     }
 
     private User confirmedUser(String email) {
         User user = new User(email, "hash", "Test User", true, true, "token");
         user.setEmailConfirmed(true);
         return userRepository.save(user);
+    }
+
+    @Test
+    void publicClientCodeRefreshAndRevocationWorkWithoutBasicAndConflictingCredentialsFail() throws Exception {
+        User user = confirmedUser("public-wire-closure@example.com");
+        OAuthClient client = oauthClientRepository.save(new OAuthClient("public-wire-closure", null, true,
+                "Public Wire", Set.of("https://client.example/callback"), Set.of("openid", "offline_access"),
+                true, Instant.now()));
+        String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest("code", client.getClientId(),
+                "https://client.example/callback", "openid offline_access", "wire-state", pkceChallenge(verifier),
+                "S256", "wire-nonce", true));
+        var issued = mockMvc.perform(post("/oauth2/token").contentType("application/x-www-form-urlencoded")
+                .param("grant_type", "authorization_code").param("client_id", client.getClientId())
+                .param("code", codeFrom(authz.redirectUri())).param("redirect_uri", "https://client.example/callback")
+                .param("code_verifier", verifier))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.refresh_token").isString()).andReturn();
+        String refresh = objectMapper.readTree(issued.getResponse().getContentAsString()).get("refresh_token").asText();
+        var rotated = mockMvc.perform(post("/oauth2/token").contentType("application/x-www-form-urlencoded")
+                .param("grant_type", "refresh_token").param("client_id", client.getClientId()).param("refresh_token", refresh))
+                .andExpect(status().isOk()).andReturn();
+        String next = objectMapper.readTree(rotated.getResponse().getContentAsString()).get("refresh_token").asText();
+        mockMvc.perform(post("/oauth2/revoke").contentType("application/x-www-form-urlencoded")
+                .param("client_id", client.getClientId()).param("token", next).param("token_type_hint", "refresh_token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/oauth2/introspect").contentType("application/x-www-form-urlencoded")
+                .param("client_id", client.getClientId()).param("token", next))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"));
+        mockMvc.perform(post("/oauth2/token").contentType("application/x-www-form-urlencoded")
+                .header("Authorization", "Basic " + Base64.getEncoder().encodeToString("other:secret".getBytes(StandardCharsets.UTF_8)))
+                .param("grant_type", "refresh_token").param("client_id", client.getClientId()).param("refresh_token", next))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.error").value("invalid_client"));
+    }
+
+    @Test
+    void codeExchangeLifecycleFailuresUseOAuthInvalidGrantWithoutAuthKitEnvelope() throws Exception {
+        for (String mutation : List.of("suspended", "unconfirmed", "consent")) {
+            User user = confirmedUser("code-owner-" + mutation + "@example.com");
+            OAuthClient client = oauthClientRepository.save(new OAuthClient("code-owner-" + mutation, null, true,
+                    "Lifecycle", Set.of("https://client.example/callback"), Set.of("openid"), true, Instant.now()));
+            String verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+            var authz = oauthProviderService.authorize(jwt(user), new OAuthAuthorizeRequest("code", client.getClientId(),
+                    "https://client.example/callback", "openid", "state", pkceChallenge(verifier), "S256", "nonce", true));
+            if (mutation.equals("suspended")) user.suspend("test lifecycle", Instant.now());
+            if (mutation.equals("unconfirmed")) user.setEmailConfirmed(false);
+            if (mutation.equals("consent")) user.recordConsent("old-terms", "old-privacy", "consent", Instant.now());
+            userRepository.saveAndFlush(user);
+            mockMvc.perform(post("/oauth2/token").contentType("application/x-www-form-urlencoded")
+                    .param("grant_type", "authorization_code").param("client_id", client.getClientId())
+                    .param("code", codeFrom(authz.redirectUri())).param("redirect_uri", "https://client.example/callback")
+                    .param("code_verifier", verifier))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("invalid_grant"))
+                    .andExpect(jsonPath("$.error_description").isString())
+                    .andExpect(jsonPath("$.data").doesNotExist()).andExpect(jsonPath("$.timestamp").doesNotExist());
+        }
     }
 
     private User confirmedUserWithPassword(String email, String rawPassword) {

@@ -8,8 +8,12 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -94,6 +98,9 @@ public class GlobalExceptionHandler {
         if ("invalid_client".equals(ex.getError())) {
             builder.header(org.springframework.http.HttpHeaders.WWW_AUTHENTICATE,
                     "Basic realm=\"oauth2/client\"");
+        } else if ("invalid_token".equals(ex.getError())) {
+            builder.header(org.springframework.http.HttpHeaders.WWW_AUTHENTICATE,
+                    "Bearer realm=\"oauth2/userinfo\", error=\"invalid_token\"");
         }
         return builder.body(Map.of(
                 "error", ex.getError(), "error_description", ex.getDescription()));
@@ -104,6 +111,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error("resource_not_found", "Resource not found"));
+    }
+
+    @ExceptionHandler({
+            DataAccessResourceFailureException.class,
+            TransientDataAccessResourceException.class,
+            QueryTimeoutException.class,
+            CannotCreateTransactionException.class
+    })
+    public ResponseEntity<ApiResponse<Void>> handlePersistenceUnavailable(Exception ex) {
+        meterRegistry.counter("security.infrastructure.failure", "component", "postgres").increment();
+        log.error("Persistence dependency unavailable", ex);
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ApiResponse.error("persistence_unavailable", "Service temporarily unavailable"));
     }
 
     @ExceptionHandler(DataAccessException.class)

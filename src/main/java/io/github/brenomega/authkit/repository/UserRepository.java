@@ -29,7 +29,21 @@ import io.github.brenomega.authkit.domain.user.enums.AccountState;
 @Repository
 public interface UserRepository extends JpaRepository<User, UUID> {
 
+    interface SessionSecurityState {
+        long getSecurityVersion();
+        String getPreservedSessionJti();
+    }
+
     Optional<User> findByEmail(String email);
+
+    /** Reads the durable session boundary without relying on an authority cache. */
+    @Query("""
+            select u.securityVersion as securityVersion,
+                   u.preservedSessionJti as preservedSessionJti
+              from User u
+             where u.id = :id
+            """)
+    Optional<SessionSecurityState> findSessionSecurityStateById(@Param("id") UUID id);
 
     /** Locks a normalized email identity while a recovery request replaces its external token. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -70,6 +84,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     long purgeDeletedByIdIn(@Param("ids") Collection<UUID> ids);
 
     long countByRoleAndAccountState(Role role, AccountState accountState);
+
+    /** Serializes every transition that could remove an active platform administrator. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.role = :role and u.accountState = :state order by u.id")
+    List<User> lockActivePlatformAdministrators(@Param("role") Role role, @Param("state") AccountState state);
 
     long countByRole(Role role);
 

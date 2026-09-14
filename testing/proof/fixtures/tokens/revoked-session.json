@@ -8,6 +8,7 @@
     "iss": "authkit",
     "sub": "fixture-user-id",
     "jti": "revoked-session-jti",
+    "session_version": 0,
     "tenant_id": "fixture-tenant-id",
     "amr": ["pwd"]
   },

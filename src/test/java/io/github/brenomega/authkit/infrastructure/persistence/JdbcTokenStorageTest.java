@@ -85,7 +85,7 @@ class JdbcTokenStorageTest {
 
         storage.storeRefreshToken(userId, currentJti, current.rawToken(), 7);
 
-        assertTrue(storage.rotateRefreshToken(userId, currentJti, current.rawToken(), nextJti, next.rawToken(), 7));
+        assertTrue(storage.rotateRefreshToken(userId, currentJti, current.rawToken(), nextJti, next.rawToken(), 7, 0));
         assertFalse(storage.validateToken(userId, currentJti, current.rawToken()));
         assertTrue(storage.validateToken(userId, nextJti, next.rawToken()));
 
@@ -97,7 +97,8 @@ class JdbcTokenStorageTest {
                 current.rawToken(),
                 replayReplacement.jti(),
                 replayReplacement.rawToken(),
-                7));
+                7,
+                0));
         assertFalse(storage.validateToken(userId, nextJti, next.rawToken()));
     }
 
@@ -254,7 +255,7 @@ class JdbcTokenStorageTest {
         Instant created = Instant.now().minusSeconds(600);
         var metadata = new SessionMetadata(
                 UUID.randomUUID().toString(), jti, created, created, Instant.now().plusSeconds(604800),
-                List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
+                0, List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
                 "192.0.2.***", "192.0.2.***");
         storage.storeRefreshToken(userId, jti, current.rawToken(), 7, metadata);
 
@@ -272,7 +273,7 @@ class JdbcTokenStorageTest {
 
         String nextJti = UUID.randomUUID().toString();
         var next = RefreshTokenCodec.issueRotated(userId, nextJti, current.familyId());
-        assertTrue(storage.rotateRefreshToken(userId, jti, current.rawToken(), nextJti, next.rawToken(), 7));
+        assertTrue(storage.rotateRefreshToken(userId, jti, current.rawToken(), nextJti, next.rawToken(), 7, 0));
         var rotated = storage.listSessions(userId, 10, null).items().get(0);
         assertEquals(metadata.publicSessionId(), rotated.publicSessionId());
         assertEquals(created.getEpochSecond(), rotated.createdAt().getEpochSecond());
@@ -292,7 +293,8 @@ class JdbcTokenStorageTest {
                 current.rawToken(),
                 next.jti(),
                 next.rawToken(),
-                7);
+                7,
+                0);
         } catch (TokenFamilyCompromisedException ex) {
             return ex;
         }
@@ -315,6 +317,7 @@ class JdbcTokenStorageTest {
                     jti varchar(64) not null,
                     token_hash char(64) not null,
                     family_id varchar(64) not null,
+                    security_version bigint not null default 0,
                     expires_at timestamp not null,
                     created_at timestamp not null,
                     updated_at timestamp not null,

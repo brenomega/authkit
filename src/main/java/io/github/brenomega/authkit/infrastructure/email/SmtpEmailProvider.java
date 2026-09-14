@@ -26,9 +26,9 @@ import jakarta.mail.internet.MimeMessage;
 /**
  * Delivers email through SMTP with bounded retries and TLS settings from configuration.
  *
- * <p>The outbox UUID is propagated in {@code X-AuthKit-Message-Id} for correlation,
- * but SMTP does not guarantee idempotency for that header; retry or reclaim can
- * therefore produce duplicate mail.</p>
+ * <p>The outbox UUID is propagated as both a stable RFC 5322 {@code Message-ID} and
+ * {@code X-AuthKit-Message-Id}. Supported production SMTP relays must deduplicate
+ * repeated submissions by that stable identity during the documented reclaim window.</p>
  */
 @Component
 @ConditionalOnProperty(prefix = "authkit.auth.email-provider", name = "type", havingValue = "smtp")
@@ -66,7 +66,7 @@ public class SmtpEmailProvider implements EmailProvider {
     }
 
     MimeMessage message(EmailPayload payload, String idempotencyKey) throws MessagingException {
-        MimeMessage message = new MimeMessage(session());
+        MimeMessage message = new StableMessageIdMimeMessage(session(), idempotencyKey);
         message.setFrom(new InternetAddress(authProperties.getEmailProvider().getFrom()));
         message.setRecipient(Message.RecipientType.TO, new InternetAddress(payload.to()));
         message.setSubject(payload.subject(), StandardCharsets.UTF_8.name());
@@ -105,6 +105,22 @@ public class SmtpEmailProvider implements EmailProvider {
         return payload.messageId() == null
                 ? "authkit-email-" + UUID.randomUUID()
                 : "authkit-email-" + payload.messageId();
+    }
+
+    /** Keeps the outbox identity stable even when Jakarta Mail re-saves before transport. */
+    private static final class StableMessageIdMimeMessage extends MimeMessage {
+
+        private final String stableMessageId;
+
+        private StableMessageIdMimeMessage(Session session, String idempotencyKey) {
+            super(session);
+            this.stableMessageId = "<" + idempotencyKey + "@authkit.invalid>";
+        }
+
+        @Override
+        protected void updateMessageID() throws MessagingException {
+            setHeader("Message-ID", stableMessageId);
+        }
     }
 
 }

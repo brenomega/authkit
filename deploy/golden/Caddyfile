@@ -13,6 +13,9 @@
         -Server
     }
 
+    @internal path /api/v1/internal/* /actuator/prometheus
+    respond @internal 404
+
     reverse_proxy authkit:8080 {
         header_up -X-Forwarded-For
         header_up X-Forwarded-For {http.request.remote.host}

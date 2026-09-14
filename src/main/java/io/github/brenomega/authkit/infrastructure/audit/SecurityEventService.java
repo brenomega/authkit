@@ -160,7 +160,7 @@ public class SecurityEventService {
                        String email,
                        String reason,
                        Map<String, String> metadata) {
-        Instant occurredAt = Instant.now();
+        Instant occurredAt = auditDigestService.canonicalTimestamp(Instant.now());
         RequestSnapshot request = currentRequestSnapshot();
         String normalizedEmail = normalizeNullable(email);
         String emailHash = hashNullable(normalizedEmail);
@@ -292,7 +292,7 @@ public class SecurityEventService {
                     PASSKEY_REGISTERED, PASSKEY_DISABLED,
                     SOCIAL_IDENTITY_LINKED, SOCIAL_IDENTITY_UNLINKED,
                     SOCIAL_PROVIDER_CREATED, SOCIAL_PROVIDER_UPDATED,
-                    OAUTH_CONSENT_GRANTED,
+                    OAUTH_CONSENT_GRANTED, CONSENT_ACCEPTED,
                     ACCOUNT_SUSPENDED, ACCOUNT_REACTIVATED,
                     ACCOUNT_DELETION_REQUESTED, ACCOUNT_DELETION_CANCELLED,
                     ACCOUNT_ANONYMIZED, LOGOUT_ALL -> true;

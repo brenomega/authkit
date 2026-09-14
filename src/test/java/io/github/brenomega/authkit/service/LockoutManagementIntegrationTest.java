@@ -126,6 +126,8 @@ public class LockoutManagementIntegrationTest {
                 .audience(List.of("authkit-api"))
                 .claim("token_use", "first_party_access")
                 .claim("jti", jti)
-                .claim("tenant_id", user.getTenantId().toString()));
+                .claim("session_version", user.getSecurityVersion())
+                .claim("tenant_id", user.getTenantId().toString())
+                .claim("amr", List.of("pwd")));
     }
 }

@@ -2,6 +2,8 @@ package io.github.brenomega.authkit.infrastructure.audit;
 
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -47,6 +49,11 @@ public class AuditDigestService {
         } catch (GeneralSecurityException ex) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", ex);
         }
+    }
+
+    /** Normalizes an instant to PostgreSQL {@code TIMESTAMPTZ} precision before hashing it. */
+    public Instant canonicalTimestamp(Instant value) {
+        return value.truncatedTo(ChronoUnit.MICROS);
     }
 
     private String toHex(byte[] bytes) {

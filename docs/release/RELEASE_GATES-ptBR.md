@@ -1,28 +1,30 @@
 # Gates de release do AuthKit v0.1
 
-[English — normativo](RELEASE_GATES.md)
+[English](RELEASE_GATES.md) | [Português (Brasil)](RELEASE_GATES-ptBR.md)
 
-Este é o espelho em português do ledger normativo de validação interna final. O candidato é o commit base `23a6ad66bec32ce247ce8505dd4035a4f9865014`, tree `7a895d2fe552e032f4bfc05293b939f94480cbfa`, mais o patch de remediação não commitado. `PASSOU` exige evidência executada; ausência de prova permanece `NÃO COMPROVADO`.
+O inglês é autoritativo quando houver divergência de tradução.
 
-| # | Gate | Estado | Disposição |
+Este documento define os gates obrigatórios de uma release AuthKit v0.1. Ele deliberadamente não incorpora contagem mutável de testes, commit, tree, digest de imagem ou resultado de gate: esses valores pertencem ao manifest externo de evidências produzido depois que o candidate de source é congelado. Isso evita evidência stale e a autorreferência impossível de armazenar um hash do tree dentro do próprio tree identificado.
+
+Cada resultado deve identificar um único candidate por commit base, candidate tree, SHA-256 do source archive, digest OCI imutável e manifest de artefatos. `PASS` exige evidência objetiva atual para exatamente esse candidate. Evidência ausente, histórica, parcial, substituída por mock ou contraditória permanece `NOT PROVEN`. Nenhum gate é opcional no golden path.
+
+| # | Gate obrigatório | Condição objetiva de PASS | Evidência a preservar |
 | --- | --- | --- | --- |
-| 1 | Clean build e suíte real PostgreSQL/Redis | PASSOU | 303 testes, zero falhas/erros/skips. |
-| 2 | Golden path novo | PASSOU | Stack Docker vazia, Flyway V25 e fluxos API/SMTP/bootstrap/failure reais passaram. |
-| 3 | TLS/proxy browser same-site/cross-site | NÃO COMPROVADO | DNS, certificado público e browsers externos pendentes. |
-| 4 | SMTP e Resend reais | NÃO COMPROVADO | Mailpit prova só SMTP local. |
-| 5 | Google e OIDC genérico reais | NÃO COMPROVADO | Credenciais/providers externos pendentes. |
-| 6 | Cliente OAuth/OIDC e conformidade externos | NÃO COMPROVADO | Execução externa pendente. |
-| 7 | Downstream JWKS/rotação/revogação | NÃO COMPROVADO | Drill downstream externo pendente. |
-| 8 | Backup e restore em host limpo | NÃO COMPROVADO | Restore em containers limpos passou; host/off-host independente pendente. |
-| 9 | Falhas e alert routing completos | NÃO COMPROVADO | Redis real passou; matriz completa/alertas pendentes. |
-| 10 | Burst e soak de quatro horas | NÃO COMPROVADO | Soak atual não executado. |
-| 11 | Smoke, negativos, concorrência e one-time | PASSOU | Suíte real e casos HTTP selecionados passaram. |
-| 12 | Zero perdas/DEAD/integridade/pool wait sob carga | NÃO COMPROVADO | Depende das provas de carga/falha. |
-| 13 | Scanners bloqueantes | NÃO COMPROVADO | Ferramentas indisponíveis localmente. |
-| 14 | Assinatura e provenance verificável | NÃO COMPROVADO | SBOM/checksums locais existem; assinatura/digest publicado pendentes. |
-| 15 | Operador novo usando apenas docs públicas | NÃO COMPROVADO | Operador independente não executado. |
-| 16 | Zero P0/P1 conhecido após validação final | PASSOU | AUD-001–AUD-010 foram revalidados; os cinco P1 e os P2/P3 requeridos estão resolvidos, sem novo P0/P1 GA conhecido. |
+| 1 | Clean build e suíte completa com PostgreSQL e Redis reais | Build limpo Java 21 termina com zero; todos os testes obrigatórios rodam sem falha, erro ou skip; PostgreSQL 17 e Redis 7 são containers reais. | Log completo, XML Surefire/Failsafe e versões de ferramentas/containers. |
+| 2 | Instalação nova do golden path | Ambiente vazio fica healthy usando somente instruções públicas; smoke positivo passa e configuração ausente/insegura falha rápido. | Compose redigido, IDs de imagem, estado Flyway, health e smoke. |
+| 3 | TLS/reverse proxy same-site e cross-site | As duas topologias passam TLS, cookie, CSRF, CORS e forwarded headers; ingress público/backend direto não satisfazem a boundary de worker. | Cadeia do certificado, HAR/curl, logs de proxy e prova de rede/firewall. |
+| 4 | SMTP e Resend reais | Ambos aceitam registration/recovery; retry, crash/reclaim, deduplicação e DEAD cumprem o contrato de email. | IDs de aceite, message IDs/idempotency keys, outbox e logs de retry. |
+| 5 | Google e OIDC genérico independente reais | Fluxos de identidade nova/existente passam nos dois; negativas de restricted, state/nonce/issuer e colisão falham com segurança. | Traces redigidos, IDs de provider/auditoria e estado de conta/vínculo. |
+| 6 | Interoperabilidade externa OAuth/OIDC e conformidade aplicável | Cliente independente e perfil aplicável passam discovery, code + PKCE, token, userinfo, introspection, revocation e negativas sem suppressions enfraquecedoras. | Relatório da suíte, protocolo raw e configuração do cliente. |
+| 7 | Lifecycle downstream JWT/JWKS | Verificador independente aplica issuer/audience/token class exatos e demonstra unknown `kid`, rotação planejada, revogação emergencial e invalidação de lifecycle. | Snapshots/hashes JWKS, logs do verificador e metadados sem token raw. |
+| 8 | Backup PostgreSQL/Redis e restore limpo | Backups cifrados restauram em host independente limpo com estado consistente e RPO/RTO medidos; input corrupto/parcial falha closed. | Hashes, logs de cifra/checksum, contagens restauradas e smoke. |
+| 9 | Falhas controladas de dependências | Falhas Redis, PostgreSQL e email preservam fail-closed/atomicidade/outbox, recuperam no tempo registrado e roteiam os alertas exigidos. | Chaos logs, métricas, notificações e snapshots de estado. |
+| 10 | Carga mista, hostile burst e soak | Pelo menos quatro horas na classe 2 vCPU/4 GiB atendem thresholds publicados; replay, abuso e bodies oversized/chunked são rejeitados sem colapso. | Dados k6 e métricas de host/JVM/PostgreSQL/Redis/outbox. |
+| 11 | Smoke, tokens negativos, concorrência e one-time state | Fluxos e corpus passam; cada race tem um winner ou outcome fail-safe documentado nos stores reais. | Smoke, manifest de fixtures, relatórios de race e estado final. |
+| 12 | Zero indicadores de integridade não resolvidos | A janela termina sem DEAD não resolvido, perda crítica de auditoria, erro de integridade, pool wait sustentado ou backlog fora do limite. | Snapshots Prometheus/SQL/Redis e janela temporal exata. |
+| 13 | Scans bloqueantes de segurança e supply chain | Scans de dependency, filesystem, container, static, secret e IaC terminam sem blocker não resolvido ou suppression injustificada. | Relatórios machine-readable, versões/configuração e justificativas. |
+| 14 | SBOM, checksums, assinaturas e provenance | Artefatos multiarch imutáveis, SBOMs, checksums, assinaturas autorizadas e provenance verificável vinculam o mesmo source/digest OCI. | Descritores OCI, SBOMs, manifest de checksum, assinaturas, attestations e autorização. |
+| 15 | Clean room por operador novo | Operador isolado conclui setup/operação usando só docs/artefatos públicos, sem passo oculto ou edição normativa ad hoc. | Transcript, inputs públicos, hashes e observações do operador. |
+| 16 | Zero P0/P1 não resolvido em GA | Todo P0/P1 está fechado no candidate congelado com acceptance criteria evidenciados; uma auditoria independente adicional não é exigida apenas para fechar este gate. | Matriz de findings, índice de evidências e identidades do candidate. |
 
-Hashes locais: JAR `9869de06d5a0724993f0d27f93009e704065ee6df4b190a237c60b44e3de1882`, CycloneDX JSON `3f37f87d00e53bc38400b4aaea139059136aa990b87aeb8fcaf759b9133e3a58`, XML `6a13a3f9883d591868cfadad835419f5036c5a1768ba1c32d6478dd75ea47d3d` e imagem `sha256:97e7c8d6e999e5fedafaad87b75474e0fd4bd9fa518ba9aa6406b7f090877e3c`.
-
-O Gate 16 está fechado por validação interna. Gates externos sem execução permanecem `NÃO COMPROVADO`; nenhuma tag, publicação ou promoção foi realizada.
+Somente o bundle de evidências gerado e a auditoria consolidada final podem declarar resultados atuais. Eles usam `PASS`, `FAIL` ou `NOT PROVEN` e só emitem `GO` quando Gates 1–16 estão `PASS`. Promoção, publicação e tag continuam ações exclusivas do maintainer.

@@ -15,7 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import io.github.brenomega.authkit.infrastructure.network.origin.TrustedOriginProvider;
+import io.github.brenomega.authkit.infrastructure.network.origin.WorkerTrustedOriginProvider;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,7 +23,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Authenticates internal worker requests with origin restriction and a shared secret.
- * The request must originate from {@link TrustedOriginProvider} and present either
+ * The request must originate from {@link WorkerTrustedOriginProvider} and present either
  * the current or an explicitly configured previous token. Comparison is constant
  * time; use of a previous token is accepted for rotation but recorded by metrics.
  */
@@ -32,14 +32,14 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
 
     private final String workerToken;
     private final List<String> previousWorkerTokens;
-    private final TrustedOriginProvider trustedOriginProvider;
+    private final WorkerTrustedOriginProvider trustedOriginProvider;
     private final MeterRegistry meterRegistry;
     private static final String HEADER_NAME = "X-Worker-Token";
 
     @SuppressWarnings("null")
     public WorkerAuthFilter(@Value("${app.security.worker-token}") String workerToken,
                             @Value("${app.security.worker-previous-tokens:}") String previousWorkerTokens,
-                            TrustedOriginProvider trustedOriginProvider,
+                            WorkerTrustedOriginProvider trustedOriginProvider,
                             MeterRegistry meterRegistry) {
         this.workerToken = workerToken;
         this.previousWorkerTokens = Arrays.stream(previousWorkerTokens.split(","))

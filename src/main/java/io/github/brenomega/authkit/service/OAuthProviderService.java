@@ -296,6 +296,7 @@ public class OAuthProviderService {
                 .filter(User::isActive)
                 .orElseThrow(UserNotFoundException::new);
         user.requireEmailConfirmed();
+        requireCurrentPolicyConsent(user);
         ensureConsent(user, client, requestedScopes, request.consentAccepted());
 
         String rawCode = SecureTokenGenerator.randomUrlSafeToken(32);
@@ -408,8 +409,10 @@ public class OAuthProviderService {
         @SuppressWarnings("null")
         User user = userRepository.findByIdForUpdate(authorizationCode.getUserId())
                 .filter(User::isActive)
-                .orElseThrow(InvalidOAuthRequestException::new);
-        user.requireEmailConfirmed();
+                .orElseThrow(() -> new OAuthProtocolException(
+                        "invalid_grant", "Resource owner is unavailable"));
+        if (!user.isEmailConfirmed()) throw new OAuthProtocolException("invalid_grant", "Resource owner is unavailable");
+        requireCurrentPolicyConsentForRefresh(user);
 
         IssuedRefreshToken issuedRefresh = authorizationCode.getScopes().contains("offline_access")
                 ? issueRefreshTokenFamily(user, client, authorizationCode.getScopes(), authorizationCode.getAmr())
@@ -449,7 +452,8 @@ public class OAuthProviderService {
         User user = userRepository.findByIdForUpdate(resourceOwnerId)
                 .filter(User::isActive)
                 .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Resource owner is not active"));
-        user.requireEmailConfirmed();
+        if (!user.isEmailConfirmed()) throw new OAuthProtocolException("invalid_grant", "Resource owner is unavailable");
+        requireCurrentPolicyConsentForRefresh(user);
         OAuthRefreshToken token = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> new OAuthProtocolException("invalid_grant", "Refresh token is invalid"));
         OAuthRefreshTokenFamily family = refreshFamilyRepository.findByIdForUpdate(token.getFamilyId())
@@ -528,7 +532,8 @@ public class OAuthProviderService {
         });
         decodeOAuthToken(token)
                 .filter(JwtTokenUse::isOAuthAccess)
-                .filter(jwt -> jwt.getAudience().contains(client.getClientId()))
+                .filter(jwt -> jwt.getAudience().size() == 1
+                        && client.getClientId().equals(jwt.getAudience().getFirst()))
                 .ifPresent(jwt -> tokenRevocationService.revoke(jwt.getId(), jwt.getExpiresAt()));
     }
 
@@ -569,7 +574,8 @@ public class OAuthProviderService {
         return decodeOAuthToken(token)
                 .filter(JwtTokenUse::isOAuthAccess)
                 .filter(jwt -> jwt.getExpiresAt() != null && jwt.getExpiresAt().isAfter(Instant.now()))
-                .filter(jwt -> jwt.getAudience().contains(client.getClientId()))
+                .filter(jwt -> jwt.getAudience().size() == 1
+                        && client.getClientId().equals(jwt.getAudience().getFirst()))
                 .map(jwt -> Map.<String, Object>ofEntries(
                         Map.entry("active", true),
                         Map.entry("sub", jwt.getSubject()),
@@ -659,7 +665,7 @@ public class OAuthProviderService {
             return;
         }
         if (clientSecret == null || clientSecret.isBlank() || clientSecret.length() > 256) {
-            throw new InvalidOAuthRequestException();
+            throw new OAuthProtocolException("invalid_client", "Client authentication failed");
         }
         boolean acquired = argon2Limiter.tryAcquire();
         if (!acquired) {
@@ -667,7 +673,7 @@ public class OAuthProviderService {
         }
         try {
             if (!passwordEncoder.matches(clientSecret, client.getClientSecretHash())) {
-                throw new InvalidOAuthRequestException();
+                throw new OAuthProtocolException("invalid_client", "Client authentication failed");
             }
         } finally {
             argon2Limiter.release();
@@ -893,6 +899,20 @@ public class OAuthProviderService {
     private void ensureEnabled() {
         if (!authProperties.getOauth().isProviderEnabled()) {
             throw new InvalidOAuthRequestException();
+        }
+    }
+
+    private void requireCurrentPolicyConsent(User user) {
+        if (!user.hasCurrentConsent(authProperties.getCompliance().getTermsVersion(),
+                authProperties.getCompliance().getPrivacyPolicyVersion())) {
+            throw new OAuthProtocolException("access_denied", "Current policy acceptance is required");
+        }
+    }
+
+    private void requireCurrentPolicyConsentForRefresh(User user) {
+        if (!user.hasCurrentConsent(authProperties.getCompliance().getTermsVersion(),
+                authProperties.getCompliance().getPrivacyPolicyVersion())) {
+            throw new OAuthProtocolException("invalid_grant", "Current policy acceptance is required");
         }
     }
 

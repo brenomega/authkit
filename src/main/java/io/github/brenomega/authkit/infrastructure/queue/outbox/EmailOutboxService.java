@@ -45,6 +45,12 @@ public class EmailOutboxService {
         repository.save(EmailOutboxMessage.pending(payload, Instant.now()));
     }
 
+    /** Recovery notification cannot be dispatched until its durable activation succeeds. */
+    @Transactional
+    public UUID enqueueAwaitingActivation(EmailPayload payload) {
+        return repository.save(EmailOutboxMessage.awaitingActivation(payload, Instant.now())).getId();
+    }
+
     /** Claims up to {@code batchSize} due or stale records under database locking. */
     @Transactional
     public List<EmailOutboxMessage> claimDueMessages(int batchSize, Duration lockTtl) {
@@ -85,7 +91,8 @@ public class EmailOutboxService {
     public void markFailed(UUID messageId, String error) {
         EmailOutboxMessage message = repository.findById(messageId).orElse(null);
         if (message == null || message.getStatus() == EmailOutboxStatus.ACCEPTED
-                || message.getStatus() == EmailOutboxStatus.DEAD) {
+                || message.getStatus() == EmailOutboxStatus.DEAD
+                || message.getStatus() == EmailOutboxStatus.CANCELLED) {
             return;
         }
         int maxAttempts = authProperties.getEmailOutbox().getMaxAttempts();

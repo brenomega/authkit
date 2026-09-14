@@ -54,6 +54,7 @@ class ContractFixtureTokenGeneratorTest {
                 .audience(FIRST_PARTY_AUDIENCE)
                 .jwtID("fixture-session-jti")
                 .claim("token_use", "first_party_access")
+                .claim("session_version", 0L)
                 .claim("amr", List.of("pwd"))
                 .build());
         claims.put("valid-oauth-access", oauth(now, subject, tenant)
@@ -69,6 +70,9 @@ class ContractFixtureTokenGeneratorTest {
         claims.put("wrong-audience", oauth(now, subject, tenant)
                 .audience("other-resource-api")
                 .build());
+        claims.put("extra-audience", oauth(now, subject, tenant)
+                .audience(List.of(RESOURCE_AUDIENCE, "unexpected-resource"))
+                .build());
         claims.put("wrong-issuer", oauth(now, subject, tenant)
                 .issuer("https://issuer.example.invalid")
                 .build());
@@ -83,12 +87,19 @@ class ContractFixtureTokenGeneratorTest {
         claims.put("missing-tenant-id", oauth(now, subject, null)
                 .claim("tenant_id", null)
                 .build());
+        claims.put("missing-amr", base(now, subject, tenant)
+                .audience(FIRST_PARTY_AUDIENCE)
+                .jwtID("fixture-session-without-amr")
+                .claim("token_use", "first_party_access")
+                .claim("session_version", 0L)
+                .build());
         claims.put("tenant-mismatch", oauth(now, subject, "fixture-tenant-a")
                 .build());
         claims.put("revoked-session", base(now, subject, tenant)
                 .audience(FIRST_PARTY_AUDIENCE)
                 .jwtID("revoked-session-jti")
                 .claim("token_use", "first_party_access")
+                .claim("session_version", 0L)
                 .claim("amr", List.of("pwd"))
                 .build());
         claims.put("oauth-token-used-on-first-party-api", oauth(now, subject, tenant).build());
@@ -96,6 +107,7 @@ class ContractFixtureTokenGeneratorTest {
                 .audience(FIRST_PARTY_AUDIENCE)
                 .jwtID("fixture-session-jti")
                 .claim("token_use", "first_party_access")
+                .claim("session_version", 0L)
                 .claim("amr", List.of("pwd"))
                 .build());
         claims.put("id-token-used-on-api", base(now, subject, tenant)

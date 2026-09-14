@@ -65,8 +65,8 @@ failures=0
 run_case "oauth token on first-party API" "GET" "/api/v1/users/me" "oauth-token-used-on-first-party-api" "401" || failures=$((failures + 1))
 run_case "ID token on first-party API" "GET" "/api/v1/users/me" "id-token-used-on-api" "401" || failures=$((failures + 1))
 run_case "wrong audience on first-party API" "GET" "/api/v1/users/me" "wrong-audience" "401" || failures=$((failures + 1))
-run_case "first-party token on userinfo" "GET" "/oauth2/userinfo" "first-party-token-used-on-oauth-userinfo" "400" || failures=$((failures + 1))
-run_case "ID token on userinfo" "GET" "/oauth2/userinfo" "valid-id-token" "400" || failures=$((failures + 1))
+run_case "first-party token on userinfo" "GET" "/oauth2/userinfo" "first-party-token-used-on-oauth-userinfo" "401" || failures=$((failures + 1))
+run_case "ID token on userinfo" "GET" "/oauth2/userinfo" "valid-id-token" "401" || failures=$((failures + 1))
 
 if [[ "${failures}" -gt 0 ]]; then
   echo "FAIL: ${failures} negative contract case(s) returned an unexpected status." >&2

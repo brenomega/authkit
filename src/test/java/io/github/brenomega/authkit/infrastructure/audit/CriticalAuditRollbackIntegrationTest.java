@@ -4,11 +4,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
@@ -55,6 +57,9 @@ class CriticalAuditRollbackIntegrationTest {
     @Autowired
     private BootstrapStateRepository bootstrapStateRepository;
 
+    @Autowired
+    private ConsentEventRepository consentEventRepository;
+
     @MockitoBean
     private SecurityEventWriter securityEventWriter;
 
@@ -70,6 +75,7 @@ class CriticalAuditRollbackIntegrationTest {
                 true,
                 null);
         user.setEmailConfirmed(true);
+        user.recordConsent("terms-v1", "privacy-v1", "consent", Instant.now());
         User persistedUser = userRepository.saveAndFlush(user);
 
         String jti = UUID.randomUUID().toString();
@@ -85,7 +91,9 @@ class CriticalAuditRollbackIntegrationTest {
                                 .audience(List.of("authkit-api"))
                                 .claim(JwtTokenUse.CLAIM, JwtTokenUse.FIRST_PARTY_ACCESS)
                                 .claim("jti", jti)
-                                .claim("tenant_id", persistedUser.getTenantId().toString())))
+                                .claim("session_version", persistedUser.getSecurityVersion())
+                                .claim("tenant_id", persistedUser.getTenantId().toString())
+                                .claim("amr", List.of("pwd"))))
                         .contentType("application/json")
                         .content("{\"currentPassword\":\"CurrentPassword123!\"}"))
                 .andExpect(status().isServiceUnavailable())
@@ -98,6 +106,47 @@ class CriticalAuditRollbackIntegrationTest {
         Assertions.assertEquals("Still Present", persisted.getName());
         Assertions.assertNotNull(persisted.getPassword());
         Assertions.assertFalse(persisted.isDeleted());
+    }
+
+    @SuppressWarnings("null")
+    @Test
+    @DisplayName("Critical consent audit failure rolls back versions and immutable consent evidence")
+    void criticalAuditFailureRollsBackConsentAcceptance() throws Exception {
+        User user = new User("consent-audit-rollback@example.com", passwordEncoder.encode("CurrentPassword123!"),
+                "Stale Consent", true, true, null);
+        user.setEmailConfirmed(true);
+        user.recordConsent("terms-old", "privacy-old", "consent", Instant.now().minusSeconds(60));
+        User persistedUser = userRepository.saveAndFlush(user);
+        String jti = UUID.randomUUID().toString();
+        var refreshToken = RefreshTokenCodec.issue(persistedUser.getId().toString(), jti);
+        tokenStorage.storeRefreshToken(persistedUser.getId().toString(), jti, refreshToken.rawToken(), 7);
+        doThrow(new IllegalStateException("audit database unavailable"))
+                .when(securityEventWriter).persistCritical(any(SecurityEvent.class));
+
+        mockMvc.perform(post("/api/v1/users/me/consent")
+                        .with(jwt().jwt(builder -> builder
+                                .claims(claims -> claims.remove("scope"))
+                                .subject(persistedUser.getId().toString())
+                                .audience(List.of("authkit-api"))
+                                .claim(JwtTokenUse.CLAIM, JwtTokenUse.FIRST_PARTY_ACCESS)
+                                .claim("jti", jti)
+                                .claim("session_version", persistedUser.getSecurityVersion())
+                                .claim("tenant_id", persistedUser.getTenantId().toString())
+                                .claim("amr", List.of("pwd"))))
+                        .contentType("application/json")
+                        .content("""
+                                {"termsAccepted":true,"privacyPolicyAccepted":true,
+                                 "termsVersion":"terms-v1","privacyPolicyVersion":"privacy-v1"}
+                                """))
+                .andExpect(status().isServiceUnavailable());
+
+        User rolledBack = userRepository.findById(persistedUser.getId()).orElseThrow();
+        Assertions.assertEquals("terms-old", rolledBack.getTermsVersion());
+        Assertions.assertEquals("privacy-old", rolledBack.getPrivacyPolicyVersion());
+        Assertions.assertTrue(consentEventRepository
+                .findByUserIdOrderByAcceptedAtDesc(persistedUser.getId()).isEmpty());
+        Assertions.assertTrue(tokenStorage.validateToken(
+                persistedUser.getId().toString(), jti, refreshToken.rawToken()));
     }
 
     @SuppressWarnings("null")

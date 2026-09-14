@@ -74,6 +74,177 @@ not_wildcard() {
   fi
 }
 
+golden_file() {
+  local directory="$1"
+  local name="$2"
+  local minimum_bytes="${3:-1}"
+  local path="${directory}/${name}"
+  if [[ ! -f "${path}" || ! -r "${path}" ]]; then
+    fail "golden secret ${name}: missing or unreadable"
+    return
+  fi
+  local mode size
+  mode="$(stat -c '%a' "${path}")"
+  size="$(wc -c < "${path}")"
+  if [[ "${mode}" != "444" ]]; then
+    fail "golden secret ${name}: local Compose requires mode 0444 (got ${mode})"
+  elif (( size < minimum_bytes )); then
+    fail "golden secret ${name}: shorter than ${minimum_bytes} bytes"
+  elif grep -Eqi 'change[-_ ]?me|example|placeholder' "${path}"; then
+    fail "golden secret ${name}: placeholder-like content"
+  else
+    pass "golden secret ${name}: readable, non-placeholder, mode 0444"
+  fi
+}
+
+golden_preflight() {
+  required AUTHKIT_PUBLIC_HOST
+  required AUTHKIT_JWT_AUDIENCE
+  required AUTHKIT_JWT_KEY_ID
+  required AUTHKIT_FRONTEND_ACTIVATION_URL
+  required AUTHKIT_FRONTEND_PASSWORD_RESET_URL
+  required AUTHKIT_FRONTEND_EMAIL_CHANGE_URL
+  required AUTHKIT_REGISTRATION_MODE
+  required AUTHKIT_TERMS_VERSION
+  required AUTHKIT_PRIVACY_POLICY_VERSION
+  required AUTHKIT_EMAIL_FROM
+  required AUTHKIT_EMAIL_PROVIDER_TYPE
+  required AUTHKIT_CORS_ALLOWED_ORIGINS
+  required AUTHKIT_PASSKEY_RP_ID
+  required AUTHKIT_PASSKEY_ORIGINS
+  required AUTHKIT_OAUTH_AUTHORIZATION_UI_URL
+  required AUTHKIT_WORKER_TRUSTED_ORIGINS
+  required AUTHKIT_EMAIL_TEMPLATES_DIRECTORY
+  required AUTHKIT_SECRETS_DIRECTORY
+
+  case "$(value AUTHKIT_REGISTRATION_MODE)" in
+    public|restricted) pass "AUTHKIT_REGISTRATION_MODE: explicit supported value" ;;
+    *) fail "AUTHKIT_REGISTRATION_MODE: must be public or restricted" ;;
+  esac
+
+  local https_key
+  for https_key in AUTHKIT_FRONTEND_ACTIVATION_URL AUTHKIT_FRONTEND_PASSWORD_RESET_URL \
+      AUTHKIT_FRONTEND_EMAIL_CHANGE_URL AUTHKIT_OAUTH_AUTHORIZATION_UI_URL; do
+    if [[ "$(value "${https_key}")" =~ ^https://[^/[:space:]]+(/.*)?$ ]]; then
+      pass "${https_key}: HTTPS"
+    else
+      fail "${https_key}: must be an absolute HTTPS URL"
+    fi
+  done
+
+  not_wildcard AUTHKIT_CORS_ALLOWED_ORIGINS
+  IFS=',' read -ra cors_origins <<< "$(value AUTHKIT_CORS_ALLOWED_ORIGINS)"
+  local origin
+  for origin in "${cors_origins[@]}"; do
+    if [[ ! "${origin}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+      fail "AUTHKIT_CORS_ALLOWED_ORIGINS: every entry must be an exact HTTPS origin"
+    fi
+  done
+
+  # The published golden topology reserves .10 for Caddy and .20 for the
+  # separately authenticated worker/load runner. A broader range would let the
+  # public proxy satisfy the independent network factor.
+  equals AUTHKIT_WORKER_TRUSTED_ORIGINS 172.30.0.20/32
+
+  case "$(value AUTHKIT_EMAIL_PROVIDER_TYPE)" in
+    smtp)
+      required AUTHKIT_SMTP_HOST
+      if [[ "$(value AUTHKIT_SMTP_AUTH true)" == "true" ]]; then
+        required AUTHKIT_SMTP_USERNAME
+      fi
+      equals AUTHKIT_SMTP_DEDUPLICATION_GUARANTEED true
+      ;;
+    resend) ;;
+    *) fail "AUTHKIT_EMAIL_PROVIDER_TYPE: must be smtp or resend" ;;
+  esac
+
+  local env_base secrets_dir templates_dir
+  env_base="$(cd "$(dirname "${env_file}")" && pwd)"
+  secrets_dir="$(value AUTHKIT_SECRETS_DIRECTORY)"
+  [[ "${secrets_dir}" = /* ]] || secrets_dir="${env_base}/${secrets_dir#./}"
+  templates_dir="$(value AUTHKIT_EMAIL_TEMPLATES_DIRECTORY)"
+  if [[ "${templates_dir}" != /* ]]; then
+    fail "AUTHKIT_EMAIL_TEMPLATES_DIRECTORY: must be absolute"
+  fi
+  if [[ ! -d "${secrets_dir}" ]]; then
+    fail "golden secret directory: missing (${secrets_dir})"
+  else
+    local directory_mode
+    directory_mode="$(stat -c '%a' "${secrets_dir}")"
+    if [[ "${directory_mode}" == "700" ]]; then
+      pass "golden secret directory: mode 0700"
+    else
+      fail "golden secret directory: expected mode 0700, got ${directory_mode}"
+    fi
+    golden_file "${secrets_dir}" postgres_owner_password 32
+    golden_file "${secrets_dir}" postgres_app_password 32
+    golden_file "${secrets_dir}" postgres_retention_password 32
+    golden_file "${secrets_dir}" redis_password 32
+    golden_file "${secrets_dir}" audit_hash_pepper 32
+    golden_file "${secrets_dir}" mfa_encryption_key 32
+    golden_file "${secrets_dir}" worker_token 32
+    golden_file "${secrets_dir}" email_provider_credential 16
+    golden_file "${secrets_dir}" jwt_public.pem 128
+    golden_file "${secrets_dir}" jwt_private.pem 512
+    golden_file "${secrets_dir}" tls_certificate.pem 128
+    golden_file "${secrets_dir}" tls_private_key.pem 128
+
+    if openssl pkey -in "${secrets_dir}/jwt_private.pem" -check -noout >/dev/null 2>&1 \
+        && openssl pkey -pubin -in "${secrets_dir}/jwt_public.pem" -noout >/dev/null 2>&1; then
+      local jwt_private_pub jwt_public_pub
+      jwt_private_pub="$(openssl pkey -in "${secrets_dir}/jwt_private.pem" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+      jwt_public_pub="$(openssl pkey -pubin -in "${secrets_dir}/jwt_public.pem" -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+      if [[ "${jwt_private_pub}" == "${jwt_public_pub}" ]]; then
+        pass "JWT key pair: parseable and matching"
+      else
+        fail "JWT key pair: public/private mismatch"
+      fi
+    else
+      fail "JWT key pair: invalid key material"
+    fi
+
+    if openssl x509 -in "${secrets_dir}/tls_certificate.pem" -noout -checkend 0 >/dev/null 2>&1 \
+        && openssl x509 -in "${secrets_dir}/tls_certificate.pem" -noout \
+          -checkhost "$(value AUTHKIT_PUBLIC_HOST)" >/dev/null 2>&1 \
+        && openssl pkey -in "${secrets_dir}/tls_private_key.pem" -check -noout >/dev/null 2>&1; then
+      local tls_cert_pub tls_private_pub
+      tls_cert_pub="$(openssl x509 -in "${secrets_dir}/tls_certificate.pem" -pubkey -noout 2>/dev/null \
+        | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+      tls_private_pub="$(openssl pkey -in "${secrets_dir}/tls_private_key.pem" -pubout -outform DER 2>/dev/null \
+        | sha256sum | cut -d' ' -f1)"
+      if [[ "${tls_cert_pub}" == "${tls_private_pub}" ]]; then
+        pass "TLS certificate: hostname and private key match"
+      else
+        fail "TLS certificate: private-key mismatch"
+      fi
+    else
+      fail "TLS certificate: invalid, expired, or missing AUTHKIT_PUBLIC_HOST SAN"
+    fi
+  fi
+
+  local stem template_file
+  for stem in email-confirmation password-recovery password-changed email-change-confirmation \
+      email-change-requested email-changed email-change-cancelled; do
+    for template_file in "${stem}.subject.txt" "${stem}.body.html"; do
+      if [[ -s "${templates_dir}/${template_file}" && ! -L "${templates_dir}/${template_file}" ]]; then
+        pass "email template ${template_file}: present"
+      else
+        fail "email template ${template_file}: missing, empty, or symlink"
+      fi
+    done
+  done
+}
+
+if [[ -n "$(value AUTHKIT_PUBLIC_HOST)" ]]; then
+  golden_preflight
+  if [[ "${failures}" -gt 0 ]]; then
+    echo "Preflight failed with ${failures} issue(s)."
+    exit 1
+  fi
+  echo "Preflight passed."
+  exit 0
+fi
+
 required DB_URL
 required DB_USERNAME
 required DB_PASSWORD
@@ -86,6 +257,12 @@ required AUTH_FRONTEND_PASSWORD_RESET_URL
 required AUTH_AUDIT_HASH_PEPPER
 required AUTH_MFA_SECRET_ENCRYPTION_KEY
 required WORKER_TOKEN
+required AUTH_REGISTRATION_MODE
+
+case "$(value AUTH_REGISTRATION_MODE)" in
+  public|restricted) pass "AUTH_REGISTRATION_MODE: explicit supported value" ;;
+  *) fail "AUTH_REGISTRATION_MODE: must be public or restricted" ;;
+esac
 
 backend="$(value AUTH_TOKEN_STORAGE_BACKEND redis)"
 case "${backend}" in
@@ -139,8 +316,15 @@ case "${email_provider}" in
 esac
 
 not_wildcard AUTH_CORS_ALLOWED_ORIGINS
+IFS=',' read -ra cors_origins <<< "$(value AUTH_CORS_ALLOWED_ORIGINS)"
+for origin in "${cors_origins[@]}"; do
+  if [[ ! "${origin}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$ ]]; then
+    fail "AUTH_CORS_ALLOWED_ORIGINS: every entry must be an exact HTTPS origin"
+  fi
+done
 equals AUTH_CSRF_ENABLED true
 equals AUTH_REFRESH_COOKIE_SECURE true
+equals AUTH_REFRESH_COOKIE_SAME_SITE Strict
 
 if [[ "$(value AUTH_EMAIL_OUTBOX_ENABLED true)" == "true" || "$(value AUTH_RETENTION_JOB_ENABLED true)" == "true" ]]; then
   equals AUTH_SCHEDULER_DISTRIBUTED_LOCK_ENABLED true

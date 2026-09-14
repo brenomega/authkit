@@ -1,6 +1,8 @@
 # Guia do integrador do AuthKit
 
-[English — normativo](INTEGRATOR.md)
+[English](INTEGRATOR.md) | [Português (Brasil)](INTEGRATOR-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
 
 ## Escolha uma topologia de browser
 
@@ -16,7 +18,7 @@ Todo JWT precisa ter exatamente um `token_use` explícito; valores ausentes ou l
 
 | `token_use` | Audience exata | Consumidor | Fronteira obrigatória |
 | --- | --- | --- | --- |
-| `first_party_access` | Audience AuthKit/API configurada | APIs first-party de user/admin | `sub`, `jti`, `tenant_id` pessoal, `amr`; sessão AuthKit viva |
+| `first_party_access` | Audience AuthKit/API configurada | APIs first-party de user/admin | `sub`, `jti`, `session_version` numérico, `tenant_id` pessoal, `amr`; sessão AuthKit viva e versão de segurança PostgreSQL aceita |
 | `oauth_access` | ID do cliente OAuth | API do cliente, userinfo e introspection/revocation autenticadas | `sub`, `jti`, `client_id`, `scope`, `tenant_id` pessoal; client/família vivos |
 | `id_token` | ID do cliente OAuth | Somente resultado de autenticação OIDC | Nunca bearer de API; valide nonce quando emitido para authorize |
 
@@ -26,11 +28,16 @@ Consumers validam algoritmo configurado, `iss` exato, `aud` esperado, assinatura
 
 Cacheie `/.well-known/jwks.json` por período curto e limitado. Com `kid` desconhecido, atualize uma vez e rejeite se continuar ausente. Fixe algoritmos permitidos independentemente do header do token. Em rotação planejada, mantenha chaves públicas retiring até todos os tokens expirarem; exercite remoção emergencial separadamente.
 
-O AuthKit revoga imediatamente sessões first-party e famílias OAuth em seus checks/introspection vivos. Resource server downstream que valida JWT offline observa revogação no máximo na expiração do access (recomendação golden de até 300 segundos). Use introspecção first-party autenticada somente entre peers confiáveis; use introspecção OAuth padrão autenticada para tokens OAuth.
+O AuthKit rejeita imediatamente sessões first-party invalidadas por sua fronteira PostgreSQL `session_version`, mesmo enquanto a limpeza externa está em retry, e revoga famílias OAuth em seus checks/introspection vivos. Resource server downstream que valida JWT offline observa revogação no máximo na expiração do access (recomendação golden de até 300 segundos). Use introspecção first-party autenticada somente entre peers confiáveis; use introspecção OAuth padrão autenticada para tokens OAuth.
 
 O sample Spring demonstra issuer, audience, `token_use=oauth_access` e scope. Ele não converte `PLATFORM_ADMIN` em autoridade do produto nem usa `tenant_id` como organização.
 
 ## Federação
+
+Em email change e gerenciamento de MFA, `currentPassword` é obrigatório para contas
+com senha local. Contas passwordless omitem o campo e apresentam sessão autenticada
+por passkey local recente, dentro da janela configurada. Ausência ou expiração desse
+proof é rejeitada; autenticação pelo provider não é step-up local.
 
 Somente providers permitidos por administrador podem ser usados. O AuthKit vincula identidade apenas por `(issuer, subject)` exato. E-mail igual nunca auto-linka; a pessoa autenticada inicia cerimônia explícita com step-up local. Unlink não pode remover o último autenticador. Tokens access, refresh e ID do provider são descartados após a cerimônia.
 

@@ -1,6 +1,8 @@
 # AuthKit security model
 
-[Português (Brasil)](SECURITY_MODEL-ptBR.md) | English is normative.
+[English](SECURITY_MODEL.md) | [Português (Brasil)](SECURITY_MODEL-ptBR.md)
+
+English is authoritative when translations differ.
 
 ## Roles
 
@@ -27,7 +29,7 @@ The local password is nullable because an account may be social-only. A missing 
 
 ## Token classes
 
-Every accepted JWT must contain an explicit `token_use`. `first_party_access`, `oauth_access`, and `id_token` are separate classes with distinct audiences and consumers. AuthKit first-party APIs additionally require the JWT `jti` to identify a live server-side session. OAuth access tokens are never accepted by first-party user or admin routes.
+Every accepted JWT must contain an explicit `token_use`. `first_party_access`, `oauth_access`, and `id_token` are separate classes with distinct audiences and consumers. AuthKit first-party APIs additionally require the JWT `jti` to identify a live server-side session and numeric `session_version` accepted by the uncached PostgreSQL security boundary. OAuth access tokens are never accepted by first-party user or admin routes.
 
 ## Edge and abuse controls
 

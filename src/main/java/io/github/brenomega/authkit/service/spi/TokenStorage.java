@@ -3,6 +3,7 @@ package io.github.brenomega.authkit.service.spi;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 
 /**
  * Persists revocable, server-side state for first-party authentication tokens.
@@ -28,7 +29,7 @@ public interface TokenStorage {
         storeRefreshToken(userId, jti, rawToken, durationDays, new SessionMetadata(
                 UUID.randomUUID().toString(), jti, now, now,
                 now.plusSeconds(Math.multiplyExact(durationDays, 86_400L)),
-                List.of(), "Unknown client", null, "unknown", "unknown"));
+                0, List.of(), "Unknown client", null, "unknown", "unknown"));
     }
 
     /**
@@ -57,6 +58,11 @@ public interface TokenStorage {
         return false;
     }
 
+    /** Returns immutable authentication provenance for the active internal session JTI. */
+    default Optional<SessionMetadata> findSessionMetadata(String userId, String jti) {
+        return Optional.empty();
+    }
+
     /**
      * Atomically replaces the current refresh secret while retaining its family.
      *
@@ -69,7 +75,8 @@ public interface TokenStorage {
      * @return {@code true} only for the call that completed rotation
      */
     boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
-                               String nextJti, String nextRawToken, long durationDays);
+                               String nextJti, String nextRawToken, long durationDays,
+                               long securityVersion);
 
     /**
      * Returns a non-snapshot page of sessions without exposing internal JTIs.
@@ -104,6 +111,9 @@ public interface TokenStorage {
     /** Revokes every session except the trusted current JTI. */
     void revokeOtherSessions(String userId, String currentJti);
 
+    /** Idempotently removes sessions issued before a durable account security version. */
+    void revokeSessionsBeforeVersion(String userId, long minimumVersion, String preservedJti);
+
     /**
      * Stores the current recovery secret for a normalized email, replacing any
      * earlier unconsumed secret.
@@ -111,6 +121,9 @@ public interface TokenStorage {
      * @param durationMinutes lifetime in minutes
      */
     void storeRecoveryToken(String email, String rawToken, long durationMinutes);
+
+    /** Applies a durable activation once; retry must neither extend expiry nor resurrect a consumed token. */
+    void activateRecoveryToken(String activationId, String emailDigest, String tokenDigest, Instant expiresAt);
 
     /** Tests a recovery secret without consuming it. */
     boolean validateRecoveryToken(String email, String rawToken);
@@ -140,6 +153,9 @@ public interface TokenStorage {
 
     /** Invalidates the current recovery secret for a normalized email. */
     void revokeRecoveryToken(String email);
+
+    /** Invalidates recovery state by its already HMAC-protected normalized-email lookup. */
+    void revokeRecoveryTokenByDigest(String emailDigest);
 
     /** Invalidates the current recovery secret only if the supplied value matches. */
     default void revokeRecoveryTokenIfMatches(String email, String rawToken) {

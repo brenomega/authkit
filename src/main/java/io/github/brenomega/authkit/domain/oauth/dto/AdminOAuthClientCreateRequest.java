@@ -5,6 +5,7 @@ import java.util.Set;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
 
 /** Carries an administrator-authorized OAuth client registration request. */
 public record AdminOAuthClientCreateRequest(
@@ -12,7 +13,7 @@ public record AdminOAuthClientCreateRequest(
         boolean publicClient,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 512) String> redirectUris,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 80) String> scopes,
-        boolean requirePkce,
+        @AssertTrue(message = "PKCE S256 is mandatory") boolean requirePkce,
         @Size(max = 128) String currentPassword,
         @Size(max = 32) String mfaCode
 ) {

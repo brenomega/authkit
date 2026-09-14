@@ -27,7 +27,8 @@ public class AuthProperties {
     @Valid
     private TokenStorage tokenStorage = new TokenStorage();
 
-    @Valid
+    @Valid // nosemgrep: java.servlets.security.cookie-issecure-false.cookie-issecure-false -- cookie.secure defaults true and prod rejects false
+    // Secure defaults to true and production validation rejects false.
     private Cookie cookie = new Cookie();
 
     @Valid
@@ -1050,6 +1051,9 @@ public class AuthProperties {
 
             private boolean sslEnabled;
 
+            /** Operator assertion backed by a provider crash/reclaim drill for stable Message-ID deduplication. */
+            private boolean deduplicationGuaranteed;
+
             public String getHost() {
                 return host;
             }
@@ -1112,6 +1116,14 @@ public class AuthProperties {
 
             public void setSslEnabled(boolean sslEnabled) {
                 this.sslEnabled = sslEnabled;
+            }
+
+            public boolean isDeduplicationGuaranteed() {
+                return deduplicationGuaranteed;
+            }
+
+            public void setDeduplicationGuaranteed(boolean deduplicationGuaranteed) {
+                this.deduplicationGuaranteed = deduplicationGuaranteed;
             }
         }
     }

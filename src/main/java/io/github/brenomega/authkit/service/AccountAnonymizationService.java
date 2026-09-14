@@ -21,6 +21,8 @@ import io.github.brenomega.authkit.repository.SocialLoginTransactionRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenFamilyRepository;
 import io.github.brenomega.authkit.repository.OAuthRefreshTokenRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthRefreshTokenFamily;
 import io.micrometer.core.instrument.MeterRegistry;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -59,6 +61,7 @@ public class AccountAnonymizationService {
     private final SocialLoginTransactionRepository socialLoginTransactionRepository;
     private final OAuthRefreshTokenFamilyRepository oauthRefreshTokenFamilyRepository;
     private final OAuthRefreshTokenRepository oauthRefreshTokenRepository;
+    private final SecurityEffectService securityEffectService;
 
     public AccountAnonymizationService(UserRepository userRepository,
                                        SecurityEventService securityEventService,
@@ -71,7 +74,8 @@ public class AccountAnonymizationService {
                                        SocialIdentityRepository socialIdentityRepository,
                                        SocialLoginTransactionRepository socialLoginTransactionRepository,
                                        OAuthRefreshTokenFamilyRepository oauthRefreshTokenFamilyRepository,
-                                       OAuthRefreshTokenRepository oauthRefreshTokenRepository) {
+                                       OAuthRefreshTokenRepository oauthRefreshTokenRepository,
+                                       SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.securityEventService = securityEventService;
         this.emailOutboxService = emailOutboxService;
@@ -84,6 +88,7 @@ public class AccountAnonymizationService {
         this.socialLoginTransactionRepository = socialLoginTransactionRepository;
         this.oauthRefreshTokenFamilyRepository = oauthRefreshTokenFamilyRepository;
         this.oauthRefreshTokenRepository = oauthRefreshTokenRepository;
+        this.securityEffectService = securityEffectService;
         this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
@@ -157,8 +162,8 @@ public class AccountAnonymizationService {
                 "account_anonymized_after_grace",
                 Map.of("direct_pii", "email_name"));
         emailOutboxService.deleteByRecipients(List.of(originalEmail));
-        tokenStorage.revokeAllSessions(userId.toString());
-        userAuthoritiesFilter.evict(userId);
+        securityEffectService.invalidateSessions(user, null);
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(userId));
         return true;
     }
 }

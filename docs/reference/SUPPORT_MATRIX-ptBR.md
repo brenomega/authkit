@@ -2,7 +2,7 @@
 
 [English](SUPPORT_MATRIX.md) | [Português (Brasil)](SUPPORT_MATRIX-ptBR.md)
 
-O inglês é normativo. Esta matriz está vinculada ao candidato à release v0.1.0.
+O inglês é autoritativo quando houver divergência de tradução. Esta matriz está vinculada ao candidate da release v0.1.0.
 
 ## Golden path candidato
 

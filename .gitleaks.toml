@@ -1,0 +1,17 @@
+title = "AuthKit release secret scan policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic, non-production cryptographic fixtures used only by negative contract tests"
+paths = [
+  '''(^|/)src/test/resources/test-keys/''',
+]
+
+[[allowlists]]
+description = "Synthetic sentinel values that prove diagnostics redaction and MFA encryption behavior"
+paths = [
+  '''(^|/)src/test/java/io/github/brenomega/authkit/infrastructure/security/DiagnosticsRedactionTest\.java$''',
+  '''(^|/)src/test/java/io/github/brenomega/authkit/infrastructure/security/MfaSecretCipherTest\.java$''',
+]

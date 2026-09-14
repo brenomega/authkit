@@ -19,8 +19,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeRequest;
-import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizeResponse;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizationDecisionRequest;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthAuthorizationTransactionResponse;
 import io.github.brenomega.authkit.domain.oauth.dto.OAuthTokenResponse;
@@ -86,14 +84,6 @@ public class OAuthController {
                     "tenant_id",
                     "amr"))
         );
-    }
-
-    /** Authorizes an authenticated resource owner and returns a client-bound code redirect. */
-    @PostMapping("/api/v1/oauth2/authorize")
-    public ApiResponse<OAuthAuthorizeResponse> authorize(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody OAuthAuthorizeRequest request) {
-        return new ApiResponse<>(oauthProviderService.authorize(jwt, request), null, Instant.now());
     }
 
     /** Starts an authorization transaction and redirects to the configured login UI. */
@@ -185,7 +175,7 @@ public class OAuthController {
     @GetMapping("/oauth2/userinfo")
     public Map<String, Object> userInfo(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
-        if (!StringUtils.hasText(authorization) || !authorization.startsWith("Bearer ")) {
+        if (!hasScheme(authorization, "Bearer")) {
             throw new OAuthProtocolException(
                     "invalid_token", "Bearer access token is required");
         }
@@ -203,7 +193,7 @@ public class OAuthController {
             }
             return new ClientCredentials(bodyClientId, bodyClientSecret);
         }
-        if (!authorization.startsWith("Basic ")) {
+        if (!hasScheme(authorization, "Basic")) {
             throw new OAuthProtocolException(
                     "invalid_client", "Unsupported client authentication method");
         }
@@ -227,6 +217,13 @@ public class OAuthController {
             throw new OAuthProtocolException(
                     "invalid_client", "Malformed client credentials");
         }
+    }
+
+    private boolean hasScheme(String authorization, String scheme) {
+        return StringUtils.hasText(authorization)
+                && authorization.length() > scheme.length() + 1
+                && authorization.regionMatches(true, 0, scheme, 0, scheme.length())
+                && authorization.charAt(scheme.length()) == ' ';
     }
 
     private record ClientCredentials(String clientId, String clientSecret) {

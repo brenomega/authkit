@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 backup_dir="${AUTHKIT_BACKUP_DIR:-}"
 snapshot="${AUTHKIT_RESTORE_POSTGRES_SNAPSHOT:-}"
 secrets_directory="${AUTHKIT_SECRETS_DIRECTORY:-}"
-expected_flyway_version="${AUTHKIT_EXPECTED_FLYWAY_VERSION:-25}"
+expected_flyway_version="${AUTHKIT_EXPECTED_FLYWAY_VERSION:-28}"
 
 if [[ -z "${backup_dir}" || "${backup_dir}" == "/" ]]; then
   echo "FAIL: AUTHKIT_BACKUP_DIR must be a non-empty directory path." >&2

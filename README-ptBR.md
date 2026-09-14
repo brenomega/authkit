@@ -1,6 +1,8 @@
 # AuthKit
 
-[English — normativo](README.md)
+[English](README.md) | [Português (Brasil)](README-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
 
 O AuthKit é um serviço headless e independente de autenticação e identidade para aplicações SaaS greenfield. Ele oferece sessões first-party, MFA e passkeys, federação Google e OIDC genérico permitido pelo operador e um servidor de autorização OAuth 2.0/OIDC.
 
@@ -10,7 +12,7 @@ O AuthKit v0.1 tem como alvo lançamentos iniciais de SaaS greenfield por meio d
 
 A topologia suportada é um container OCI do AuthKit em Linux com Java 21, PostgreSQL 17, Redis 7 autenticado, envio direto pelo outbox durável, SMTP com TLS obrigatório ou Resend e um proxy reverso TLS. É uma topologia de instância única; alta disponibilidade, migração sem interrupção de outro sistema de identidade, tenancy organizacional e capacidade não medida estão fora do contrato v0.1.
 
-Comece pela [instalação do golden path](docs/INSTALL-ptBR.md) e consulte a [referência de configuração](docs/CONFIGURATION-ptBR.md), o [contrato de templates de e-mail](docs/EMAIL_TEMPLATES-ptBR.md), o [modelo de segurança](docs/SECURITY_MODEL.md), o [guia operacional](docs/OPERATIONS-ptBR.md) e o [contrato OpenAPI](docs/openapi.yaml). A [matriz de suporte](docs/reference/SUPPORT_MATRIX-ptBR.md) identifica os caminhos preview sem suporte; a [rastreabilidade](docs/TRACEABILITY-ptBR.md) e os [16 gates](docs/release/RELEASE_GATES-ptBR.md) declaram o que foi implementado e o que continua sem prova.
+Comece pela [instalação do golden path](docs/INSTALL-ptBR.md) e consulte a [referência de configuração](docs/CONFIGURATION-ptBR.md), o [contrato de templates de e-mail](docs/EMAIL_TEMPLATES-ptBR.md), o [modelo de segurança](docs/SECURITY_MODEL-ptBR.md), o [guia operacional](docs/OPERATIONS-ptBR.md) e o [contrato OpenAPI](docs/openapi.yaml). A [matriz de suporte](docs/reference/SUPPORT_MATRIX-ptBR.md) identifica os caminhos preview sem suporte; a [rastreabilidade](docs/TRACEABILITY-ptBR.md) e os [16 gates](docs/release/RELEASE_GATES-ptBR.md) declaram o que foi implementado e o que continua sem prova.
 
 ## Fronteiras de segurança
 

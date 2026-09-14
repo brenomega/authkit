@@ -35,7 +35,7 @@ import org.hibernate.annotations.ParamDef;
  */
 @Entity
 @Table(name = "users")
-@FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = String.class)})
+@FilterDef(name = "tenantFilter", parameters = {@ParamDef(name = "tenantId", type = UUID.class)})
 @Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class User {
 
@@ -127,6 +127,12 @@ public class User {
     @Column(name = "anonymized_at")
     private Instant anonymizedAt;
 
+    @Column(name = "security_version", nullable = false)
+    private long securityVersion;
+
+    @Column(name = "preserved_session_jti", length = 36)
+    private String preservedSessionJti;
+
     protected User() {
     }
 
@@ -204,6 +210,25 @@ public class User {
     public Instant getDeletionRequestedAt() { return deletionRequestedAt; }
     public Instant getDeletedAt() { return deletedAt; }
     public Instant getAnonymizedAt() { return anonymizedAt; }
+    public long getSecurityVersion() { return securityVersion; }
+    public String getPreservedSessionJti() { return preservedSessionJti; }
+
+    /**
+     * Advances the durable credential boundary before external session cleanup.
+     * Sessions issued under an older version become unusable immediately through
+     * database-backed access/refresh validation, even while Redis is unavailable.
+     */
+    public long invalidateSessions(String sessionJtiToPreserve) {
+        this.securityVersion = Math.incrementExact(this.securityVersion);
+        this.preservedSessionJti = sessionJtiToPreserve;
+        return this.securityVersion;
+    }
+
+    /** Returns whether a session version is current or is the explicitly preserved session. */
+    public boolean acceptsSession(String jti, long candidateVersion) {
+        return candidateVersion == securityVersion
+                || (preservedSessionJti != null && preservedSessionJti.equals(jti));
+    }
 
     public void recordConsent(
         String termsVersion,
@@ -214,6 +239,26 @@ public class User {
         this.privacyPolicyVersion = privacyPolicyVersion;
         this.lawfulBasis = lawfulBasis;
         this.consentAcceptedAt = (termsAccepted && privacyPolicyAccepted) ? acceptedAt : null;
+    }
+
+    /** Records explicit acceptance of the supplied policy versions at one instant. */
+    public void acceptConsent(
+            String termsVersion,
+            String privacyPolicyVersion,
+            String lawfulBasis,
+            Instant acceptedAt) {
+        this.termsAccepted = true;
+        this.privacyPolicyAccepted = true;
+        recordConsent(termsVersion, privacyPolicyVersion, lawfulBasis, acceptedAt);
+    }
+
+    /** Returns whether the account has accepted exactly the currently required versions. */
+    public boolean hasCurrentConsent(String requiredTermsVersion, String requiredPrivacyPolicyVersion) {
+        return termsAccepted
+                && privacyPolicyAccepted
+                && consentAcceptedAt != null
+                && requiredTermsVersion.equals(termsVersion)
+                && requiredPrivacyPolicyVersion.equals(privacyPolicyVersion);
     }
 
     /** Returns whether deletion has been requested or completed. */

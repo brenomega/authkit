@@ -20,10 +20,14 @@ import java.util.Optional;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -65,6 +69,7 @@ class AuthServiceTest {
     void setUp() {
         userRepository = mock(UserRepository.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        when(passwordEncoder.encode(anyString())).thenReturn("dummy-timing-hash");
         jwtEncoder = mock(JwtEncoder.class);
         tokenStorage = mock(TokenStorage.class);
 
@@ -75,12 +80,13 @@ class AuthServiceTest {
         abuseThrottleService = mock(AbuseThrottleService.class);
         when(mfaService.isMfaEnabled(any(User.class))).thenReturn(false);
         SessionMetadataFactory sessionMetadataFactory = mock(SessionMetadataFactory.class);
-        when(sessionMetadataFactory.create(anyString(), anyList(), anyLong())).thenAnswer(invocation -> {
+        when(sessionMetadataFactory.create(anyString(), anyLong(), anyList(), anyLong())).thenAnswer(invocation -> {
             String jti = invocation.getArgument(0);
             Instant now = Instant.now();
             return new SessionMetadata(
                     UUID.randomUUID().toString(), jti, now, now, now.plusSeconds(604800),
-                    invocation.getArgument(1), "JUnit", null, "127.0.0.***", "127.0.0.***");
+                    invocation.getArgument(1), invocation.getArgument(2),
+                    "JUnit", null, "127.0.0.***", "127.0.0.***");
         });
         authService = new AuthService(
             userRepository,
@@ -124,6 +130,25 @@ class AuthServiceTest {
         assertNotNull(result.refreshToken());
         verify(tokenStorage).storeRefreshToken(any(), any(), any(), eq(7L), any());
         verify(lockoutService).clearLockout(email);
+    }
+
+    @Test
+    @DisplayName("Login: dummy timing hash can never authenticate a passwordless social identity")
+    void login_PasswordlessAccountRejectsEvenWhenInputMatchesDummyHash() {
+        String email = "social-only@example.com";
+        User user = mock(User.class);
+        when(user.getEmail()).thenReturn(email);
+        when(user.getPassword()).thenReturn(null);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("AuthKit dummy password for timing equalization", "dummy-timing-hash"))
+                .thenReturn(true);
+
+        assertThrows(InvalidCredentialsException.class, () -> authService.login(new LoginRequest(
+                email, "AuthKit dummy password for timing equalization")));
+
+        verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
+        verify(tokenStorage, never()).storeRefreshToken(anyString(), anyString(), anyString(), anyLong(), any());
+        verify(mfaService, never()).isMfaEnabled(user);
     }
 
     @Test
@@ -213,6 +238,8 @@ class AuthServiceTest {
         when(user.getTenantId()).thenReturn(UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
+        when(user.hasCurrentConsent("terms-v1", "privacy-v1")).thenReturn(true);
+        when(user.acceptsSession(anyString(), anyLong())).thenReturn(true);
 
         when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
@@ -249,6 +276,7 @@ class AuthServiceTest {
         when(user.getEmail()).thenReturn("mfa-fail@example.com");
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
+        when(user.hasCurrentConsent("terms-v1", "privacy-v1")).thenReturn(true);
 
         when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.consumeMfaChallenge(userId, challenge.jti(), challenge.rawToken())).thenReturn(true);
@@ -348,6 +376,8 @@ class AuthServiceTest {
         when(user.getTenantId()).thenReturn(UUID.fromString(tenantId));
         when(user.isEmailConfirmed()).thenReturn(true);
         when(user.isActive()).thenReturn(true);
+        when(user.hasCurrentConsent("terms-v1", "privacy-v1")).thenReturn(true);
+        when(user.acceptsSession(anyString(), anyLong())).thenReturn(true);
         when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
         when(tokenStorage.rotateRefreshToken(
                 eq(userId),
@@ -355,8 +385,14 @@ class AuthServiceTest {
                 eq(currentToken.rawToken()),
                 anyString(),
                 anyString(),
-                eq(7L)
+                eq(7L),
+                eq(0L)
         )).thenReturn(true);
+        when(tokenStorage.findSessionMetadata(eq(userId), anyString()))
+                .thenReturn(Optional.of(new SessionMetadata(
+                        "session", "next-jti", java.time.Instant.now(), java.time.Instant.now(),
+                        java.time.Instant.now().plusSeconds(3600), 0, List.of("pwd"),
+                        "JUnit", null, "127.0.0.***", "127.0.0.***")));
 
         Jwt jwt = mock(Jwt.class);
         when(jwt.getTokenValue()).thenReturn("rotated-access-token");
@@ -367,6 +403,53 @@ class AuthServiceTest {
         assertEquals("rotated-access-token", result.response().accessToken());
         assertNotNull(result.refreshToken());
         assertNotNull(RefreshTokenCodec.parse(result.refreshToken()).orElse(null));
+    }
+
+    @SuppressWarnings("null")
+    @ParameterizedTest(name = "AMR {0} survives refresh with mfa={1}")
+    @MethodSource("authenticationProvenance")
+    void authenticationProvenanceIsExactBeforeAndAfterRefresh(List<String> amr, boolean expectedMfa) {
+        String userId = UUID.randomUUID().toString();
+        User user = mock(User.class);
+        when(user.getId()).thenReturn(UUID.fromString(userId));
+        when(user.getEmail()).thenReturn("amr-" + UUID.randomUUID() + "@example.test");
+        when(user.getTenantId()).thenReturn(UUID.randomUUID());
+        when(user.isActive()).thenReturn(true);
+        when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.hasCurrentConsent("terms-v1", "privacy-v1")).thenReturn(true);
+        when(user.acceptsSession(anyString(), anyLong())).thenReturn(true);
+        when(userRepository.findById(UUID.fromString(userId))).thenReturn(Optional.of(user));
+        when(mfaService.isMfaEnabled(user)).thenReturn(true); // Enrollment alone must not alter the supplied AMR.
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn("amr-access-token");
+        when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(jwt);
+
+        AuthService.LoginResult initial = authService.issueLoginForVerifiedUser(user, amr, "amr_matrix");
+        RefreshTokenCodec.IssuedRefreshToken current = RefreshTokenCodec.parse(initial.refreshToken()).orElseThrow();
+        when(tokenStorage.rotateRefreshToken(eq(userId), eq(current.jti()), eq(current.rawToken()),
+                anyString(), anyString(), eq(7L), eq(0L))).thenReturn(true);
+        when(tokenStorage.findSessionMetadata(eq(userId), anyString())).thenReturn(Optional.of(new SessionMetadata(
+                "session", "rotated", Instant.now(), Instant.now(), Instant.now().plusSeconds(3600), 0,
+                amr, "JUnit", null, "127.0.0.***", "127.0.0.***")));
+
+        authService.refresh(initial.refreshToken());
+
+        ArgumentCaptor<JwtEncoderParameters> claims = ArgumentCaptor.forClass(JwtEncoderParameters.class);
+        verify(jwtEncoder, org.mockito.Mockito.times(2)).encode(claims.capture());
+        for (JwtEncoderParameters parameters : claims.getAllValues()) {
+            assertEquals(amr, parameters.getClaims().getClaims().get("amr"));
+            assertEquals(expectedMfa, parameters.getClaims().getClaims().get("mfa"));
+        }
+    }
+
+    private static Stream<Arguments> authenticationProvenance() {
+        return Stream.of(
+                Arguments.of(List.of("pwd"), false),
+                Arguments.of(List.of("pwd", "otp"), true),
+                Arguments.of(List.of("pwd", "backup_code"), true),
+                Arguments.of(List.of("webauthn"), false),
+                Arguments.of(List.of("federated", "oidc:google"), false));
     }
 
     @SuppressWarnings("null")
@@ -392,6 +475,7 @@ class AuthServiceTest {
                 anyString(),
                 anyString(),
                 anyString(),
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyLong());
         verify(jwtEncoder, never()).encode(any(JwtEncoderParameters.class));
     }

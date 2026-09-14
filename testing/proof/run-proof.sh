@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export AUTHKIT_PROOF_MODE=release
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
@@ -36,6 +37,7 @@ fi
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 report_dir="docs/proof/reports/${timestamp}-${tier}-${backend}"
 mkdir -p "${report_dir}"
+trap 'proof_status=$?; printf "exit_status=%s\nfinished_at=%s\n" "$proof_status" "$(date -u +%FT%TZ)" >> "${report_dir}/run-summary.txt"' EXIT
 
 commit="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 dirty="$(git status --short 2>/dev/null || true)"
@@ -59,7 +61,7 @@ if [[ -n "${dirty}" ]]; then
   echo "Working tree has uncommitted changes; report records this."
 fi
 
-PROOF_REPORT_DIR="${report_dir}" PROOF_SNAPSHOT_LABEL=before testing/proof/smoke/collect-prometheus-snapshot.sh || true
+PROOF_REPORT_DIR="${report_dir}" PROOF_SNAPSHOT_LABEL=before testing/proof/smoke/collect-prometheus-snapshot.sh
 
 smoke_scripts=(
   testing/proof/smoke/health-and-metrics.sh
@@ -78,7 +80,8 @@ done
 if [[ -d target/contract-fixtures ]]; then
   testing/proof/smoke/negative-contracts.sh | tee "${report_dir}/negative-contracts.log"
 else
-  echo "SKIP: target/contract-fixtures is missing; run testing/proof/fixtures/generate-test-tokens.sh for negative contracts." | tee "${report_dir}/negative-contracts.log"
+  echo "FAIL: target/contract-fixtures is missing; run testing/proof/fixtures/generate-test-tokens.sh for negative contracts." | tee "${report_dir}/negative-contracts.log" >&2
+  exit 1
 fi
 
 if [[ "${run_load}" == "true" ]]; then
@@ -100,7 +103,7 @@ if [[ "${run_chaos}" == "true" ]]; then
   done
 fi
 
-PROOF_REPORT_DIR="${report_dir}" PROOF_SNAPSHOT_LABEL=after testing/proof/smoke/collect-prometheus-snapshot.sh || true
+PROOF_REPORT_DIR="${report_dir}" PROOF_SNAPSHOT_LABEL=after testing/proof/smoke/collect-prometheus-snapshot.sh
 
 cp docs/proof/templates/proof-report-template.md "${report_dir}/proof-report.md"
 echo "Complete the report template at ${report_dir}/proof-report.md"

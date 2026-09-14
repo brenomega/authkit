@@ -2,6 +2,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: authkit
+  namespace: authkit
+  annotations:
+    checkov.io/skip1: "CKV_K8S_43=Unsupported local-only example uses an operator-loaded image; a supported future Kubernetes profile must pin its published OCI digest."
+    checkov.io/skip2: "CKV_K8S_15=Never is intentional for the operator-loaded immutable local candidate in this unsupported example."
+    checkov.io/skip3: "CKV_K8S_35=The current application contract consumes scalar credentials from environment variables; migration to projected files belongs to a future supported Kubernetes profile."
 spec:
   # Unsupported example only. The v0.1 golden path is single-instance Compose.
   replicas: 1
@@ -13,6 +18,7 @@ spec:
       labels:
         app: authkit
     spec:
+      automountServiceAccountToken: false
       # Pod-level security hardening (DT 3.6.4)
       securityContext:
         runAsNonRoot: true

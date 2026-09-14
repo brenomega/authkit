@@ -1,6 +1,8 @@
 # Instalação do golden path
 
-[English — normativo](INSTALL.md)
+[English](INSTALL.md) | [Português (Brasil)](INSTALL-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
 
 Este procedimento instala a topologia v0.1 suportada de instância única: AuthKit, PostgreSQL 17, Redis 7.4 autenticado e Caddy terminando TLS. Use um host Linux limpo com Docker Engine e Compose v2, DNS para o host público, certificado TLS válido, conta SMTP que exija TLS e templates de e-mail escritos pelo operador. Não exponha PostgreSQL, Redis nem a porta 8080 do AuthKit.
 
@@ -8,13 +10,18 @@ Este procedimento instala a topologia v0.1 suportada de instância única: AuthK
 
 Copie `deploy/golden/.env.example` para `deploy/golden/.env` e substitua todos os exemplos. Origins são origins HTTPS exatas, sem wildcards. O issuer deriva de `AUTHKIT_PUBLIC_HOST` e deve permanecer estável. Mantenha o registro como `restricted` até que signup público seja uma decisão intencional do operador.
 
-Crie o diretório definido por `AUTHKIT_SECRETS_DIRECTORY`. Siga `deploy/golden/secrets/README.md`; no Compose local use modo `0700` no diretório e `0444` nos secrets read-only, valores aleatórios independentes, par RSA de pelo menos 2048 bits e certificado que cubra o host público. Nunca reutilize a senha do owner Flyway no runtime ou na retenção. `email_provider_credential` é a senha SMTP por padrão; com `AUTHKIT_EMAIL_PROVIDER_TYPE=resend`, ele contém a API key Resend e host/usuário SMTP podem ficar vazios.
+A rede interna golden reserva `172.30.0.10` para o Caddy e `172.30.0.20` para o worker/load runner autenticado separadamente. Mantenha `AUTHKIT_WORKER_TRUSTED_ORIGINS=172.30.0.20/32`; nunca confie no Caddy nem em `172.30.0.0/24`. O worker deve entrar na rede Compose `internal` com endereço `.20` e enviar `X-Worker-Token`. O Caddy deliberadamente não roteia `/api/v1/internal/**` nem `/actuator/prometheus`, portanto nem cliente público nem proxy satisfazem o fator de rede.
+
+Crie o diretório definido por `AUTHKIT_SECRETS_DIRECTORY`. Siga `deploy/golden/secrets/README.md`; no Compose local use modo `0700` no diretório e `0444` nos secrets read-only, valores aleatórios independentes, par RSA de pelo menos 2048 bits e certificado que cubra o host público. Nunca reutilize a senha do owner Flyway no runtime ou na retenção. `email_provider_credential` é a senha SMTP por padrão; com `AUTHKIT_EMAIL_PROVIDER_TYPE=resend`, ele contém a API key Resend e host/usuário SMTP podem ficar vazios. SMTP só é suportado quando o relay escolhido passou pelo drill documentado de crash/reclaim e deduplica reenvios pelo `Message-ID` RFC 5322 estável do AuthKit; após preservar essa evidência do provider, configure `AUTHKIT_SMTP_DEDUPLICATION_GUARANTEED=true`. O startup de produção falha enquanto o valor estiver falso ou omitido.
 
 Crie os 14 arquivos exigidos pelo [contrato de templates](EMAIL_TEMPLATES-ptBR.md) no diretório absoluto definido por `AUTHKIT_EMAIL_TEMPLATES_DIRECTORY`. O AuthKit deliberadamente não fornece texto, localização, HTML ou branding de produção.
 
 Valide antes de iniciar:
 
+Execute o preflight público e depois a validação do Compose. O Compose seleciona um arquivo versionado de modo de cadastro; valor omitido ou diferente de `public`/`restricted` falha na configuração em vez de escolher default silencioso.
+
 ```sh
+deploy/scripts/preflight-config.sh deploy/golden/.env
 docker compose --env-file deploy/golden/.env -f deploy/golden/compose.yml config -q
 ```
 
@@ -62,6 +69,7 @@ O comando é não HTTP, trava um guard singleton no banco, cria um `PLATFORM_ADM
 ## 4. Checklist de aceite
 
 - Certificado e hostname TLS são válidos; portas do backend não são acessíveis externamente.
+- O TLS público retorna `404` para paths internos/Prometheus mesmo com token worker válido; na rede interna, somente rede e somente token falham, enquanto `.20` mais token passa.
 - Modo de registro, versões legais, origins CORS exatas, RP de passkey, issuer, audience e UI de autorização foram aprovados pelo operador.
 - STARTTLS SMTP está habilitado e obrigatório; registre aceitação real do provider e observação separada da inbox. `ACCEPTED` nunca significa entrega na inbox.
 - Registro/confirmação/login/refresh/logout funciona; replays de confirmação e refresh antigo falham.

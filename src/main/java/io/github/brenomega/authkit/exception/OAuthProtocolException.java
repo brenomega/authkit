@@ -19,7 +19,7 @@ public class OAuthProtocolException extends InvalidOAuthRequestException {
     }
 
     public HttpStatus protocolStatus() {
-        return "invalid_client".equals(error)
+        return "invalid_client".equals(error) || "invalid_token".equals(error)
                 ? HttpStatus.UNAUTHORIZED
                 : HttpStatus.BAD_REQUEST;
     }

@@ -12,6 +12,7 @@ import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationFinishR
 import io.github.brenomega.authkit.domain.passkey.dto.PasskeyRegistrationOptionsResponse;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
+import io.github.brenomega.authkit.domain.user.dto.ConsentAcceptanceRequest;
 import io.github.brenomega.authkit.domain.user.dto.EmailChangeRequest;
 import io.github.brenomega.authkit.domain.user.dto.EmailChangeStatusResponse;
 import io.github.brenomega.authkit.domain.user.dto.ProfileResponse;
@@ -74,6 +75,14 @@ public class UserController {
     public ApiResponse<ConsentSnapshotResponse> getMyConsent(@AuthenticationPrincipal Jwt jwt) {
         ConsentSnapshotResponse consent = accountLifecycleService.getConsentSnapshot(jwt.getSubject());
         return new ApiResponse<>(consent, null, Instant.now());
+    }
+
+    /** Accepts only the exact policy versions currently required by the instance. */
+    @PostMapping("/consent")
+    public ApiResponse<ConsentSnapshotResponse> acceptMyConsent(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ConsentAcceptanceRequest request) {
+        return ApiResponse.success(accountLifecycleService.acceptConsent(jwt.getSubject(), request));
     }
 
     /** Produces a credential-secret-free account export after strong step-up. */

@@ -1,6 +1,8 @@
 # Procedimento do candidato à release
 
-[English — normativo](RELEASING.md)
+[English](RELEASING.md) | [Português (Brasil)](RELEASING-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
 
 O repositório identifica o candidato não publicado `0.1.0-rc.1`. Build candidato é evidência para auditoria; não autoriza tag, publicação, promoção, implantação nem aceitação de risco.
 
@@ -11,6 +13,6 @@ O repositório identifica o candidato não publicado `0.1.0-rc.1`. Build candida
 5. Rode scans bloqueantes de dependência, código estático, secrets, IaC, container e supply chain na árvore/digest exatos.
 6. Gere manifesto OCI `linux/amd64` e `linux/arm64`, SBOM/checksums e provenance. Assinatura do digest usa identidade controlada pelo mantenedor; automação local não publica.
 7. Reavalie os 16 gates em `docs/release/RELEASE_GATES-ptBR.md`; indisponibilidade permanece `NÃO COMPROVADO`.
-8. Solicite nova auditoria independente. Somente o mantenedor autoriza versão final, tag, publicação, promoção ou release.
+8. Feche o Gate 16 diretamente quando o candidate congelado tiver zero P0/P1 GA ativo e todos os acceptance criteria correspondentes estiverem comprovados. Somente o mantenedor autoriza versão final, tag, publicação, promoção ou release.
 
 CI só é evidência quando executado no mesmo commit/árvore congelado. Runs históricos, mocks e tags locais mutáveis não satisfazem gates.

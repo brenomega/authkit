@@ -105,6 +105,6 @@ Do not paste secrets, raw tokens, passwords, reset links, private keys, or full 
 - Verified gates:
 - Failed gates:
 - Not-proven gates and exact dependency:
-- Residual risks for independent audit:
+- Residual risks for release review:
 
 This report is evidence only. It cannot authorize release, publication, promotion, tagging, deployment, or risk acceptance.

@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -28,10 +29,12 @@ import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededExcep
 import io.github.brenomega.authkit.exception.InvalidCredentialsException;
 import io.github.brenomega.authkit.exception.InvalidMfaCodeException;
 import io.github.brenomega.authkit.exception.InvalidRefreshTokenException;
+import io.github.brenomega.authkit.exception.ConsentRequiredException;
 import io.github.brenomega.authkit.exception.TokenFamilyCompromisedException;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.service.spi.SessionMetadata;
 
 import io.github.brenomega.authkit.infrastructure.aop.LogExecutionTime;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
@@ -144,12 +147,18 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
 
-        @SuppressWarnings("null")
-        String hashToCheck = userOptional.map(User::getPassword).orElse(dummyPasswordHash);
+        boolean hasRealPassword = userOptional
+                .map(user -> user.getPassword() != null)
+                .orElse(false);
+        String hashToCheck = hasRealPassword
+                ? userOptional.orElseThrow().getPassword()
+                : dummyPasswordHash;
 
         boolean passwordMatches = matchesWithCapacity(request.password(), hashToCheck);
 
-        if (userOptional.isEmpty() || !passwordMatches) {
+        // The dummy hash equalizes password work only. It must never become an
+        // authentication credential for an unknown or passwordless account.
+        if (userOptional.isEmpty() || !hasRealPassword || !passwordMatches) {
             if (userOptional.isPresent()) {
                 lockoutService.recordFailedAttempt(email);
                 securityEventService.recordForTargetUser(
@@ -214,7 +223,8 @@ public class AuthService {
                 refreshToken.rawToken(),
                 authProperties.getToken().getRefreshTokenTtlDays(),
                 sessionMetadataFactory.create(
-                        jti, List.of("pwd"), authProperties.getToken().getRefreshTokenTtlDays())
+                        jti, user.getSecurityVersion(), List.of("pwd"),
+                        authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -332,7 +342,7 @@ public class AuthService {
                 refreshToken.rawToken(),
                 authProperties.getToken().getRefreshTokenTtlDays(),
                 sessionMetadataFactory.create(
-                        jti, completedAmr,
+                        jti, user.getSecurityVersion(), completedAmr,
                         authProperties.getToken().getRefreshTokenTtlDays())
         );
 
@@ -423,6 +433,15 @@ public class AuthService {
         }
         user.requireEmailConfirmed();
 
+        requireCurrentConsent(user);
+
+        Optional<SessionMetadata> currentMetadata = tokenStorage
+                .findSessionMetadata(user.getId().toString(), currentRefreshToken.jti());
+        if (currentMetadata.isPresent() && !user.acceptsSession(
+                currentRefreshToken.jti(), currentMetadata.get().securityVersion())) {
+            throw new InvalidRefreshTokenException();
+        }
+
         String nextJti = UUID.randomUUID().toString();
         IssuedRefreshToken nextRefreshToken = RefreshTokenCodec.issueRotated(
                 user.getId().toString(), nextJti, currentRefreshToken.familyId());
@@ -435,7 +454,8 @@ public class AuthService {
                     currentRefreshToken.rawToken(),
                     nextRefreshToken.jti(),
                     nextRefreshToken.rawToken(),
-                    authProperties.getToken().getRefreshTokenTtlDays()
+                    authProperties.getToken().getRefreshTokenTtlDays(),
+                    user.getSecurityVersion()
             );
         } catch (TokenFamilyCompromisedException ex) {
             securityEventService.recordForTargetUser(
@@ -457,6 +477,13 @@ public class AuthService {
             throw new InvalidRefreshTokenException();
         }
 
+        List<String> preservedAmr = currentMetadata
+                .map(SessionMetadata::initialAmr)
+                .orElseThrow(InvalidRefreshTokenException::new);
+        if (preservedAmr.isEmpty()) {
+            throw new InvalidRefreshTokenException();
+        }
+
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.REFRESH_TOKEN_ROTATED,
                 SecurityEventOutcome.SUCCESS,
@@ -464,10 +491,7 @@ public class AuthService {
                 user,
                 "refresh_token_rotated");
 
-        List<String> amr = mfaService.isMfaEnabled(user)
-                ? List.of("pwd", "mfa")
-                : List.of("pwd");
-        return issueTokenPair(user, nextRefreshToken, amr);
+        return issueTokenPair(user, nextRefreshToken, preservedAmr);
     }
 
     /** Revokes all sessions, requiring MFA when configured for the account. */
@@ -543,7 +567,8 @@ public class AuthService {
                 refreshToken.rawToken(),
                 authProperties.getToken().getRefreshTokenTtlDays(),
                 sessionMetadataFactory.create(
-                        jti, amr, authProperties.getToken().getRefreshTokenTtlDays())
+                        jti, user.getSecurityVersion(), amr,
+                        authProperties.getToken().getRefreshTokenTtlDays())
         );
 
         securityEventService.recordForAuthenticatedUser(
@@ -594,13 +619,27 @@ public class AuthService {
                 .claim(JwtTokenUse.CLAIM,
                         JwtTokenUse.FIRST_PARTY_ACCESS)
                 .claim("amr", amr)
-                .claim("mfa", amr.stream().anyMatch(method -> !"pwd".equals(method)))
+                .claim("mfa", amr.stream().anyMatch(method ->
+                        "otp".equals(method) || "backup_code".equals(method)))
+                .claim("consent_required", !hasCurrentConsent(user))
+                .claim("session_version", user.getSecurityVersion())
                 .build();
 
         String accessToken = jwtEncoder.encode(JwtEncoderParameters.from(claims)).getTokenValue();
 
         LoginResponse responseDto = new LoginResponse(accessToken, accessTokenTtlSeconds);
         return new LoginResult(responseDto, refreshToken.rawToken());
+    }
+
+    private void requireCurrentConsent(User user) {
+        if (!hasCurrentConsent(user)) {
+            throw new ConsentRequiredException();
+        }
+    }
+
+    private boolean hasCurrentConsent(User user) {
+        return user.hasCurrentConsent(authProperties.getCompliance().getTermsVersion(),
+                authProperties.getCompliance().getPrivacyPolicyVersion());
     }
 
     private boolean matchesWithCapacity(String rawPassword, String encodedPassword) {

@@ -2,10 +2,16 @@
 <html lang="en"><meta charset="utf-8"><title>AuthKit same-site flow</title>
 <body>
   <p>This security-focused example has no production UI or branding.</p>
-  <input id="email" type="email" autocomplete="username" placeholder="email">
-  <input id="password" type="password" autocomplete="current-password" placeholder="password">
+  <label>Email <input id="email" type="email" autocomplete="username"></label>
+  <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+  <label>One-time code <input id="code" inputmode="numeric" autocomplete="one-time-code"></label>
+  <button id="register">Register</button><button id="resend">Resend confirmation</button>
+  <button id="confirm">Confirm fragment token</button>
   <button id="login">Login</button><button id="profile">Profile</button>
   <button id="refresh">Refresh</button><button id="logout">Logout</button>
+  <button id="recovery">Request recovery</button><button id="reset">Reset with fragment token</button>
+  <button id="totp-enroll">Enroll TOTP</button><button id="totp-confirm">Confirm TOTP</button>
+  <button id="passkey-register">Register passkey</button><button id="passkey-login">Login with passkey</button>
   <pre id="output"></pre>
   <script type="module" src="app.js"></script>
 </body></html>

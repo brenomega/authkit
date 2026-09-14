@@ -1,6 +1,8 @@
 # Golden-path installation
 
-[Português (Brasil)](INSTALL-ptBR.md) | English is normative.
+[English](INSTALL.md) | [Português (Brasil)](INSTALL-ptBR.md)
+
+English is authoritative when translations differ.
 
 This procedure installs the supported single-instance v0.1 topology: AuthKit, PostgreSQL 17, authenticated Redis 7.4, and Caddy terminating TLS. Use a clean Linux host with Docker Engine and Compose v2, DNS for the public host, a valid TLS certificate, an SMTP account that requires TLS, and operator-authored email templates. Do not expose PostgreSQL, Redis, or AuthKit port 8080.
 
@@ -8,13 +10,16 @@ This procedure installs the supported single-instance v0.1 topology: AuthKit, Po
 
 Copy `deploy/golden/.env.example` to `deploy/golden/.env` and replace every example value. Origins are exact HTTPS origins without wildcards. The issuer is derived from `AUTHKIT_PUBLIC_HOST` and must remain stable. Keep registration `restricted` until public signup is an intentional operator decision.
 
-Create the directory selected by `AUTHKIT_SECRETS_DIRECTORY`. Follow `deploy/golden/secrets/README.md`; for local Compose use directory mode `0700` and read-only secret files mode `0444`, independent random values, an RSA signing pair of at least 2048 bits, and a certificate covering the public host. Never reuse the Flyway owner password as the runtime or retention password. `email_provider_credential` is the SMTP password by default; when `AUTHKIT_EMAIL_PROVIDER_TYPE=resend`, it is instead the Resend API key and the SMTP host/user values may be empty.
+The golden internal network reserves `172.30.0.10` for Caddy and `172.30.0.20` for the separately authenticated worker/load runner. Keep `AUTHKIT_WORKER_TRUSTED_ORIGINS=172.30.0.20/32`; never trust Caddy or `172.30.0.0/24`. A worker must join the Compose `internal` network with address `.20` and present `X-Worker-Token`. Caddy deliberately does not route `/api/v1/internal/**` or `/actuator/prometheus`, so neither a public caller nor the proxy can satisfy the network factor.
+
+Create the directory selected by `AUTHKIT_SECRETS_DIRECTORY`. Follow `deploy/golden/secrets/README.md`; for local Compose use directory mode `0700` and read-only secret files mode `0444`, independent random values, an RSA signing pair of at least 2048 bits, and a certificate covering the public host. Never reuse the Flyway owner password as the runtime or retention password. `email_provider_credential` is the SMTP password by default; when `AUTHKIT_EMAIL_PROVIDER_TYPE=resend`, it is instead the Resend API key and the SMTP host/user values may be empty. SMTP is supported only when the selected relay has passed the documented crash/reclaim drill and deduplicates repeated submissions by AuthKit's stable RFC 5322 `Message-ID`; after preserving that provider evidence, set `AUTHKIT_SMTP_DEDUPLICATION_GUARANTEED=true`. Production startup fails while it is false or omitted.
 
 Create the 14 files required by [the email-template contract](EMAIL_TEMPLATES.md) in the absolute directory selected by `AUTHKIT_EMAIL_TEMPLATES_DIRECTORY`. AuthKit deliberately ships no production copy, localization, HTML, or branding.
 
-Validate before starting:
+Run the public preflight and then Compose validation before starting. Compose selects a versioned registration-mode environment file, so an omitted value or anything other than `public`/`restricted` fails configuration rather than silently choosing a default.
 
 ```sh
+deploy/scripts/preflight-config.sh deploy/golden/.env
 docker compose --env-file deploy/golden/.env -f deploy/golden/compose.yml config -q
 ```
 
@@ -62,6 +67,7 @@ The command is non-HTTP, locks a singleton database guard, creates one verified 
 ## 4. Acceptance checklist
 
 - TLS certificate and hostname validation succeed; direct backend ports are unreachable externally.
+- Public TLS returns `404` for internal/Prometheus paths even with a valid worker token; on the internal network, network-only and token-only fail while `.20` plus the token succeeds.
 - Registration mode, terms/privacy versions, exact CORS origins, passkey RP, issuer, audience, and authorization UI are operator-approved.
 - SMTP STARTTLS is both enabled and required; a real provider acceptance ID and separate inbox observation are recorded. `ACCEPTED` never means inbox delivery.
 - A registration/confirmation/login/refresh/logout flow succeeds; confirmation and old refresh credentials fail on replay.

@@ -25,6 +25,7 @@ import io.github.brenomega.authkit.repository.OAuthClientRepository;
 import io.github.brenomega.authkit.repository.PasskeyCredentialRepository;
 import io.github.brenomega.authkit.repository.UserRepository;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +35,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.flyway.enabled=false")
 @ActiveProfiles("test")
 @Transactional
 class AdminServiceTest {
@@ -51,6 +52,8 @@ class AdminServiceTest {
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
     @Autowired
     private TokenStorage tokenStorage;
+    @Autowired
+    private AuthProperties authProperties;
 
     @SuppressWarnings("null")
     @Test
@@ -99,6 +102,19 @@ class AdminServiceTest {
     }
 
     @Test
+    @DisplayName("OAuth client redirects reject URI fragments")
+    void oauthClientRedirectWithFragmentIsRejected() {
+        User admin = confirmedUser("fragment-admin@example.com", Role.PLATFORM_ADMIN);
+        activePasskey(admin);
+
+        assertThrows(io.github.brenomega.authkit.exception.InvalidOAuthRequestException.class,
+                () -> adminService.createOAuthClient(jwt(admin),
+                new AdminOAuthClientCreateRequest("Fragment Client", true,
+                        Set.of("https://app.example/callback#fragment"), Set.of("openid"),
+                        true, "AdminPass12345!", null)));
+    }
+
+    @Test
     @DisplayName("Suspension changes durable state and reactivation does not restore sessions")
     void platformAdminSuspendsAndReactivatesUser() {
         User admin = confirmedUser("state-admin@example.com", Role.PLATFORM_ADMIN);
@@ -133,6 +149,23 @@ class AdminServiceTest {
     }
 
     @Test
+    @DisplayName("Deletion cancellation is denied at and after the grace-period cutoff")
+    void platformAdminCannotCancelAtCutoff() {
+        User admin = confirmedUser("cutoff-admin@example.com", Role.PLATFORM_ADMIN);
+        User target = confirmedUser("cutoff-target@example.com", Role.USER);
+        target.requestDeletion(Instant.now().minusSeconds(
+                authProperties.getCompliance().getDeletionGracePeriodDays() * 86_400L));
+        userRepository.saveAndFlush(target);
+        activePasskey(admin);
+
+        assertThrows(AccessDeniedException.class, () -> adminService.cancelDeletion(
+                jwt(admin), target.getId(),
+                new AdminAccountStateRequest("too late", "AdminPass12345!", null)));
+        assertEquals(AccountState.DELETION_PENDING,
+                userRepository.findById(target.getId()).orElseThrow().getAccountState());
+    }
+
+    @Test
     @DisplayName("Admin inventory uses bound cursors and exposes safe authenticator and operational status")
     void adminInventoryAndSessionRevocationAreComplete() {
         User admin = confirmedUser("inventory-admin@example.com", Role.PLATFORM_ADMIN);
@@ -160,7 +193,8 @@ class AdminServiceTest {
         tokenStorage.storeRefreshToken(first.getId().toString(), sessionJti, refresh.rawToken(), 1);
         assertTrue(tokenStorage.isSessionActive(first.getId().toString(), sessionJti));
         adminService.revokeAllUserSessions(jwt(admin), first.getId(), "AdminPass12345!", null);
-        assertFalse(tokenStorage.isSessionActive(first.getId().toString(), sessionJti));
+        assertTrue(tokenStorage.isSessionActive(first.getId().toString(), sessionJti),
+                "the enclosing rollback-only test transaction must not publish the post-commit revocation");
         assertFalse(adminService.listSecurityEvents(jwt(admin), first.getId(), 20, null).items().isEmpty());
         assertTrue(adminService.operationalStatus(jwt(admin)).emailOutbox().containsKey("ACCEPTED"));
     }

@@ -48,6 +48,9 @@ import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.passkey.entity.PasskeyCredential;
 import io.github.brenomega.authkit.exception.InvalidSocialLoginException;
 import io.github.brenomega.authkit.exception.SocialLinkRequiredException;
+import io.github.brenomega.authkit.exception.RegistrationRestrictedException;
+import io.github.brenomega.authkit.exception.LastAuthenticatorException;
+import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
 import io.github.brenomega.authkit.infrastructure.security.SocialSecretCipher;
 import io.github.brenomega.authkit.repository.SocialIdentityProviderRepository;
 import io.github.brenomega.authkit.repository.SocialIdentityRepository;
@@ -59,6 +62,7 @@ import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
 import io.github.brenomega.authkit.support.PostgresIntegrationTestSupport;
 
 @SpringBootTest
+@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
         "authkit.auth.social.enabled=true",
@@ -91,7 +95,13 @@ class SocialIdentityServiceIntegrationTest extends PostgresIntegrationTestSuppor
     @Autowired
     AccountLifecycleService accountLifecycleService;
     @Autowired
+    PasskeyService passkeyService;
+    @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    AuthProperties authProperties;
+    @Autowired org.springframework.test.web.servlet.MockMvc http;
+    @Autowired io.github.brenomega.authkit.service.spi.TokenStorage tokens;
     @MockitoSpyBean
     ConsentEventRepository consentEvents;
     @MockitoBean
@@ -154,6 +164,184 @@ class SocialIdentityServiceIntegrationTest extends PostgresIntegrationTestSuppor
         }
         assertThrows(InvalidSocialLoginException.class,
                 () -> service.callback(provider.getProviderKey(), state, "provider-code"));
+    }
+
+    @Test
+    void socialSignupRecordsVersionsBoundAtStartWhenPolicyChangesBeforeCallback() {
+        SocialIdentityProvider provider = provider("generic-version-bound");
+        String state = query(service.startLogin(provider.getProviderKey(),
+                new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+        authProperties.getCompliance().setTermsVersion("terms-social-2027");
+        authProperties.getCompliance().setPrivacyPolicyVersion("privacy-social-2027");
+        when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(claim("version-bound@example.com", "version-bound-subject"));
+        try {
+            var result = service.callback(provider.getProviderKey(), state, "provider-code");
+            User user = users.findByEmail("version-bound@example.com").orElseThrow();
+            assertEquals("terms-social-2026", user.getTermsVersion());
+            assertEquals("privacy-social-2026", user.getPrivacyPolicyVersion());
+            assertTrue(result.response().login().accessToken().split("\\.").length == 3);
+            assertFalse(user.hasCurrentConsent("terms-social-2027", "privacy-social-2027"));
+        } finally {
+            authProperties.getCompliance().setTermsVersion("terms-social-2026");
+            authProperties.getCompliance().setPrivacyPolicyVersion("privacy-social-2026");
+        }
+    }
+
+    @Test
+    void realEncoderRejectsDummyPasswordForSocialCreatedAccountWithoutIssuingCredentials() throws Exception {
+        var provider = provider("generic-dummy-regression");
+        String state = query(service.startLogin(provider.getProviderKey(),
+                new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+        String email = "dummy-social@example.com";
+        when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(claim(email, "dummy-subject"));
+        service.callback(provider.getProviderKey(), state, "provider-code");
+        User user = users.findByEmail(email).orElseThrow();
+        int sessions = tokens.listSessions(user.getId().toString(), 100, null).items().size();
+        for (String password : List.of("AuthKit dummy password for timing equalization",
+                "AuthKit dummy password for timing equalization!", "WrongPassword72!")) {
+            http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/auth/login")
+                    .contentType("application/json")
+                    .content(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                            java.util.Map.of("email", email, "password", password))))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().doesNotExist("Set-Cookie"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.accessToken").doesNotExist())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.mfaToken").doesNotExist());
+        }
+        assertEquals(sessions, tokens.listSessions(user.getId().toString(), 100, null).items().size());
+        User local = new User("dummy-control@example.com", passwords.encode("ControlPassword72!"), "Control", true, true, null);
+        local.setEmailConfirmed(true);
+        users.saveAndFlush(local);
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/auth/login")
+                .contentType("application/json")
+                .content("{\"email\":\"dummy-control@example.com\",\"password\":\"ControlPassword72!\"}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.accessToken").isString());
+    }
+
+    @Test
+    void disabledSocialProviderDoesNotPermitRemovalOfLastUsablePasskey() {
+        SocialIdentityProvider provider = provider("generic-disabled-authenticator");
+        String state = query(service.startLogin(provider.getProviderKey(),
+                new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+        when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(claim("disabled-authenticator@example.com", "disabled-authenticator-subject"));
+        service.callback(provider.getProviderKey(), state, "provider-code");
+        User user = users.findByEmail("disabled-authenticator@example.com").orElseThrow();
+        PasskeyCredential passkey = passkeyRepository.saveAndFlush(new PasskeyCredential(
+                user.getId(), user.getTenantId(), "disabled-provider-last-key", "public-key", 0,
+                "internal", "Last usable key", true, Instant.now()));
+        provider.disable(Instant.now());
+        providers.saveAndFlush(provider);
+        Jwt proof = Jwt.withTokenValue("fresh-passkey").header("alg", "RS256")
+                .subject(user.getId().toString()).issuedAt(Instant.now())
+                .expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", user.getTenantId().toString()).claim("amr", List.of("webauthn")).build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(proof));
+        try {
+            assertThrows(LastAuthenticatorException.class, () -> passkeyService.disable(
+                    user.getId().toString(), passkey.getId(), new StepUpRequest(null, null)));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+        assertEquals(1, passkeyRepository.countByUserIdAndDisabledAtIsNull(user.getId()));
+    }
+
+    @Test
+    void unlinkCountsOnlyEnabledAlternativesAndConcurrentRemovalKeepsOneUsableAuthenticator() throws Exception {
+        var enabled = provider("enabled-last");
+        var disabled = providers.saveAndFlush(new SocialIdentityProvider("disabled-alternative", "Disabled",
+                SocialProviderType.GENERIC_OIDC, "https://disabled.example", "disabled-client", cipher.encrypt("secret"),
+                Set.of("openid"), OidcClientAuthMethod.CLIENT_SECRET_BASIC, Instant.now()));
+        disabled.disable(Instant.now()); providers.saveAndFlush(disabled);
+        User user = new User("last-unlink@example.com", null, "Passwordless", true, true, null);
+        user.setEmailConfirmed(true); users.saveAndFlush(user);
+        var primary = identities.saveAndFlush(new io.github.brenomega.authkit.domain.social.entity.SocialIdentity(
+                user.getId(), user.getTenantId(), enabled.getId(), enabled.getIssuer(), "enabled-subject",
+                user.getEmail(), true, Instant.now()));
+        identities.saveAndFlush(new io.github.brenomega.authkit.domain.social.entity.SocialIdentity(
+                user.getId(), user.getTenantId(), disabled.getId(), disabled.getIssuer(), "disabled-subject",
+                user.getEmail(), true, Instant.now()));
+        Jwt proof = Jwt.withTokenValue("fresh-local-proof").header("alg", "RS256").subject(user.getId().toString())
+                .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300))
+                .claim("tenant_id", user.getTenantId().toString()).claim("amr", List.of("webauthn")).build();
+        assertThrows(LastAuthenticatorException.class,
+                () -> service.unlink(user.getId(), primary.getId(), proof, new StepUpRequest(null, null)));
+        var passkey = passkeyRepository.saveAndFlush(new PasskeyCredential(user.getId(), user.getTenantId(),
+                "unlink-race-key", "public-key", 0, "internal", "Race key", true, Instant.now()));
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var unlink = executor.submit(() -> {
+                start.await();
+                try { service.unlink(user.getId(), primary.getId(), proof, new StepUpRequest(null, null)); return true; }
+                catch (LastAuthenticatorException expected) { return false; }
+            });
+            var remove = executor.submit(() -> {
+                start.await();
+                SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(proof));
+                try { passkeyService.disable(user.getId().toString(), passkey.getId(), new StepUpRequest(null, null)); return true; }
+                catch (LastAuthenticatorException expected) { return false; }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            start.countDown();
+            assertTrue(unlink.get(15, TimeUnit.SECONDS) ^ remove.get(15, TimeUnit.SECONDS));
+        }
+        assertEquals(1, identities.countEnabledByUserId(user.getId())
+                + passkeyRepository.countByUserIdAndDisabledAtIsNull(user.getId()));
+    }
+
+    @Test
+    void exportReturnsOnlyNewestConfiguredSecurityEvents() {
+        User user = new User("bounded-export@example.com", passwords.encode("Password123!"), "Export", true, true, null);
+        user.setEmailConfirmed(true); users.saveAndFlush(user);
+        for (int i = 0; i < 7; i++) {
+            jdbc.update("""
+                    insert into security_events (id, target_user_id, tenant_id, event_type, outcome, severity,
+                        occurred_at, event_hash, reason) values (?, ?, ?, 'LOGIN_SUCCESS', 'SUCCESS', 'LOW', ?, ?, ?)
+                    """, java.util.UUID.randomUUID(), user.getId(), user.getTenantId(),
+                    java.sql.Timestamp.from(Instant.parse("2026-01-01T00:00:00Z").plusSeconds(i)),
+                    "c".repeat(64), "export-event-" + i);
+        }
+        int original = authProperties.getCompliance().getDataExportSecurityEventLimit();
+        authProperties.getCompliance().setDataExportSecurityEventLimit(3);
+        try {
+            var result = accountLifecycleService.exportUserData(user.getId().toString(), new StepUpRequest("Password123!"));
+            assertEquals(List.of("export-event-6", "export-event-5", "export-event-4"),
+                    result.securityEvents().stream().map(event -> event.reason()).toList());
+        } finally { authProperties.getCompliance().setDataExportSecurityEventLimit(original); }
+    }
+
+    @Test
+    void restrictedModeBlocksOnlyNewFederatedAccounts() {
+        SocialIdentityProvider provider = provider("generic-restricted");
+        String existingState = query(service.startLogin(provider.getProviderKey(),
+                new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+        when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(claim("linked-before-restriction@example.com", "linked-subject"));
+        service.callback(provider.getProviderKey(), existingState, "provider-code");
+
+        authProperties.getRegistration().setMode("restricted");
+        try {
+            String newState = query(service.startLogin(provider.getProviderKey(),
+                    new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+            when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                    .thenReturn(claim("blocked-new-social@example.com", "blocked-subject"));
+            assertThrows(RegistrationRestrictedException.class,
+                    () -> service.callback(provider.getProviderKey(), newState, "provider-code"));
+            assertTrue(users.findByEmail("blocked-new-social@example.com").isEmpty());
+            assertTrue(identities.findByIssuerAndSubject("https://issuer.example", "blocked-subject").isEmpty());
+
+            String linkedState = query(service.startLogin(provider.getProviderKey(),
+                    new SocialLoginStartRequest(true, true)).authorizationUrl(), "state");
+            when(oidc.exchangeAndVerify(any(), anyString(), anyString(), anyString(), anyString()))
+                    .thenReturn(claim("linked-before-restriction@example.com", "linked-subject"));
+            assertEquals("authenticated",
+                    service.callback(provider.getProviderKey(), linkedState, "provider-code").response().status());
+        } finally {
+            authProperties.getRegistration().setMode("public");
+        }
     }
 
     @Test

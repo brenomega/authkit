@@ -41,7 +41,7 @@ public class SessionMetadataFactory {
      *
      * @param durationDays session lifetime in days
      */
-    public SessionMetadata create(String jti, List<String> initialAmr, long durationDays) {
+    public SessionMetadata create(String jti, long securityVersion, List<String> initialAmr, long durationDays) {
         Instant now = Instant.now();
         HttpServletRequest request = currentRequest();
         String ip = request == null ? "unknown" : IpMasker.mask(networkIpResolver.resolveClientIp(request));
@@ -54,6 +54,7 @@ public class SessionMetadataFactory {
                 now,
                 now,
                 now.plus(Duration.ofDays(durationDays)),
+                securityVersion,
                 initialAmr,
                 userAgent,
                 deviceLabel,

@@ -34,6 +34,28 @@ class PostgresMigrationTest {
                     .asCompatibleSubstituteFor("postgres"));
 
     @Test
+    void durableJdbcRecoveryActivationSurvivesRetryWithoutResurrectingConsumedToken() {
+        Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        var dataSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        var properties = new io.github.brenomega.authkit.infrastructure.security.AuthProperties();
+        properties.getAudit().setHashPepper("postgres-activation-test-root-32-characters");
+        var digests = new io.github.brenomega.authkit.infrastructure.audit.AuditDigestService(properties);
+        var storage = new JdbcTokenStorage(new JdbcTemplate(dataSource),
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource), properties, digests);
+        String email = "jdbc-activation-" + UUID.randomUUID() + "@example.test";
+        String token = "opaque-recovery-secret";
+        String id = UUID.randomUUID().toString();
+        Instant expiry = Instant.now().plusSeconds(300);
+        String tokenDigest = io.github.brenomega.authkit.domain.user.util.TokenHasher.sha256Hex(token);
+        storage.activateRecoveryToken(id, digests.hmacHex(email), tokenDigest, expiry);
+        assertTrue(storage.validateRecoveryToken(email, token));
+        assertTrue(storage.consumeRecoveryToken(email, token));
+        storage.activateRecoveryToken(id, digests.hmacHex(email), tokenDigest, expiry);
+        org.junit.jupiter.api.Assertions.assertFalse(storage.validateRecoveryToken(email, token));
+    }
+
+    @Test
     @DisplayName("Flyway migrations apply on PostgreSQL and enforce lower(email) uniqueness")
     void flywayMigrations_applyOnPostgres() throws Exception {
         Flyway.configure()
@@ -85,6 +107,25 @@ class PostgresMigrationTest {
                         "= 'oauth_refresh_token_families'"));
             assertEquals("1", scalar(statement,
                     "select count(*) from information_schema.tables where table_name = 'oauth_refresh_tokens'"));
+            assertEquals("1", scalar(statement,
+                    "select count(*) from information_schema.tables where table_name = 'security_effect_outbox'"));
+            assertEquals("1", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'users'
+                      and column_name = 'security_version' and data_type = 'bigint'
+                      and is_nullable = 'NO' and column_default = '0'
+                    """));
+            assertEquals("1", scalar(statement, """
+                    select count(*) from information_schema.columns
+                    where table_schema = current_schema() and table_name = 'auth_refresh_sessions'
+                      and column_name = 'security_version' and data_type = 'bigint'
+                      and is_nullable = 'NO' and column_default = '0'
+                    """));
+            assertEquals("t", scalar(statement, """
+                    select has_table_privilege(
+                      'authkit_runtime', current_schema() || '.security_effect_outbox',
+                      'SELECT,INSERT,UPDATE,DELETE')
+                    """));
             assertEquals("character varying", scalar(statement, """
                     select data_type from information_schema.columns
                     where table_schema = current_schema() and table_name = 'users'

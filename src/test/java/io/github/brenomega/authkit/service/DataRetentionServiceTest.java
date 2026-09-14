@@ -113,7 +113,8 @@ class DataRetentionServiceTest {
                 socialLoginTransactionRepository,
                 oauthAuthorizationTransactionRepository,
                 oauthRefreshTokenFamilyRepository,
-                oauthRefreshTokenRepository);
+                oauthRefreshTokenRepository,
+                mock(io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectRepository.class));
         service.purgeExpiredSecurityEvents();
         service.purgeExpiredSecurityEvents();
 

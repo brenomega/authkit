@@ -1,6 +1,10 @@
 # Referência de configuração
 
-[English — normativo](CONFIGURATION.md)
+[English](CONFIGURATION.md) | [Português (Brasil)](CONFIGURATION-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
+
+A referência canônica por variável (propósito, default/condição obrigatória, validação, exemplo e fonte) está em [Environment variables](reference/ENVIRONMENT_VARIABLES.md).
 
 `deploy/golden/compose.yml`, `deploy/golden/.env.example`, `src/main/resources/application.yml` e `application-prod.yml` são as fontes legíveis por máquina. Esta página define o significado operacional; segredos usam variáveis `*_FILE` montadas e suportadas por `docker/entrypoint.sh`.
 
@@ -16,9 +20,9 @@
 | Senha | HIBP habilitado e concorrência Argon2 | HIBP e Argon2 limitado são obrigatórios no golden path. |
 | Passkeys | RP ID/nome e origins exatas | RP ID deve corresponder ao domínio; portas em origin não são aceitas em produção. |
 | OAuth/social | UI de autorização; social opt-in e providers administrativos | Issuers Google/OIDC são allowlist exata; segredos ficam criptografados. |
-| Proxy | CIDR do proxy, XFF depth 1 e forwarding Spring desabilitado | Headers forwarded só são aceitos do peer Caddy fixo. |
+| Proxy | `NETWORK_SECURITY_TRUSTED_ORIGINS` para CIDRs de proxy confiável, XFF depth 1 e forwarding Spring desabilitado | Headers forwarded só são aceitos do peer Caddy fixo. O Compose golden fixa `172.30.0.10/32`. |
 | Auditoria/retenção | pepper HMAC, job e login restrito | Falha crítica aborta a mutação; retenção é limitada e separada. |
-| Introspecção interna | worker token e CIDRs confiáveis | Credencial network-bound e rotativa; paths internos não são públicos. |
+| Introspecção interna | worker token e `NETWORK_SECURITY_WORKER_TRUSTED_ORIGINS` independente (`AUTHKIT_WORKER_TRUSTED_ORIGINS=172.30.0.20/32` no Compose golden) | Credencial network-bound e rotativa. `.10` é o Caddy e nunca deve ser confiado; não reutilize a faixa do proxy, toda a subnet interna, nem exponha paths internos. |
 
 A validação de produção falha o startup diante de placeholders, segredos ausentes/fracos, URLs públicas HTTP, modo de registro ausente, CORS/proxy inseguro, SMTP sem TLS, templates ausentes, TTL acima de 300 segundos, HIBP desabilitado, Redis ausente ou retenção sem separação. Nunca forneça segredos como argumentos CLI ou em `.env` commitado.
 

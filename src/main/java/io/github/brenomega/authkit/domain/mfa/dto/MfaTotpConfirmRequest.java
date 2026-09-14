@@ -11,7 +11,6 @@ public record MfaTotpConfirmRequest(
         @NotNull
         UUID credentialId,
 
-        @NotBlank
         @Size(max = 128)
         String currentPassword,
 

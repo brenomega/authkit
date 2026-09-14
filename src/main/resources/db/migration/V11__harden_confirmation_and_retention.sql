@@ -1,4 +1,4 @@
--- Prompt 1 hardening: expiring email confirmation tokens and safe user purges.
+-- Expiring email confirmation tokens and safe user purges.
 
 ALTER TABLE users
     ADD COLUMN email_confirmation_expires_at TIMESTAMPTZ;

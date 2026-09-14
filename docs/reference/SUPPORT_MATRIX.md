@@ -2,7 +2,7 @@
 
 [English](SUPPORT_MATRIX.md) | [Português (Brasil)](SUPPORT_MATRIX-ptBR.md)
 
-English is normative. This matrix is version-bound to the v0.1.0 release candidate.
+English is authoritative when translations differ. This matrix is version-bound to the v0.1.0 release candidate.
 
 ## Candidate golden path
 

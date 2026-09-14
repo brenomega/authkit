@@ -1,6 +1,10 @@
 # Configuration reference
 
-[Português (Brasil)](CONFIGURATION-ptBR.md) | English is normative.
+[English](CONFIGURATION.md) | [Português (Brasil)](CONFIGURATION-ptBR.md)
+
+English is authoritative when translations differ.
+
+The canonical per-variable inventory (purpose, default/required condition, validation, example, and source) is [Environment variables](reference/ENVIRONMENT_VARIABLES.md).
 
 `deploy/golden/compose.yml`, `deploy/golden/.env.example`, `src/main/resources/application.yml`, and `application-prod.yml` are the machine-readable sources. This page defines operator meaning; secret values use mounted `*_FILE` variables supported by `docker/entrypoint.sh`.
 
@@ -16,9 +20,9 @@
 | Password | `AUTH_PASSWORD_HIBP_ENABLED=true`, Argon2 concurrency | HIBP and bounded Argon2 are enabled on the golden path. |
 | Passkeys | RP ID/name and exact origins | RP ID must match the deployment domain; origin ports are not accepted in production. |
 | OAuth/social | authorization UI; social opt-in and provider admin records | Google/generic OIDC issuers are exact operator allowlist entries. Provider secrets are encrypted. |
-| Proxy | trusted proxy CIDR, XFF enabled with depth 1, Spring forwarding disabled | Forwarded headers are accepted only from the fixed Caddy peer. |
+| Proxy | `NETWORK_SECURITY_TRUSTED_ORIGINS` for trusted proxy CIDRs, XFF enabled with depth 1, Spring forwarding disabled | Forwarded headers are accepted only from the fixed Caddy peer. The golden Compose fixes this to `172.30.0.10/32`. |
 | Audit/retention | audit HMAC pepper, retention job and restricted login | Critical audit failure aborts its mutation. Retention is bounded and separately authorized. |
-| Internal introspection | `WORKER_TOKEN_FILE` plus trusted CIDRs | The worker credential is network-bound and rotatable; do not expose internal paths publicly. |
+| Internal introspection | `WORKER_TOKEN_FILE` plus the independent `NETWORK_SECURITY_WORKER_TRUSTED_ORIGINS` (`AUTHKIT_WORKER_TRUSTED_ORIGINS=172.30.0.20/32` in golden Compose) | The worker credential is network-bound and rotatable. `.10` is Caddy and must never be trusted; do not reuse the proxy range, use the whole internal subnet, or expose internal paths publicly. |
 
 Production validation fails startup for placeholders, missing/weak secrets, HTTP public URLs, absent registration mode, unsafe CORS/proxy settings, non-TLS SMTP, missing templates, access TTL above 300 seconds, disabled HIBP, missing Redis, or missing retention separation. Secrets must never be supplied as CLI arguments or committed `.env` values.
 

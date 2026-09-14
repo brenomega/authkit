@@ -70,10 +70,33 @@ class OpenApiContractTest {
                 .getSecurity()
                 .stream()
                 .anyMatch(requirement -> requirement.containsKey("oauthAccessBearer")));
+        assertTrue(!result.getOpenAPI().getPaths().containsKey("/api/v1/oauth2/authorize"));
+        assertClientAuthenticationAlternatives(result.getOpenAPI(), "/oauth2/token", true);
+        assertClientAuthenticationAlternatives(result.getOpenAPI(), "/oauth2/revoke", true);
+        assertClientAuthenticationAlternatives(result.getOpenAPI(), "/oauth2/introspect", false);
+        result.getOpenAPI().getPaths().forEach((path, item) -> {
+            if (path.startsWith("/api/v1/admin/")) item.readOperations().forEach(operation ->
+                    assertNotNull(operation.getResponses().get("403"), () -> "Missing admin authorization/step-up failure: " + path));
+        });
+        for (String schemaName : List.of("EmailChangeRequest", "MfaTotpConfirmRequest", "MfaVerificationRequest")) {
+            Schema<?> schema = result.getOpenAPI().getComponents().getSchemas().get(schemaName);
+            assertTrue(schema.getRequired() == null || !schema.getRequired().contains("currentPassword"),
+                    () -> schemaName + " must permit passwordless fresh-passkey step-up");
+            assertEquals(Boolean.TRUE, ((Schema<?>) schema.getProperties().get("currentPassword")).getNullable());
+        }
 
         result.getOpenAPI().getPaths().forEach((path, item) -> item.readOperations().forEach(operation ->
                 assertTrue(operation.getResponses() != null && !operation.getResponses().isEmpty(),
                         () -> "Operation without documented responses: " + path)));
+
+        result.getOpenAPI().getPaths().forEach((path, item) -> item.readOperations().forEach(operation -> {
+            var effectiveSecurity = operation.getSecurity() == null
+                    ? result.getOpenAPI().getSecurity() : operation.getSecurity();
+            if (effectiveSecurity != null && !effectiveSecurity.isEmpty()) {
+                assertNotNull(operation.getResponses().get("401"),
+                        () -> "Secured operation missing authentication failure: " + path);
+            }
+        }));
 
         result.getOpenAPI().getPaths().forEach((path, item) -> item.readOperations().forEach(operation ->
                 operation.getResponses().forEach((status, response) -> {
@@ -168,6 +191,14 @@ class OpenApiContractTest {
         });
 
         assertEquals(implemented, documented);
+    }
+
+    private void assertClientAuthenticationAlternatives(OpenAPI openApi, String path, boolean allowsPublicClient) {
+        var security = openApi.getPaths().get(path).getPost().getSecurity();
+        assertNotNull(security);
+        assertTrue(security.stream().anyMatch(requirement -> requirement.containsKey("oauthClientBasic")));
+        assertEquals(allowsPublicClient, security.stream().anyMatch(java.util.Map::isEmpty),
+                () -> "Unexpected public-client authentication contract for " + path);
     }
 
     private boolean isSemanticSchema(Schema<?> schema) {

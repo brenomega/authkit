@@ -97,6 +97,7 @@ jwt:
 authkit:
   auth:
     scheduler:
+      enabled: false
       distributed-lock-enabled: false
     token:
       access-token-ttl-seconds: 900
@@ -143,6 +144,9 @@ authkit:
       fail-closed-high-risk: false
     password:
       hibp-enabled: false
+    security-effects:
+      poll-delay-ms: 3600000
+      initial-delay-ms: 3600000
     email-outbox:
       enabled: false
       dispatch-mode: queue
@@ -217,6 +221,8 @@ network:
   security:
     trusted-origins:
       ranges: 127.0.0.1/32       # Explicitly trust localhost for tests
+    worker-trusted-origins:
+      ranges: 127.0.0.1/32       # Dedicated worker boundary in tests
     rate-limit:
       local-capacity: 1000      # Relaxed for integration tests. NOTE: In prod, keep as fraction of global to prevent Outage Limit Amplification.
       global-capacity: 5000

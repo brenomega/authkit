@@ -99,6 +99,7 @@ public class ProductionConfigValidator implements ApplicationRunner {
         validateMinLong("authkit.auth.mfa.secret-encryption-kdf-iterations", 100000);
         validateBoolean("authkit.auth.cookie.http-only", true);
         validateBoolean("authkit.auth.cookie.secure", true);
+        validateExact("authkit.auth.cookie.same-site", "Strict");
         validateBoolean("authkit.auth.csrf.enabled", true);
         validateBoolean("authkit.auth.cors.enabled", true);
         validateCorsOrigins();
@@ -195,6 +196,12 @@ public class ProductionConfigValidator implements ApplicationRunner {
     }
 
     private void validateSchedulerLocks() {
+        boolean schedulerEnabled = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.scheduler.enabled", "true"));
+        if (!schedulerEnabled) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Runtime maintenance scheduling " +
+                "must remain enabled in production. Startup aborted.");
+        }
         boolean emailJobEnabled = Boolean.parseBoolean(environment.getProperty(
                 "authkit.auth.email-outbox.enabled", "true"));
         boolean retentionJobEnabled = Boolean.parseBoolean(environment.getProperty(
@@ -271,6 +278,14 @@ public class ProductionConfigValidator implements ApplicationRunner {
                     "CRITICAL SECURITY ERROR: Property '"
                             + propertyKey
                             + "' has an insecure value. Startup aborted.");
+        }
+    }
+
+    private void validateExact(@NonNull String propertyKey, @NonNull String requiredValue) {
+        String value = environment.getProperty(propertyKey);
+        if (!requiredValue.equals(value)) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: Property '" + propertyKey
+                    + "' must be exactly '" + requiredValue + "'. Startup aborted.");
         }
     }
 
@@ -395,6 +410,13 @@ public class ProductionConfigValidator implements ApplicationRunner {
         if (startTlsEnabled && !startTlsRequired) {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: SMTP STARTTLS must be required in " +
                 "production. Startup aborted.");
+        }
+        boolean deduplicationGuaranteed = Boolean.parseBoolean(environment.getProperty(
+                "authkit.auth.email-provider.smtp.deduplication-guaranteed", "false"));
+        if (!deduplicationGuaranteed) {
+            throw new IllegalStateException("CRITICAL SECURITY ERROR: The selected production SMTP relay must " +
+                    "have a verified stable Message-ID deduplication contract. Complete the acceptance/crash " +
+                    "drill and set AUTH_EMAIL_SMTP_DEDUPLICATION_GUARANTEED=true. Startup aborted.");
         }
     }
 
@@ -594,21 +616,32 @@ public class ProductionConfigValidator implements ApplicationRunner {
             throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS allowed origins must be explicit " +
                 "in production.");
         }
-        boolean credentials = Boolean.parseBoolean(environment.getProperty(
-            "authkit.auth.cors.allow-credentials",
-            "true"));
-        for (String origin : origins.split(",")) {
+        for (String origin : origins.split(",", -1)) {
             String trimmed = origin.trim();
             if (trimmed.isBlank()) {
-                continue;
+                throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS origins cannot contain blank entries.");
             }
-            if ("*".equals(trimmed) && credentials) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: CORS wildcard cannot be used with " +
-                    "credentials.");
-            }
-            if (trimmed.startsWith("http://") && !trimmed.startsWith("http://localhost")) {
-                throw new IllegalStateException("CRITICAL SECURITY ERROR: Production CORS origins must use HTTPS.");
+            try {
+                URI uri = URI.create(trimmed);
+                if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null
+                        || isLocalhost(uri.getHost())
+                        || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
+                        || (uri.getPath() != null && !uri.getPath().isEmpty() && !"/".equals(uri.getPath()))) {
+                    throw new IllegalArgumentException();
+                }
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalStateException(
+                        "CRITICAL SECURITY ERROR: Every production CORS origin must be an exact HTTPS origin.", ex);
             }
         }
+    }
+
+    private boolean isLocalhost(String host) {
+        String normalized = host.toLowerCase(Locale.ROOT);
+        return "localhost".equals(normalized)
+                || normalized.endsWith(".localhost")
+                || "::1".equals(normalized)
+                || "[::1]".equals(normalized)
+                || normalized.startsWith("127.");
     }
 }

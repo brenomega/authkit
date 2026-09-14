@@ -1,0 +1,6 @@
+{
+  "name": "missing-amr",
+  "tokenFile": "target/contract-fixtures/missing-amr.jwt",
+  "expected": "rejected",
+  "reason": "The authentication-method provenance claim is required."
+}

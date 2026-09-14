@@ -17,8 +17,10 @@ if [[ -n "${AUTHKIT_OAUTH_ACCESS_TOKEN:-}" ]]; then
 fi
 
 if [[ -z "${AUTHKIT_OAUTH_CODE:-}" || -z "${AUTHKIT_OAUTH_CLIENT_ID:-}" || -z "${AUTHKIT_OAUTH_REDIRECT_URI:-}" || -z "${AUTHKIT_OAUTH_CODE_VERIFIER:-}" ]]; then
-  echo "SKIP: set AUTHKIT_OAUTH_ACCESS_TOKEN or the OAuth code-exchange variables to exercise OAuth userinfo."
-  exit 0
+  skip_if_missing AUTHKIT_OAUTH_CODE
+  skip_if_missing AUTHKIT_OAUTH_CLIENT_ID
+  skip_if_missing AUTHKIT_OAUTH_REDIRECT_URI
+  skip_if_missing AUTHKIT_OAUTH_CODE_VERIFIER
 fi
 
 form="grant_type=authorization_code&code=${AUTHKIT_OAUTH_CODE}&redirect_uri=${AUTHKIT_OAUTH_REDIRECT_URI}&client_id=${AUTHKIT_OAUTH_CLIENT_ID}&code_verifier=${AUTHKIT_OAUTH_CODE_VERIFIER}"

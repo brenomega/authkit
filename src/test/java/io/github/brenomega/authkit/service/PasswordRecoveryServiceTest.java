@@ -35,6 +35,7 @@ import io.github.brenomega.authkit.service.spi.TokenStorage;
 import io.github.brenomega.authkit.infrastructure.security.AccountLockoutService;
 import io.github.brenomega.authkit.infrastructure.security.Argon2ConcurrencyLimiter;
 import io.github.brenomega.authkit.infrastructure.email.EmailTemplateRenderer;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.service.spi.EmailPayload;
 
 class PasswordRecoveryServiceTest {
@@ -49,6 +50,7 @@ class PasswordRecoveryServiceTest {
     private AbuseThrottleService abuseThrottleService;
     private PasswordPolicyService passwordPolicyService;
     private PasswordRecoveryService recoveryService;
+    private SecurityEffectService securityEffects;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +63,7 @@ class PasswordRecoveryServiceTest {
         securityEventService = mock(SecurityEventService.class);
         abuseThrottleService = mock(AbuseThrottleService.class);
         passwordPolicyService = mock(PasswordPolicyService.class);
+        securityEffects = mock(SecurityEffectService.class);
         var renderer = mock(EmailTemplateRenderer.class);
         when(renderer.render(any(), any(), any())).thenAnswer(invocation -> {
             Map<?, ?> variables = invocation.getArgument(2);
@@ -82,7 +85,8 @@ class PasswordRecoveryServiceTest {
                 securityEventService,
                 abuseThrottleService,
                 passwordPolicyService,
-                renderer
+                renderer,
+                securityEffects
         );
     }
 
@@ -105,9 +109,11 @@ class PasswordRecoveryServiceTest {
         when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
 
         recoveryService.requestRecovery(email);
+        finishSynchronization(TransactionSynchronization.STATUS_COMMITTED);
 
-        verify(tokenStorage).storeRecoveryToken(eq(email), any(), eq(30L));
-        verify(emailOutboxService).enqueue(argThat(payload ->
+        verify(securityEffects).activateRecoveryToken(eq(user), any(), eq(30L), any());
+        verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
+        verify(emailOutboxService).enqueueAwaitingActivation(argThat(payload ->
                 payload.htmlBody().contains("https://frontend.example.test/reset-password#token=")
                         && payload.htmlBody().contains("&email=exists%40example.com")));
     }
@@ -121,7 +127,8 @@ class PasswordRecoveryServiceTest {
         recoveryService.requestRecovery(email);
 
         verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
-        verify(emailOutboxService, never()).enqueue(any());
+        verify(emailOutboxService, never()).enqueueAwaitingActivation(any());
+        verify(securityEffects, never()).activateRecoveryToken(any(), any(), anyLong(), any());
     }
 
     @Test
@@ -136,23 +143,24 @@ class PasswordRecoveryServiceTest {
         recoveryService.requestRecovery(email);
 
         verify(tokenStorage, never()).storeRecoveryToken(any(), any(), anyLong());
-        verify(emailOutboxService, never()).enqueue(any());
+        verify(emailOutboxService, never()).enqueueAwaitingActivation(any());
+        verify(securityEffects, never()).activateRecoveryToken(any(), any(), anyLong(), any());
     }
 
     @Test
-    @DisplayName("Request: outbox failure revokes only the token created by the rolled-back request")
-    void requestRecovery_OutboxFailureCompensatesMatchingToken() {
+    @DisplayName("Request: outbox rollback never makes its recovery token usable")
+    void requestRecovery_OutboxFailureNeverActivatesToken() {
         String email = "rollback@example.com";
         User user = mock(User.class);
         when(user.getEmail()).thenReturn(email);
         when(user.getPassword()).thenReturn("existing-hash");
         when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
-        doThrow(new IllegalStateException("outbox unavailable")).when(emailOutboxService).enqueue(any());
+        doThrow(new IllegalStateException("outbox unavailable")).when(emailOutboxService).enqueueAwaitingActivation(any());
 
         assertThrows(IllegalStateException.class, () -> recoveryService.requestRecovery(email));
         finishSynchronization(TransactionSynchronization.STATUS_ROLLED_BACK);
 
-        verify(tokenStorage).revokeRecoveryTokenIfMatches(eq(email), any());
+        verify(tokenStorage, never()).storeRecoveryToken(eq(email), any(), anyLong());
     }
 
     @Test
@@ -167,16 +175,18 @@ class PasswordRecoveryServiceTest {
         when(user.getPassword()).thenReturn("existing-hash");
 
         when(tokenStorage.claimRecoveryToken(eq(email), eq(token), any(), eq(1800L))).thenReturn(true);
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.of(user));
         when(passwordEncoder.encode(newPass)).thenReturn("hashed-new-pass");
 
         recoveryService.resetPassword(email, token, newPass);
+        finishSynchronization(TransactionSynchronization.STATUS_COMMITTED);
 
         verify(userRepository).save(user);
 
         verify(lockoutService).clearLockout(email);
 
-        verify(tokenStorage).revokeAllSessions("00000000-0000-0000-0000-000000000000");
+        verify(securityEffects).invalidateSessions(any(User.class), eq(null));
+        verify(securityEffects).revokeRecoveryToken(email);
         verify(emailOutboxService).enqueue(any());
     }
 
@@ -194,15 +204,18 @@ class PasswordRecoveryServiceTest {
     void resetPassword_MissingUser_ThrowsException() {
         String email = "gone@example.com";
         when(tokenStorage.claimRecoveryToken(eq(email), any(), any(), eq(1800L))).thenReturn(true);
-        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        when(userRepository.findByEmailForUpdate(email)).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () ->
             recoveryService.resetPassword(email, "token", "pass"));
     }
 
     private void finishSynchronization(int status) {
-        TransactionSynchronizationManager.getSynchronizations().forEach(
-                synchronization -> synchronization.afterCompletion(status));
+        var synchronizations = TransactionSynchronizationManager.getSynchronizations();
+        if (status == TransactionSynchronization.STATUS_COMMITTED) {
+            synchronizations.forEach(TransactionSynchronization::afterCommit);
+        }
+        synchronizations.forEach(synchronization -> synchronization.afterCompletion(status));
         TransactionSynchronizationManager.clearSynchronization();
         TransactionSynchronizationManager.initSynchronization();
     }

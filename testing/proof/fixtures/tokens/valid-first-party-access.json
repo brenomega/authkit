@@ -8,11 +8,12 @@
     "iss": "authkit",
     "sub": "fixture-user-id",
     "jti": "fixture-session-jti",
+    "session_version": 0,
     "tenant_id": "fixture-tenant-id",
     "amr": ["pwd"]
   },
   "expectedAuthKitResult": "acceptedOnlyWhenSessionIsActive",
   "expectedIntegratorResult": "rejected",
   "expectedStatus": 401,
-  "reason": "first-party tokens are bound to AuthKit's configured API audience and server-side session state"
+  "reason": "first-party tokens are bound to AuthKit's configured API audience, live session, and durable security version"
 }

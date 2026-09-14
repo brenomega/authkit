@@ -1,8 +1,10 @@
 # v0.1 requirement traceability
 
-[Português (Brasil)](TRACEABILITY-ptBR.md) | English is normative.
+[English](TRACEABILITY.md) | [Português (Brasil)](TRACEABILITY-ptBR.md)
 
-This public matrix maps every independent-audit finding to the implemented contract and evidence. Detailed commands and file-level history remain in `docs/release/IMPLEMENTATION_MATRIX.md`; mandatory operational disposition remains in `docs/release/RELEASE_GATES.md`. `IMPLEMENTED` does not substitute for external proof or final audit.
+English is authoritative when translations differ.
+
+This public matrix maps the v0.1 requirements to the implemented contract and proof boundary. Mandatory operational disposition remains in `docs/release/RELEASE_GATES.md`; the consolidated current-candidate audit is the single detailed release evidence ledger. `IMPLEMENTED` does not substitute for an objective mandatory-gate proof.
 
 | ID | Normative disposition | Main implementation/migration | Tests or proof | State |
 | --- | --- | --- | --- | --- |
@@ -28,20 +30,20 @@ This public matrix maps every independent-audit finding to the implemented contr
 | AK-020 | No test profiles/private keys in production artifacts/context | Maven/Docker/.dockerignore/inspection harness | JAR, exact context and final local image inspection | VERIFIED LOCAL |
 | AK-021 | Monotonic concurrency-safe passkey counter; step-up and last-authenticator invariant | Passkey/social/MFA services; V16/V20 | CAS/replay/concurrency and authenticator-removal tests | VERIFIED LOCAL; REAL CEREMONY PENDING |
 | AK-022 | Complete versioned export without secrets | Profile/export services | Full fixture/redaction and step-up/audit coverage | VERIFIED LOCAL |
-| AK-023 | Canonical prod profile and hardened AuthKit+PG17+Redis7+TLS Compose with mounted secrets | `application-prod.yml`, `deploy/golden`, V23 | Fresh V1→V25 install, TLS health, bootstrap and manual flow | VERIFIED LOCAL; INDEPENDENT OPERATOR PENDING |
+| AK-023 | Canonical prod profile and hardened AuthKit+PG17+Redis7+TLS Compose with mounted secrets | `application-prod.yml`, `deploy/golden`, V23 | Fresh V1→V26 install, TLS health, bootstrap and manual flow | VERIFIED LOCAL; INDEPENDENT OPERATOR PENDING |
 | AK-024 | Retry-After, duplicate rejection, strict JSON, HTTPS CORS, trusted proxy peers, high-risk Redis fail-closed | Edge filters/config | Negative HTTP, proxy spoof/depth and failure tests | VERIFIED LOCAL |
 | AK-025 | Semantic OpenAPI, schemas/validation/headers/examples/errors/pagination, AuthKit requestId vs standard OAuth wire | OpenAPI, response/error handling | Semantic contract and manual correlation tests | VERIFIED LOCAL |
-| AK-026 | Complete negative/concurrency/one-time matrix | Cross-cutting test suites | Final clean suite: 289/289 plus real PG17/Redis7 and manual negatives | VERIFIED LOCAL |
+| AK-026 | Complete negative/concurrency/one-time matrix | Cross-cutting test suites | Current candidate clean suite plus real PG17/Redis7 and manual negatives, identified in the consolidated audit | VERIFIED LOCAL |
 | AK-027 | Real TLS/providers/client/JWKS proofs | Reproducible instructions/harness boundary | Local TLS/sample passed; real providers, public topologies, conformance and rotation absent | PARTIAL LOCAL; EXTERNAL PROOF PENDING |
 | AK-028 | Backup/restore, controlled failure, alert/runbook, mixed/burst/4h soak | Operations docs and proof harnesses | Clean-container restores and local dependency drills passed; off-host/clean-host, alerts and 4h soak absent | PARTIAL LOCAL; EXTERNAL PROOF PENDING |
 | AK-029 | Blocking scans, amd64/arm64 OCI digest, SBOM, checksums, signature, provenance | CI and local evidence automation | Local tools/maintainer signing identity absent | PARTIAL; NOT PROVEN |
 | AK-030 | Complete normative EN and integral pt-BR docs; same-site and cross-site examples | Canonical docs and `samples/` | Resource-server tests, JS syntax and link/pair scan pass | VERIFIED LOCAL |
 | AK-031 | Apache-2.0 and mandatory OSS policies; DCO/no CLA; POM metadata | Root policy/license files and POM | Maven model/build validation | VERIFIED LOCAL |
-| AK-032 | No overstated claims or obsolete prompt/audit prose in public corpus | Canonical docs and absorbed historical cleanup | Claim/reference scan passes; V11/V12 comments retained for Flyway checksum compatibility | VERIFIED LOCAL |
+| AK-032 | No overstated claims or obsolete prompt/audit prose in public corpus | Canonical docs and absorbed historical cleanup | Claim/reference scan and source-artifact inspection pass | VERIFIED LOCAL |
 | AK-033 | Honest experimental/unsupported opt-in support matrix | Bilingual support matrix and config isolation | Defaults/regression tests | IMPLEMENTED |
 | AK-034 | Golden prod Redis/direct/SMTP TLS/HIBP/fail-closed/TTL≤300 defaults; Resend alternative | Prod/golden config | Validator/provider tests; Compose validation | VERIFIED LOCAL |
 | AK-035 | Remove phone from model, DB, DTO/export/OpenAPI/docs | User model/contracts; V15 | Compile/search and migrated-data tests | VERIFIED LOCAL |
 | AK-036 | Coherent unpublished candidate and evidence bound to tree/digest | `0.1.0-rc.1`, changelog/release automation | Local evidence binds baseline HEAD, tree manifests and immutable image ID; registry proof pending | VERIFIED LOCAL; EXTERNAL PROOF PENDING |
 | AK-037 | `ACCEPTED` means provider acceptance, never inbox delivery | Outbox/provider model; V22 | Migration/provider/local SMTP row tests | VERIFIED LOCAL; REAL PROVIDERS PENDING |
 
-The release remains `NO-GO` while any mandatory gate is `NOT PROVEN` or pending and until a new independent audit reports no unresolved GA P0/P1.
+The release remains `NO-GO` while any mandatory gate is `NOT PROVEN` or pending. Gate 16 closes directly when the frozen candidate has zero active GA P0/P1 and every corresponding acceptance criterion is proved against that same candidate.

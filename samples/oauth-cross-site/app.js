@@ -1,3 +1,5 @@
+import {createRemoteJWKSet, jwtVerify} from "https://cdn.jsdelivr.net/npm/jose@6.1.0/+esm";
+
 const config = Object.freeze({
   issuer: window.AUTHKIT_ISSUER || "https://auth.example.test",
   clientId: window.AUTHKIT_CLIENT_ID || "sample-public-client",
@@ -10,11 +12,23 @@ const output = document.querySelector("#output");
 const encode = bytes => btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 const random = size => encode(crypto.getRandomValues(new Uint8Array(size)));
 const challenge = async verifier => encode(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-const jwtPayload = token => {
-  const value = token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
-  return JSON.parse(decodeURIComponent(Array.from(atob(value.padEnd(Math.ceil(value.length / 4) * 4, "=")),
-    character => `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")));
-};
+const jwks = createRemoteJWKSet(new URL("/.well-known/jwks.json", config.issuer), {cooldownDuration: 0});
+
+async function verifyIdToken(token, expectedNonce) {
+  // JOSE verifies the signature, expiry/not-before, exact issuer/audience and the
+  // algorithm before claims are trusted. RemoteJWKSet refetches on an unknown kid.
+  const {payload, protectedHeader} = await jwtVerify(token, jwks, {
+    issuer: config.issuer, audience: config.clientId, algorithms: ["RS256"],
+    requiredClaims: ["sub", "iat", "exp", "nonce", "token_use"]
+  });
+  if (!protectedHeader.kid) throw new Error("OIDC ID token has no kid");
+  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (audiences.length !== 1 || audiences[0] !== config.clientId)
+    throw new Error("OIDC ID token audience is not the exact client identifier");
+  if (payload.token_use !== "id_token") throw new Error("Unexpected JWT token class");
+  if (payload.nonce !== expectedNonce) throw new Error("OIDC nonce mismatch");
+  return payload;
+}
 
 document.querySelector("#authorize").onclick = async () => {
   const ceremony = {state: random(24), nonce: random(24), verifier: random(48), createdAt: Date.now()};
@@ -46,8 +60,7 @@ async function completeCallback() {
   if (query.has("error")) throw new Error(query.get("error"));
   tokens = await tokenRequest({grant_type: "authorization_code", code: query.get("code"),
     redirect_uri: config.redirectUri, client_id: config.clientId, code_verifier: ceremony.verifier});
-  const idClaims = jwtPayload(tokens.id_token);
-  if (idClaims.nonce !== ceremony.nonce) { tokens = null; throw new Error("OIDC nonce mismatch"); }
+  await verifyIdToken(tokens.id_token, ceremony.nonce);
   output.textContent = "Authorization code, PKCE, state and nonce completed; tokens remain memory-only.";
 }
 

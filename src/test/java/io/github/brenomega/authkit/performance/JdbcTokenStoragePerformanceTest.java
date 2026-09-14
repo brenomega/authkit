@@ -80,6 +80,7 @@ class JdbcTokenStoragePerformanceTest {
                     jti varchar(64) not null,
                     token_hash char(64) not null,
                     family_id varchar(64) not null,
+                    security_version bigint not null default 0,
                     expires_at timestamp not null,
                     created_at timestamp not null,
                     updated_at timestamp not null,

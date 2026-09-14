@@ -6,6 +6,7 @@ import java.util.UUID;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Map;
+import org.springframework.data.domain.PageRequest;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.brenomega.authkit.domain.oauth.entity.OAuthConsent;
 import io.github.brenomega.authkit.domain.user.dto.AccountDeletionResponse;
 import io.github.brenomega.authkit.domain.user.dto.ConsentSnapshotResponse;
+import io.github.brenomega.authkit.domain.user.dto.ConsentAcceptanceRequest;
 import io.github.brenomega.authkit.domain.user.dto.StepUpRequest;
 import io.github.brenomega.authkit.domain.user.dto.UserDataExportResponse;
 import io.github.brenomega.authkit.domain.user.entity.User;
@@ -24,14 +26,18 @@ import io.github.brenomega.authkit.domain.user.enums.AccountState;
 import io.github.brenomega.authkit.domain.user.enums.Role;
 import io.github.brenomega.authkit.domain.user.util.JwtTenantResolver;
 import io.github.brenomega.authkit.exception.UserNotFoundException;
+import io.github.brenomega.authkit.exception.InvalidConsentVersionException;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEvent;
 import io.github.brenomega.authkit.infrastructure.audit.ConsentEventRepository;
+import io.github.brenomega.authkit.infrastructure.audit.ConsentEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEvent;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventOutcome;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
 import io.github.brenomega.authkit.infrastructure.security.AbuseThrottleService;
 import io.github.brenomega.authkit.infrastructure.security.AuthProperties;
@@ -85,6 +91,8 @@ public class AccountLifecycleService {
     private final MfaTotpCredentialRepository mfaTotpCredentialRepository;
     private final PasswordHistoryRepository passwordHistoryRepository;
     private final OAuthLifecycleRevocationService oauthLifecycleRevocationService;
+    private final ConsentEventService consentEventService;
+    private final SecurityEffectService securityEffectService;
 
     public AccountLifecycleService(UserRepository userRepository,
                                    SecurityEventRepository securityEventRepository,
@@ -104,7 +112,9 @@ public class AccountLifecycleService {
                                    PasskeyCredentialRepository passkeyCredentialRepository,
                                    MfaTotpCredentialRepository mfaTotpCredentialRepository,
                                    PasswordHistoryRepository passwordHistoryRepository,
-                                   OAuthLifecycleRevocationService oauthLifecycleRevocationService) {
+                                   OAuthLifecycleRevocationService oauthLifecycleRevocationService,
+                                   ConsentEventService consentEventService,
+                                   SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.securityEventRepository = securityEventRepository;
         this.consentEventRepository = consentEventRepository;
@@ -124,19 +134,68 @@ public class AccountLifecycleService {
         this.mfaTotpCredentialRepository = mfaTotpCredentialRepository;
         this.passwordHistoryRepository = passwordHistoryRepository;
         this.oauthLifecycleRevocationService = oauthLifecycleRevocationService;
+        this.consentEventService = consentEventService;
+        this.securityEffectService = securityEffectService;
     }
 
     /** Returns the consent state persisted on the active account. */
     @Transactional(readOnly = true)
     public ConsentSnapshotResponse getConsentSnapshot(String userId) {
         User user = loadActiveUser(userId);
+        return toConsentSnapshot(user);
+    }
+
+    private ConsentSnapshotResponse toConsentSnapshot(User user) {
+        var compliance = authProperties.getCompliance();
+        boolean current = hasCurrentConsent(user);
         return new ConsentSnapshotResponse(
                 user.isTermsAccepted(),
                 user.isPrivacyPolicyAccepted(),
                 user.getTermsVersion(),
                 user.getPrivacyPolicyVersion(),
+                compliance.getTermsVersion(),
+                compliance.getPrivacyPolicyVersion(),
+                !current,
                 user.getConsentAcceptedAt(),
                 user.getLawfulBasis());
+    }
+
+    /** Atomically accepts the exact current versions and persists both consent and critical audit evidence. */
+    @Transactional
+    public ConsentSnapshotResponse acceptConsent(String userId, ConsentAcceptanceRequest request) {
+        @SuppressWarnings("null")
+        User user = userRepository.findByIdForUpdate(UUID.fromString(userId))
+                .orElseThrow(UserNotFoundException::new);
+        requireTenantAccess(user);
+        user.requireEmailConfirmed();
+        var compliance = authProperties.getCompliance();
+        if (!compliance.getTermsVersion().equals(request.termsVersion())
+                || !compliance.getPrivacyPolicyVersion().equals(request.privacyPolicyVersion())) {
+            throw new InvalidConsentVersionException();
+        }
+        if (!hasCurrentConsent(user)) {
+            Instant acceptedAt = Instant.now();
+            user.acceptConsent(compliance.getTermsVersion(), compliance.getPrivacyPolicyVersion(),
+                    compliance.getLawfulBasis(), acceptedAt);
+            userRepository.saveAndFlush(user);
+            consentEventService.recordCurrentConsent(user);
+            securityEventService.recordForAuthenticatedUser(
+                    SecurityEventType.CONSENT_ACCEPTED,
+                    SecurityEventOutcome.SUCCESS,
+                    SecurityEventSeverity.HIGH,
+                    user,
+                    "current_policy_versions_accepted",
+                    Map.of("terms_version", compliance.getTermsVersion(),
+                            "privacy_policy_version", compliance.getPrivacyPolicyVersion()));
+            AfterCommitActions.run(() -> userAuthoritiesFilter.evict(user.getId()));
+        }
+        return toConsentSnapshot(user);
+    }
+
+    /** Checks exact configured versions rather than treating historical acceptance as current. */
+    public boolean hasCurrentConsent(User user) {
+        return user.hasCurrentConsent(authProperties.getCompliance().getTermsVersion(),
+                authProperties.getCompliance().getPrivacyPolicyVersion());
     }
 
     /**
@@ -159,7 +218,9 @@ public class AccountLifecycleService {
         mfaService.requireMfaIfEnabled(user, stepUpRequest.mfaCode(), "data_export");
 
         var securityEvents = securityEventRepository
-                .findByTargetUserIdOrderByOccurredAtDesc(user.getId())
+                .findByTargetUserIdOrderByOccurredAtDesc(
+                        user.getId(),
+                        PageRequest.of(0, authProperties.getCompliance().getDataExportSecurityEventLimit()))
                 .stream()
                 .map(this::toExportEvent)
                 .toList();
@@ -261,6 +322,7 @@ public class AccountLifecycleService {
     @Transactional
     public AccountDeletionResponse requestDeletion(String userId, StepUpRequest stepUpRequest) {
         UUID requestedUserId = UUID.fromString(userId);
+        userRepository.lockActivePlatformAdministrators(Role.PLATFORM_ADMIN, AccountState.ACTIVE);
         @SuppressWarnings("null")
         User user = userRepository.findByIdForUpdate(requestedUserId)
                 .orElseThrow(UserNotFoundException::new);
@@ -320,8 +382,8 @@ public class AccountLifecycleService {
             emailOutboxService.deleteByRecipients(List.of(originalEmail));
         }
 
-        tokenStorage.revokeAllSessions(userUuid.toString());
-        userAuthoritiesFilter.evict(userUuid);
+        securityEffectService.invalidateSessions(user, null);
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(userUuid));
 
         return new AccountDeletionResponse(
                 graceDays == 0 ? "anonymized" : "deletion_pending",

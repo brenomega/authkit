@@ -102,8 +102,8 @@ public class JdbcTokenStorage implements TokenStorage {
                     insert into auth_refresh_sessions
                         (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at,
                          public_session_id, last_seen_at, initial_amr, user_agent_summary, device_label,
-                         creation_ip_masked, last_ip_masked)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         creation_ip_masked, last_ip_masked, security_version)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     userUuid,
                     jti,
@@ -118,7 +118,8 @@ public class JdbcTokenStorage implements TokenStorage {
                     metadata.userAgentSummary(),
                     metadata.deviceLabel(),
                     metadata.creationIpMasked(),
-                    metadata.lastIpMasked());
+                    metadata.lastIpMasked(),
+                    metadata.securityVersion());
         });
     }
 
@@ -138,8 +139,14 @@ public class JdbcTokenStorage implements TokenStorage {
     }
 
     @Override
+    public Optional<SessionMetadata> findSessionMetadata(String userId, String jti) {
+        return findSession(userId, jti, false).map(RefreshSession::metadata);
+    }
+
+    @Override
     public boolean rotateRefreshToken(String userId, String currentJti, String currentRawToken,
-                                      String nextJti, String nextRawToken, long durationDays) {
+                                      String nextJti, String nextRawToken, long durationDays,
+                                      long securityVersion) {
         RefreshTokenCodec.IssuedRefreshToken currentToken = RefreshTokenCodec.parse(currentRawToken).orElse(null);
         RefreshTokenCodec.IssuedRefreshToken nextToken = RefreshTokenCodec.parse(nextRawToken).orElse(null);
         if (currentToken == null
@@ -180,8 +187,8 @@ public class JdbcTokenStorage implements TokenStorage {
                     insert into auth_refresh_sessions
                         (user_id, jti, token_hash, family_id, expires_at, created_at, updated_at,
                          public_session_id, last_seen_at, initial_amr, user_agent_summary, device_label,
-                         creation_ip_masked, last_ip_masked)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         creation_ip_masked, last_ip_masked, security_version)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     userUuid,
                     nextJti,
@@ -196,7 +203,8 @@ public class JdbcTokenStorage implements TokenStorage {
                     current.get().metadata().userAgentSummary(),
                     current.get().metadata().deviceLabel(),
                     current.get().metadata().creationIpMasked(),
-                    current.get().metadata().lastIpMasked());
+                    current.get().metadata().lastIpMasked(),
+                    securityVersion);
             jdbcTemplate.update("""
                     update auth_refresh_token_families
                     set active_jti = ?, expires_at = ?, updated_at = ?
@@ -231,7 +239,7 @@ public class JdbcTokenStorage implements TokenStorage {
                 rows = jdbcTemplate.query("""
                         select jti, public_session_id, created_at, last_seen_at, expires_at,
                                initial_amr, user_agent_summary, device_label,
-                               creation_ip_masked, last_ip_masked
+                               creation_ip_masked, last_ip_masked, security_version
                         from auth_refresh_sessions
                         where user_id = ? and expires_at > ?
                         order by jti asc
@@ -244,7 +252,7 @@ public class JdbcTokenStorage implements TokenStorage {
                 rows = jdbcTemplate.query("""
                         select jti, public_session_id, created_at, last_seen_at, expires_at,
                                initial_amr, user_agent_summary, device_label,
-                               creation_ip_masked, last_ip_masked
+                               creation_ip_masked, last_ip_masked, security_version
                         from auth_refresh_sessions
                         where user_id = ? and expires_at > ? and jti > ?
                         order by jti asc
@@ -327,6 +335,17 @@ public class JdbcTokenStorage implements TokenStorage {
     }
 
     @Override
+    public void revokeSessionsBeforeVersion(String userId, long minimumVersion, String preservedJti) {
+        UUID userUuid = UUID.fromString(userId);
+        List<String> staleJtis = jdbcTemplate.queryForList("""
+                select jti from auth_refresh_sessions
+                where user_id = ? and security_version < ?
+                  and (? is null or jti <> ?)
+                """, String.class, userUuid, minimumVersion, preservedJti, preservedJti);
+        staleJtis.forEach(jti -> revokeSessionByJti(userId, jti));
+    }
+
+    @Override
     public void storeRecoveryToken(String email, String rawToken, long durationMinutes) {
         transactionTemplate.executeWithoutResult(status -> {
             Instant now = Instant.now();
@@ -359,6 +378,25 @@ public class JdbcTokenStorage implements TokenStorage {
         return findRecoveryToken(email)
                 .map(hash -> constantTimeEquals(hash, hashToken(rawToken)))
                 .orElse(false);
+    }
+
+    @Override
+    public void activateRecoveryToken(String activationId, String emailDigest, String tokenDigest, Instant expiresAt) {
+        transactionTemplate.executeWithoutResult(status -> {
+            if (!expiresAt.isAfter(Instant.now()) || jdbcTemplate.queryForObject(
+                    "select count(*) from auth_recovery_activations where id = ?", Long.class,
+                    UUID.fromString(activationId)) > 0) return;
+            jdbcTemplate.update("insert into auth_recovery_activations (id, expires_at) values (?, ?)",
+                    UUID.fromString(activationId), timestamp(expiresAt));
+            int updated = jdbcTemplate.update("""
+                    update auth_recovery_tokens set token_hash = ?, expires_at = ?, created_at = ?,
+                    claim_id = null, claim_until = null where email_hash = ?
+                    """, tokenDigest, timestamp(expiresAt), timestamp(Instant.now()), emailDigest);
+            if (updated == 0) jdbcTemplate.update("""
+                    insert into auth_recovery_tokens (email_hash, token_hash, expires_at, created_at)
+                    values (?, ?, ?, ?)
+                    """, emailDigest, tokenDigest, timestamp(expiresAt), timestamp(Instant.now()));
+        });
     }
 
     @Override
@@ -430,6 +468,11 @@ public class JdbcTokenStorage implements TokenStorage {
     }
 
     @Override
+    public void revokeRecoveryTokenByDigest(String emailDigest) {
+        jdbcTemplate.update("delete from auth_recovery_tokens where email_hash = ?", emailDigest);
+    }
+
+    @Override
     public void storeMfaChallenge(String userId, String jti, String rawToken, long durationMinutes) {
         transactionTemplate.executeWithoutResult(status -> {
             Instant now = Instant.now();
@@ -497,7 +540,7 @@ public class JdbcTokenStorage implements TokenStorage {
         String sql = """
                 select token_hash, family_id, expires_at, jti, public_session_id, created_at,
                        last_seen_at, initial_amr, user_agent_summary, device_label,
-                       creation_ip_masked, last_ip_masked
+                       creation_ip_masked, last_ip_masked, security_version
                 from auth_refresh_sessions
                 where user_id = ? and jti = ? and expires_at > ?
                 """ + (lock ? " for update" : "");
@@ -526,7 +569,7 @@ public class JdbcTokenStorage implements TokenStorage {
             return Optional.ofNullable(jdbcTemplate.queryForObject("""
                     select token_hash, family_id, expires_at, jti, public_session_id, created_at,
                            last_seen_at, initial_amr, user_agent_summary, device_label,
-                           creation_ip_masked, last_ip_masked
+                           creation_ip_masked, last_ip_masked, security_version
                     from auth_refresh_sessions
                     where user_id = ? and public_session_id = ? and expires_at > ?
                     for update
@@ -675,7 +718,8 @@ public class JdbcTokenStorage implements TokenStorage {
         return new SessionMetadata(
                 rs.getString("public_session_id"), rs.getString("jti"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("last_seen_at").toInstant(),
-                rs.getTimestamp("expires_at").toInstant(), decodeAmr(rs.getString("initial_amr")),
+                rs.getTimestamp("expires_at").toInstant(), rs.getLong("security_version"),
+                decodeAmr(rs.getString("initial_amr")),
                 rs.getString("user_agent_summary"), rs.getString("device_label"),
                 rs.getString("creation_ip_masked"), rs.getString("last_ip_masked"));
     }

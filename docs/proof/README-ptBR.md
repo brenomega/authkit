@@ -1,6 +1,8 @@
 # Harnesses de prova do candidato
 
-[English — normativo](README.md)
+[English](README.md) | [Português (Brasil)](README-ptBR.md)
+
+O inglês é autoritativo quando houver divergência de tradução.
 
 Os harnesses exercitam o golden path v0.1, mas nunca autoaprovam release. Ligue cada relatório ao HEAD, checksum do patch rastreado, manifesto dos não rastreados, versão candidata e digest OCI imutável. Não registre senhas, tokens, URLs de reset/ação, secrets de provider, chaves privadas nem arquivos de ambiente completos.
 

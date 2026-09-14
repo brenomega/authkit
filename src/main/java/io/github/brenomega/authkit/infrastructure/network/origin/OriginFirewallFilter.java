@@ -37,6 +37,18 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
         this.meterRegistry = meterRegistry;
     }
 
+    /**
+     * Internal worker endpoints use their own direct-peer allowlist and token in
+     * {@code WorkerAuthFilter}; applying the public-proxy allowlist here would make
+     * those two network zones mutually unreachable.
+     */
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path.startsWith("/api/v1/internal/")
+                || "/actuator/prometheus".equals(path);
+    }
+
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
@@ -84,6 +96,7 @@ public class OriginFirewallFilter extends OncePerRequestFilter {
                 || "0:0:0:0:0:0:0:1".equals(remoteIp);
         return loopback
                 && "GET".equals(request.getMethod())
-                && "/actuator/health".equals(request.getRequestURI());
+                && ("/actuator/health".equals(request.getRequestURI())
+                    || "/actuator/health/liveness".equals(request.getRequestURI()));
     }
 }

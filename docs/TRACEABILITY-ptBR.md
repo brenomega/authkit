@@ -1,8 +1,10 @@
 # Rastreabilidade dos requisitos da v0.1
 
-[English — normativo](TRACEABILITY.md)
+[English](TRACEABILITY.md) | [Português (Brasil)](TRACEABILITY-ptBR.md)
 
-Esta matriz pública relaciona cada achado da auditoria independente ao contrato implementado e à evidência. O histórico detalhado de comandos/arquivos fica em `docs/release/IMPLEMENTATION_MATRIX.md`; a disposição operacional obrigatória fica em `docs/release/RELEASE_GATES-ptBR.md`. `IMPLEMENTADO` não substitui prova externa nem auditoria final.
+O inglês é autoritativo quando houver divergência de tradução.
+
+Esta matriz pública relaciona os requisitos da v0.1 ao contrato implementado e ao limite das provas. A disposição operacional obrigatória fica em `docs/release/RELEASE_GATES-ptBR.md`; a auditoria consolidada do candidate atual é o único ledger detalhado de evidência da release. `IMPLEMENTADO` não substitui prova objetiva de gate obrigatório.
 
 | ID | Disposição normativa | Implementação/migration principal | Teste ou prova | Estado |
 | --- | --- | --- | --- | --- |
@@ -28,20 +30,20 @@ Esta matriz pública relaciona cada achado da auditoria independente ao contrato
 | AK-020 | Sem perfil/chave de teste em artefatos/contexto | Maven/Docker/harness | Inspeção JAR/contexto/imagem local final | VERIFICADO LOCALMENTE |
 | AK-021 | Counter passkey monotônico concorrente; step-up/último autenticador | Passkey/social/MFA; V16/V20 | CAS/replay/concorrência/remoção | VERIFICADO LOCALMENTE; CERIMÔNIA REAL PENDENTE |
 | AK-022 | Export versionado completo sem secrets | Profile/export | Fixture completa/redaction, step-up e audit | VERIFICADO LOCALMENTE |
-| AK-023 | Prod canônico e Compose AuthKit+PG17+Redis7+TLS hardened com secrets | Prod/golden; V23 | Instalação V1→V25, TLS, bootstrap e fluxo manual | VERIFICADO LOCALMENTE; OPERADOR INDEPENDENTE PENDENTE |
+| AK-023 | Prod canônico e Compose AuthKit+PG17+Redis7+TLS hardened com secrets | Prod/golden; V23 | Instalação V1→V26, TLS, bootstrap e fluxo manual | VERIFICADO LOCALMENTE; OPERADOR INDEPENDENTE PENDENTE |
 | AK-024 | Retry-After, duplicatas, JSON estrito, CORS HTTPS, peers confiáveis e Redis fail-closed | Filtros/config edge | HTTP negativo, spoof/depth e falhas | VERIFICADO LOCALMENTE |
 | AK-025 | OpenAPI semântico, schemas/validação/headers/exemplos/erros/paginação e requestId | OpenAPI/respostas | Contrato semântico e correlação manual | VERIFICADO LOCALMENTE |
-| AK-026 | Matriz negativa/concorrente/one-time completa | Suítes transversais | Suíte final 289/289, PG17/Redis7 reais e negativos manuais | VERIFICADO LOCALMENTE |
+| AK-026 | Matriz negativa/concorrente/one-time completa | Suítes transversais | Suíte limpa do candidate atual, PG17/Redis7 reais e negativos manuais identificados na auditoria consolidada | VERIFICADO LOCALMENTE |
 | AK-027 | Provas reais TLS/providers/client/JWKS | Instruções/harnesses reproduzíveis | TLS/sample local passou; faltam providers/topologias públicas/conformance/rotação | PARCIAL LOCAL; PROVA EXTERNA PENDENTE |
 | AK-028 | Backup/restore, falhas, alertas/runbook e carga/burst/soak 4h | Operação/harnesses | Restores em containers limpos e falhas locais passaram; faltam off-host/host limpo, alertas e soak 4h | PARCIAL LOCAL; PROVA EXTERNA PENDENTE |
 | AK-029 | Scans, OCI amd64/arm64, SBOM, checksums, assinatura e provenance | CI/automação local | Faltam ferramentas/identidade do mantenedor | PARCIAL; NÃO COMPROVADO |
 | AK-030 | Docs EN normativo/pt-BR integral e exemplos same/cross-site | Docs e `samples/` | Testes sample, sintaxe JS e scan de links/pares passam | VERIFICADO LOCALMENTE |
 | AK-031 | Apache-2.0, políticas OSS, DCO/sem CLA, POM | Raiz/POM | Model/build Maven | VERIFICADO LOCALMENTE |
-| AK-032 | Sem claims exagerados nem textos obsoletos de prompts/audits | Docs canônicas e limpeza absorvida | Scan passa; comentários V11/V12 retidos por checksum Flyway | VERIFICADO LOCALMENTE |
+| AK-032 | Sem claims exagerados nem textos obsoletos de prompts/audits | Docs canônicas e limpeza absorvida | Scan de claims/referências e inspeção do source artifact passam | VERIFICADO LOCALMENTE |
 | AK-033 | Support matrix experimental/não suportado, honesto e opt-in | Matriz bilíngue/isolação | Defaults/regressão | IMPLEMENTADO |
 | AK-034 | Prod Redis/direct/SMTP TLS/HIBP/fail-closed/TTL≤300; alternativa Resend | Config prod/golden | Validator/provider/Compose | VERIFICADO LOCALMENTE |
 | AK-035 | Remover phone de modelo/DB/DTO/export/OpenAPI/docs | User/contracts; V15 | Compile/search/migração | VERIFICADO LOCALMENTE |
 | AK-036 | Candidato coerente e evidência ligada a árvore/digest | `0.1.0-rc.1`, changelog/automação | Evidência local liga HEAD baseline, manifests da árvore e ID imutável; registry pendente | VERIFICADO LOCALMENTE; PROVA EXTERNA PENDENTE |
 | AK-037 | `ACCEPTED` é aceitação do provider, nunca inbox | Outbox/provider; V22 | Migration/provider/linha SMTP local | VERIFICADO LOCALMENTE; PROVIDERS REAIS PENDENTES |
 
-A release permanece `NO-GO` enquanto qualquer gate estiver `NÃO COMPROVADO` ou pendente e até uma nova auditoria independente não encontrar P0/P1 GA em aberto.
+A release permanece `NO-GO` enquanto qualquer gate estiver `NÃO COMPROVADO` ou pendente. O Gate 16 fecha diretamente quando o candidate congelado tiver zero P0/P1 GA ativo e cada acceptance criterion correspondente estiver comprovado contra esse mesmo candidate.

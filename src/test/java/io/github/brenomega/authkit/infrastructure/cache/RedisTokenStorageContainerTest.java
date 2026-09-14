@@ -11,6 +11,10 @@ import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -69,7 +73,8 @@ class RedisTokenStorageContainerTest {
                     currentToken.rawToken(),
                     nextJti,
                     nextToken.rawToken(),
-                    7));
+                    7,
+                    0));
 
             assertFalse(storage.validateToken(userId, currentJti, currentToken.rawToken()));
             assertTrue(storage.validateToken(userId, nextJti, nextToken.rawToken()));
@@ -110,6 +115,64 @@ class RedisTokenStorageContainerTest {
             assertTrue(storage.claimRecoveryToken(email, token, "claim-2", 300));
             storage.completeRecoveryTokenClaim(email, "claim-2");
             assertFalse(storage.validateRecoveryToken(email, token));
+        } finally {
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    @DisplayName("Concurrent recovery claims have exactly one winner in real Redis")
+    void concurrentRecoveryClaimHasOneWinner() throws Exception {
+        @SuppressWarnings("null")
+        RedisStandaloneConfiguration configuration =
+                new RedisStandaloneConfiguration(REDIS.getHost(), REDIS.getMappedPort(6379));
+        LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        try {
+            StringRedisTemplate template = new StringRedisTemplate(connectionFactory);
+            template.afterPropertiesSet();
+            RedisTokenStorage storage = storage(template);
+            String email = "redis-recovery-race-" + UUID.randomUUID() + "@example.test";
+            String token = "recovery-" + UUID.randomUUID();
+            storage.storeRecoveryToken(email, token, 15);
+
+            List<Boolean> outcomes = race(() ->
+                    storage.claimRecoveryToken(email, token, "one-claim", 300));
+
+            assertEquals(1, outcomes.stream().filter(Boolean.TRUE::equals).count());
+            storage.completeRecoveryTokenClaim(email, "one-claim");
+            assertFalse(storage.validateRecoveryToken(email, token));
+        } finally {
+            connectionFactory.destroy();
+        }
+    }
+
+    @Test
+    @DisplayName("Concurrent first-party refresh has one winner and replay revokes the family in real Redis")
+    void concurrentFirstPartyRefreshHasOneWinnerAndRevokesFamily() throws Exception {
+        @SuppressWarnings("null")
+        RedisStandaloneConfiguration configuration =
+                new RedisStandaloneConfiguration(REDIS.getHost(), REDIS.getMappedPort(6379));
+        LettuceConnectionFactory connectionFactory = new LettuceConnectionFactory(configuration);
+        connectionFactory.afterPropertiesSet();
+        try {
+            StringRedisTemplate template = new StringRedisTemplate(connectionFactory);
+            template.afterPropertiesSet();
+            RedisTokenStorage storage = storage(template);
+            String userId = UUID.randomUUID().toString();
+            String currentJti = UUID.randomUUID().toString();
+            String nextJti = UUID.randomUUID().toString();
+            var current = RefreshTokenCodec.issue(userId, currentJti);
+            var next = RefreshTokenCodec.issueRotated(userId, nextJti, current.familyId());
+            storage.storeRefreshToken(userId, currentJti, current.rawToken(), 7);
+
+            List<Boolean> outcomes = race(() -> storage.rotateRefreshToken(
+                    userId, currentJti, current.rawToken(), nextJti, next.rawToken(), 7, 0));
+
+            assertEquals(1, outcomes.stream().filter(Boolean.TRUE::equals).count());
+            assertFalse(storage.validateToken(userId, currentJti, current.rawToken()));
+            assertFalse(storage.validateToken(userId, nextJti, next.rawToken()),
+                    "the replaying contender must revoke the rotated family");
         } finally {
             connectionFactory.destroy();
         }
@@ -175,7 +238,7 @@ class RedisTokenStorageContainerTest {
             Instant created = Instant.now().minusSeconds(600);
             var metadata = new SessionMetadata(
                     UUID.randomUUID().toString(), jti, created, created, Instant.now().plusSeconds(604800),
-                    List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
+                    0, List.of("pwd", "totp"), "Firefox on Linux", "Work laptop",
                     "192.0.2.***", "192.0.2.***");
             storage.storeRefreshToken(userId, jti, current.rawToken(), 7, metadata);
 
@@ -186,7 +249,7 @@ class RedisTokenStorageContainerTest {
 
             String nextJti = UUID.randomUUID().toString();
             var next = RefreshTokenCodec.issueRotated(userId, nextJti, current.familyId());
-            assertTrue(storage.rotateRefreshToken(userId, jti, current.rawToken(), nextJti, next.rawToken(), 7));
+            assertTrue(storage.rotateRefreshToken(userId, jti, current.rawToken(), nextJti, next.rawToken(), 7, 0));
             var rotated = storage.listSessions(userId, 10, null).items().get(0);
             assertEquals(metadata.publicSessionId(), rotated.publicSessionId());
             assertEquals("Work laptop", rotated.deviceLabel());
@@ -269,5 +332,23 @@ class RedisTokenStorageContainerTest {
         AuthProperties properties = new AuthProperties();
         properties.getAudit().setHashPepper("container-test-audit-hash-pepper-32-bytes");
         return new RedisTokenStorage(template, new AuditDigestService(properties));
+    }
+
+    private List<Boolean> race(Callable<Boolean> operation) throws Exception {
+        CyclicBarrier barrier = new CyclicBarrier(3);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            Callable<Boolean> contender = () -> {
+                barrier.await(10, TimeUnit.SECONDS);
+                try {
+                    return operation.call();
+                } catch (RuntimeException expectedLoser) {
+                    return false;
+                }
+            };
+            var first = executor.submit(contender);
+            var second = executor.submit(contender);
+            barrier.await(10, TimeUnit.SECONDS);
+            return List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+        }
     }
 }

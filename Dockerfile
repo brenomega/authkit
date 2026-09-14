@@ -46,7 +46,9 @@ FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e
 WORKDIR /app
 
 # Create a non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN apk upgrade --no-cache \
+    && addgroup -S appgroup \
+    && adduser -S appuser -G appgroup
 
 # Copy the Fat JAR from the build stage
 COPY --from=build /app/target/*.jar app.jar
@@ -57,6 +59,9 @@ USER appuser
 
 # Expose the default Spring Boot port
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/actuator/health/liveness || exit 1
 
 # JVM flags for containerized environments
 ENTRYPOINT ["/app/entrypoint.sh"]

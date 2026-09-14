@@ -5,9 +5,45 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.env.MockEnvironment;
 
 class ProductionConfigValidatorTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"*", "http://app.example.com", "https://localhost", "https://127.0.0.1",
+            " ", "not a uri", "https://app.example.com/path", "https://app.example.com,"})
+    @DisplayName("Production validation rejects wildcard, local, HTTP, blank and malformed CORS origins")
+    void run_invalidCorsOrigin_rejectsStartup(String origins) {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.cors.allowed-origins", origins);
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation accepts an exact comma-separated HTTPS CORS list")
+    void run_exactHttpsCorsOrigins_allowsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.cors.allowed-origins",
+                        "https://app.example.com,https://admin.example.com:8443");
+
+        assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Lax", "None", "strict", "STRICT", ""})
+    @DisplayName("Production validation rejects every cookie SameSite value except exact Strict")
+    void run_nonStrictSameSite_rejectsStartup(String sameSite) {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.cookie.same-site", sameSite);
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
 
     @Test
     @DisplayName("Production validation rejects an omitted registration mode")
@@ -85,9 +121,29 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.email-provider.smtp.password", "smtp-prod-secret")
                 .withProperty("authkit.auth.email-provider.smtp.start-tls-enabled", "true")
                 .withProperty("authkit.auth.email-provider.smtp.start-tls-required", "true")
-                .withProperty("authkit.auth.email-provider.smtp.ssl-enabled", "false");
+                .withProperty("authkit.auth.email-provider.smtp.ssl-enabled", "false")
+                .withProperty("authkit.auth.email-provider.smtp.deduplication-guaranteed", "true");
 
         assertDoesNotThrow(() -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects SMTP without a verified relay deduplication contract")
+    void run_smtpEmailProviderWithoutDeduplicationGuarantee_rejectsStartup() {
+        MockEnvironment environment = productionEnvironmentBase()
+                .withProperty("authkit.auth.email-outbox.dispatch-mode", "direct")
+                .withProperty("authkit.auth.email-provider.type", "smtp")
+                .withProperty("authkit.auth.email-provider.smtp.host", "smtp.example.com")
+                .withProperty("authkit.auth.email-provider.smtp.port", "587")
+                .withProperty("authkit.auth.email-provider.smtp.auth", "true")
+                .withProperty("authkit.auth.email-provider.smtp.username", "authkit@example.com")
+                .withProperty("authkit.auth.email-provider.smtp.password", "smtp-prod-secret")
+                .withProperty("authkit.auth.email-provider.smtp.start-tls-enabled", "true")
+                .withProperty("authkit.auth.email-provider.smtp.start-tls-required", "true")
+                .withProperty("authkit.auth.email-provider.smtp.ssl-enabled", "false")
+                .withProperty("authkit.auth.email-provider.smtp.deduplication-guaranteed", "false");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
 
     @Test
@@ -144,6 +200,15 @@ class ProductionConfigValidatorTest {
     void run_unsupportedEmailDispatchMode_rejectsStartup() {
         MockEnvironment environment = productionEnvironmentBase()
                 .withProperty("authkit.auth.email-outbox.dispatch-mode", "unsupported");
+
+        assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
+    }
+
+    @Test
+    @DisplayName("Production validation rejects disabled runtime scheduling")
+    void run_disabledRuntimeScheduling_rejectsStartup() {
+        MockEnvironment environment = productionEnvironment()
+                .withProperty("authkit.auth.scheduler.enabled", "false");
 
         assertThrows(IllegalStateException.class, () -> new ProductionConfigValidator(environment).run(null));
     }
@@ -226,6 +291,7 @@ class ProductionConfigValidatorTest {
                 .withProperty("authkit.auth.mfa.secret-encryption-kdf-iterations", "210000")
                 .withProperty("authkit.auth.cookie.http-only", "true")
                 .withProperty("authkit.auth.cookie.secure", "true")
+                .withProperty("authkit.auth.cookie.same-site", "Strict")
                 .withProperty("authkit.auth.csrf.enabled", "true")
                 .withProperty("authkit.auth.cors.enabled", "true")
                 .withProperty("authkit.auth.cors.allowed-origins", "https://app.example.com")

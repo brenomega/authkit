@@ -25,6 +25,8 @@ import io.github.brenomega.authkit.domain.user.dto.SessionPageResponse;
 import io.github.brenomega.authkit.exception.InvalidSessionCursorException;
 import io.github.brenomega.authkit.exception.AuthenticationCapacityExceededException;
 import io.github.brenomega.authkit.service.spi.TokenStorage;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import java.util.List;
 import java.util.UUID;
 
@@ -54,6 +56,7 @@ public class ProfileService {
     private final StepUpService stepUpService;
     private final AbuseThrottleService abuseThrottleService;
     private final PasswordPolicyService passwordPolicyService;
+    private final SecurityEffectService securityEffectService;
 
     public ProfileService(UserRepository userRepository, PasswordEncoder passwordEncoder,
                           TokenStorage tokenStorage, AccountLockoutService lockoutService,
@@ -62,7 +65,8 @@ public class ProfileService {
                           MfaService mfaService,
                           StepUpService stepUpService,
                           AbuseThrottleService abuseThrottleService,
-                          PasswordPolicyService passwordPolicyService) {
+                          PasswordPolicyService passwordPolicyService,
+                          SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenStorage = tokenStorage;
@@ -73,6 +77,7 @@ public class ProfileService {
         this.stepUpService = stepUpService;
         this.abuseThrottleService = abuseThrottleService;
         this.passwordPolicyService = passwordPolicyService;
+        this.securityEffectService = securityEffectService;
     }
 
     /** Returns the active caller-owned profile after enforcing token tenant isolation. */
@@ -124,7 +129,7 @@ public class ProfileService {
     @LogExecutionTime
     public void changePassword(String userId, PasswordChangeRequest request, String currentJti) {
         @SuppressWarnings("null")
-        User user = userRepository.findById(UUID.fromString(userId))
+        User user = userRepository.findByIdForUpdate(UUID.fromString(userId))
                 .orElseThrow(UserNotFoundException::new);
 
         requireTenantAccess(user);
@@ -165,7 +170,7 @@ public class ProfileService {
             argon2Limiter.release();
         }
 
-        tokenStorage.revokeOtherSessions(userId, currentJti);
+        securityEffectService.invalidateSessions(user, currentJti);
         securityEventService.recordForAuthenticatedUser(
                 SecurityEventType.PASSWORD_CHANGED,
                 SecurityEventOutcome.SUCCESS,

@@ -45,6 +45,7 @@ class FirstPartyTokenIntrospectionServiceTest {
         User user = mock(User.class);
         when(user.isActive()).thenReturn(true);
         when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.acceptsSession(jti, 0L)).thenReturn(true);
         when(users.findById(userId)).thenReturn(Optional.of(user));
         when(storage.isSessionActive(userId.toString(), jti)).thenReturn(true);
         when(decoder.decode("valid")).thenReturn(jwt(userId, jti, "first_party_access", "authkit-api"));
@@ -53,6 +54,21 @@ class FirstPartyTokenIntrospectionServiceTest {
 
         when(storage.isSessionActive(userId.toString(), jti)).thenReturn(false);
         assertFalse(service.introspect("valid").active());
+    }
+
+    @Test
+    void rejectsSessionVersionInvalidatedInPostgresEvenWhileRedisSessionRemains() {
+        UUID userId = UUID.randomUUID();
+        String jti = UUID.randomUUID().toString();
+        User user = mock(User.class);
+        when(user.isActive()).thenReturn(true);
+        when(user.isEmailConfirmed()).thenReturn(true);
+        when(user.acceptsSession(jti, 0L)).thenReturn(false);
+        when(users.findById(userId)).thenReturn(Optional.of(user));
+        when(storage.isSessionActive(userId.toString(), jti)).thenReturn(true);
+        when(decoder.decode("stale")).thenReturn(jwt(userId, jti, "first_party_access", "authkit-api"));
+
+        assertFalse(service.introspect("stale").active());
     }
 
     @Test
@@ -74,7 +90,10 @@ class FirstPartyTokenIntrospectionServiceTest {
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(300))
                 .audience(List.of(audience))
-                .claim("token_use", tokenUse);
+                .claim("token_use", tokenUse)
+                .claim("session_version", 0L)
+                .claim("tenant_id", UUID.randomUUID().toString())
+                .claim("amr", List.of("pwd"));
         if ("oauth_access".equals(tokenUse)) {
             builder.claim("client_id", audience).claim("scope", "openid");
         }

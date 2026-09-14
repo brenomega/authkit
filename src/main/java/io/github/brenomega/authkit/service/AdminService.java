@@ -44,6 +44,8 @@ import io.github.brenomega.authkit.infrastructure.audit.SecurityEventService;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventSeverity;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventType;
 import io.github.brenomega.authkit.infrastructure.audit.SecurityEventRepository;
+import io.github.brenomega.authkit.infrastructure.persistence.AfterCommitActions;
+import io.github.brenomega.authkit.infrastructure.persistence.securityeffects.SecurityEffectService;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxRepository;
 import io.github.brenomega.authkit.infrastructure.queue.outbox.EmailOutboxStatus;
 import io.github.brenomega.authkit.infrastructure.security.AbuseRateLimitPolicy;
@@ -89,6 +91,7 @@ public class AdminService {
     private final EmailOutboxRepository emailOutboxRepository;
     private final AdminCursorCodec adminCursorCodec;
     private final OAuthLifecycleRevocationService oauthLifecycleRevocationService;
+    private final SecurityEffectService securityEffectService;
 
     public AdminService(UserRepository userRepository,
                         OAuthClientRepository oauthClientRepository,
@@ -106,7 +109,8 @@ public class AdminService {
                         SecurityEventRepository securityEventRepository,
                         EmailOutboxRepository emailOutboxRepository,
                         AdminCursorCodec adminCursorCodec,
-                        OAuthLifecycleRevocationService oauthLifecycleRevocationService) {
+                        OAuthLifecycleRevocationService oauthLifecycleRevocationService,
+                        SecurityEffectService securityEffectService) {
         this.userRepository = userRepository;
         this.oauthClientRepository = oauthClientRepository;
         this.mfaService = mfaService;
@@ -124,6 +128,7 @@ public class AdminService {
         this.emailOutboxRepository = emailOutboxRepository;
         this.adminCursorCodec = adminCursorCodec;
         this.oauthLifecycleRevocationService = oauthLifecycleRevocationService;
+        this.securityEffectService = securityEffectService;
     }
 
     @Transactional(readOnly = true)
@@ -161,11 +166,11 @@ public class AdminService {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, currentPassword, mfaCode, "admin_user_sessions_revoke");
         @SuppressWarnings("null")
-        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
-        tokenStorage.revokeAllSessions(target.getId().toString());
+        User target = userRepository.findByIdForUpdate(targetUserId).orElseThrow(UserNotFoundException::new);
         securityEventService.record(SecurityEventType.ADMIN_ACTION, SecurityEventOutcome.SUCCESS,
                 SecurityEventSeverity.HIGH, admin.getId(), target.getId(), target.getTenantId(),
                 target.getEmail(), "admin_revoked_all_user_sessions", Map.of());
+        securityEffectService.invalidateSessions(target, null);
     }
 
     @Transactional(readOnly = true)
@@ -214,8 +219,9 @@ public class AdminService {
     public AdminUserResponse updateRole(Jwt jwt, UUID targetUserId, AdminUpdateRoleRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_role_change");
+        userRepository.lockActivePlatformAdministrators(Role.PLATFORM_ADMIN, AccountState.ACTIVE);
         @SuppressWarnings("null")
-        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        User target = userRepository.findByIdForUpdate(targetUserId).orElseThrow(UserNotFoundException::new);
         if (target.isDeleted()) {
             throw new UserNotFoundException();
         }
@@ -227,8 +233,6 @@ public class AdminService {
 
         target.setRole(request.role());
         userRepository.save(target);
-        tokenStorage.revokeAllSessions(target.getId().toString());
-        userAuthoritiesFilter.evict(target.getId());
         securityEventService.record(
                 SecurityEventType.ADMIN_ACTION,
                 SecurityEventOutcome.SUCCESS,
@@ -239,6 +243,8 @@ public class AdminService {
                 target.getEmail(),
                 "admin_role_updated",
                 Map.of("role", request.role().name()));
+        securityEffectService.invalidateSessions(target, null);
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(target.getId()));
         return toUserResponse(target);
     }
 
@@ -246,6 +252,7 @@ public class AdminService {
     public AdminUserResponse suspendUser(Jwt jwt, UUID targetUserId, AdminAccountStateRequest request) {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_user_suspend");
+        userRepository.lockActivePlatformAdministrators(Role.PLATFORM_ADMIN, AccountState.ACTIVE);
         @SuppressWarnings("null")
         User target = userRepository.findByIdForUpdate(targetUserId).orElseThrow(UserNotFoundException::new);
         if (target.isDeleted()) {
@@ -271,8 +278,8 @@ public class AdminService {
                 "account_suspended_by_platform_admin",
                 Map.of());
         oauthLifecycleRevocationService.revokeAll(target.getId(), suspendedAt);
-        tokenStorage.revokeAllSessions(target.getId().toString());
-        userAuthoritiesFilter.evict(target.getId());
+        securityEffectService.invalidateSessions(target, null);
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(target.getId()));
         return toUserResponse(target);
     }
 
@@ -294,7 +301,7 @@ public class AdminService {
                 target.getEmail(),
                 "account_reactivated_by_platform_admin",
                 Map.of());
-        userAuthoritiesFilter.evict(target.getId());
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(target.getId()));
         return toUserResponse(target);
     }
 
@@ -303,7 +310,17 @@ public class AdminService {
         User admin = requireAdminPlanePrincipal(jwt);
         requireAdminWriteStepUp(jwt, admin, request.currentPassword(), request.mfaCode(), "admin_deletion_cancel");
         @SuppressWarnings("null")
-        User target = userRepository.findById(targetUserId).orElseThrow(UserNotFoundException::new);
+        User target = userRepository.findByIdForUpdate(targetUserId).orElseThrow(UserNotFoundException::new);
+        if (target.getAccountState() != AccountState.DELETION_PENDING
+                || target.getDeletionRequestedAt() == null) {
+            throw new AccessDeniedException("Account deletion is not pending");
+        }
+        Instant now = Instant.now();
+        Instant cutoff = target.getDeletionRequestedAt().plusSeconds(
+                authProperties.getCompliance().getDeletionGracePeriodDays() * 86_400L);
+        if (!now.isBefore(cutoff)) {
+            throw new AccessDeniedException("Deletion grace period has expired");
+        }
         target.cancelDeletion();
         userRepository.save(target);
         securityEventService.record(
@@ -316,7 +333,7 @@ public class AdminService {
                 target.getEmail(),
                 "account_deletion_cancelled_by_platform_admin",
                 Map.of());
-        userAuthoritiesFilter.evict(target.getId());
+        AfterCommitActions.run(() -> userAuthoritiesFilter.evict(target.getId()));
         return toUserResponse(target);
     }
 
@@ -506,7 +523,7 @@ public class AdminService {
             }
             String scheme = parsed.getScheme();
             String host = parsed.getHost();
-            if (scheme == null || host == null) {
+            if (scheme == null || host == null || parsed.getFragment() != null || parsed.getUserInfo() != null) {
                 throw new InvalidOAuthRequestException();
             }
             boolean localhost = "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host);

@@ -32,14 +32,15 @@ public class ConsentEventService {
             return;
         }
 
-        Instant recordedAt = Instant.now();
+        Instant acceptedAt = auditDigestService.canonicalTimestamp(user.getConsentAcceptedAt());
+        Instant recordedAt = auditDigestService.canonicalTimestamp(Instant.now());
         String eventHash = auditDigestService.hmacHex(String.join("|",
                 user.getId().toString(),
                 user.getTenantId().toString(),
                 user.getTermsVersion(),
                 user.getPrivacyPolicyVersion(),
                 user.getLawfulBasis(),
-                user.getConsentAcceptedAt().toString(),
+                acceptedAt.toString(),
                 recordedAt.toString()));
 
         repository.save(new ConsentEvent(
@@ -48,7 +49,7 @@ public class ConsentEventService {
                 user.getTermsVersion(),
                 user.getPrivacyPolicyVersion(),
                 user.getLawfulBasis(),
-                user.getConsentAcceptedAt(),
+                acceptedAt,
                 recordedAt,
                 eventHash));
     }

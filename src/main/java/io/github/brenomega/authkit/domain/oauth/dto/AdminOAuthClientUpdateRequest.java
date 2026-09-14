@@ -5,13 +5,14 @@ import java.util.Set;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
 
 /** Carries an administrative OAuth client update and optional secret rotation. */
 public record AdminOAuthClientUpdateRequest(
         @NotBlank @Size(max = 120) String displayName,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 512) String> redirectUris,
         @NotEmpty @Size(max = 20) Set<@NotBlank @Size(max = 80) String> scopes,
-        boolean requirePkce,
+        @AssertTrue(message = "PKCE S256 is mandatory") boolean requirePkce,
         boolean rotateSecret,
         @Size(max = 128) String currentPassword,
         @Size(max = 32) String mfaCode

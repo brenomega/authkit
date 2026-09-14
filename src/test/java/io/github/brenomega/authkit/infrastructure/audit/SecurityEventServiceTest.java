@@ -83,6 +83,13 @@ class SecurityEventServiceTest {
         assertEquals("POST", event.getRequestMethod());
         assertEquals("/api/v1/auth/login", event.getRequestPath());
         assertNotNull(event.getEventHash());
+        assertEquals(0, event.getOccurredAt().getNano() % 1_000,
+                "hashed audit timestamp must round-trip through PostgreSQL TIMESTAMPTZ");
+        assertEquals(event.getEventHash(), auditDigestService.hmacHex(String.join("|",
+                event.getOccurredAt().toString(), event.getEventType().toString(), event.getOutcome().toString(),
+                event.getSeverity().toString(), "", "", "", event.getEmailHash(), event.getClientIpHash(),
+                event.getUserAgentHash(), event.getRequestMethod(), event.getRequestPath(), event.getReason(),
+                event.getMetadataJson())));
         assertEquals("[REDACTED]", objectMapper.readTree(event.getMetadataJson()).get("resetToken").asText());
         assertEquals("login", objectMapper.readTree(event.getMetadataJson()).get("policy").asText());
         assertEquals(1.0, meterRegistry.counter("security.login.failed").count());

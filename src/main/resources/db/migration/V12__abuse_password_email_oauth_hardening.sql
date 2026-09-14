@@ -1,4 +1,4 @@
--- Prompt 2: abuse, password history, email delivery state, and OAuth hardening.
+-- Abuse, password history, email delivery state, and OAuth hardening.
 
 CREATE TABLE password_history (
     id            UUID         NOT NULL,

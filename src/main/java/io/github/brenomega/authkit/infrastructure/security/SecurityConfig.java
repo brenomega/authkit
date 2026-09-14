@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -16,6 +17,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.session.DisableEncodeUrlFilter;
@@ -91,6 +93,7 @@ public class SecurityConfig {
     @SuppressWarnings("null")
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        DefaultBearerTokenResolver bearerTokenResolver = new DefaultBearerTokenResolver();
         http
 
             .csrf(AbstractHttpConfigurer::disable)
@@ -143,6 +146,8 @@ public class SecurityConfig {
 
             .oauth2ResourceServer(oauth2 -> oauth2
                 .jwt(jwt -> {})
+                .bearerTokenResolver(request -> "/oauth2/userinfo".equals(request.getRequestURI())
+                        ? null : bearerTokenResolver.resolve(request))
                 .authenticationEntryPoint(this::handleAuthenticationError)
                 .accessDeniedHandler(this::handleAccessDenied)
             )
@@ -156,6 +161,8 @@ public class SecurityConfig {
             .addFilterAfter(endpointAbuseRateLimitingFilter, RateLimitingFilter.class)
 
             .addFilterBefore(requestBodySizeLimitFilter, BearerTokenAuthenticationFilter.class)
+
+            .addFilterBefore(new TokenStateAvailabilityFilter(objectMapper), BearerTokenAuthenticationFilter.class)
 
             .addFilterAfter(workerAuthFilter, BearerTokenAuthenticationFilter.class)
 
@@ -214,6 +221,9 @@ public class SecurityConfig {
 
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        if (status == HttpStatus.UNAUTHORIZED) {
+            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"authkit\"");
+        }
 
         ApiResponse<Void> body = ApiResponse.error(
                 status == HttpStatus.UNAUTHORIZED ? "unauthorized" : "forbidden", message);
