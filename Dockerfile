@@ -10,7 +10,7 @@ FROM scratch AS build-context
 COPY . /context
 
 # --- Stage 1: Build ---
-FROM maven:3.9-eclipse-temurin-21-alpine@sha256:65353f527c86cb23187c8233475713e15067e8d36220d18863c379680698fe85 AS build
+FROM maven:3-eclipse-temurin-24-alpine@sha256:1e5a24dab38f3160d404439891ad4fd9b7e14b9e3c5bf65e3a953ba7d6ab4e8e AS build
 WORKDIR /app
 
 # Copy project definition first (layer caching for dependencies)
