@@ -42,7 +42,7 @@ COPY src src
 RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests -B
 
 # --- Stage 2: Runtime ---
-FROM eclipse-temurin:21-jre-alpine@sha256:974b08960c5d96694c780e65b2d5705268ab1e1ca1a0dd0caf4ba6c3fe34d699
+FROM eclipse-temurin:24-jre-alpine@sha256:4044b6c87cb088885bcd0220f7dc7a8a4aab76577605fa471945d2e98270741f
 WORKDIR /app
 
 # Create a non-root user for security
